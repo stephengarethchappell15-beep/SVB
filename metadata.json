@@ -1,0 +1,6 @@
+{
+  "name": "Silicon Valley Bank",
+  "description": "Silicon Valley Bank (SVB) - Modern, secure online banking platform for personal, tech startup, and business banking with virtual card management, money transfers, bill payments, statement downloads, and admin operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

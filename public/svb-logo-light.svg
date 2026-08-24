@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 140" width="680" height="140">
+  <g transform="translate(10, 10)">
+    <!-- 'svb' Lowercase Bold Wordmark in SVB Navy -->
+    <text x="5" y="88" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="900" font-size="96" fill="#002B49" letter-spacing="-3">svb</text>
+
+    <!-- Vibrant Blue Right Chevron Polygon '>' -->
+    <path d="M 185 18 L 230 55 L 185 92 L 168 78 L 198 55 L 168 32 Z" fill="#00A3E0"/>
+
+    <!-- 'Silicon Valley Bank' -->
+    <text x="245" y="62" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="700" font-size="42" fill="#002B49">Silicon Valley Bank</text>
+    
+    <!-- 'A Division of First Citizens Bank' -->
+    <text x="245" y="98" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="500" font-size="24" fill="#556b82">A Division of First Citizens Bank</text>
+  </g>
+</svg>
