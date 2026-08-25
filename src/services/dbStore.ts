@@ -3,6 +3,7 @@ import { deduplicateTransactions, getFinalizedStatuses, saveFinalizedStatus } fr
 
 const STORAGE_KEY = 'svb_core_ledger_v2';
 const TOKEN_KEY = 'svb_auth_token_v2';
+const ACTIVE_USER_KEY = 'svb_active_user_v2';
 
 
 interface DBStructure {
@@ -501,15 +502,28 @@ class LocalDBStore {
 
   // Token Management
   getStoredToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    try {
+      return localStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
   }
 
   setStoredToken(token: string): void {
-    localStorage.setItem(TOKEN_KEY, token);
+    try {
+      localStorage.setItem(TOKEN_KEY, token);
+    } catch (e) {
+      console.warn('Failed to set stored token:', e);
+    }
   }
 
   removeStoredToken(): void {
-    localStorage.removeItem(TOKEN_KEY);
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(ACTIVE_USER_KEY);
+    } catch (e) {
+      console.warn('Failed to remove stored token:', e);
+    }
   }
 
   // Auth & Users
@@ -521,14 +535,20 @@ class LocalDBStore {
   getUserById(id: string): User | null {
     if (!id) return null;
     this.refresh();
-    const clean = id.trim().toLowerCase();
-    const cleanNum = clean.replace(/[^0-9]/g, '');
+    const raw = id.trim();
+    const clean = raw.toLowerCase();
+    const stripped = clean.replace(/^(bearer\s+|token-)/i, '');
+    const cleanNum = stripped.replace(/[^0-9]/g, '');
 
     const found = this.db.users.find(u => 
-      u.id === id || 
+      u.id === raw || 
+      u.id === stripped ||
       u.id.toLowerCase() === clean || 
+      u.id.toLowerCase() === stripped ||
       u.email.toLowerCase() === clean ||
-      u.accountNumber === id ||
+      u.email.toLowerCase() === stripped ||
+      u.accountNumber === raw ||
+      u.accountNumber === stripped ||
       (cleanNum.length > 0 && u.accountNumber.replace(/[^0-9]/g, '') === cleanNum)
     ) || null;
 
@@ -555,7 +575,8 @@ class LocalDBStore {
     if (!identifier) return null;
     this.refresh();
     const raw = identifier.trim().toLowerCase();
-    const cleanNum = raw.replace(/[^0-9]/g, '');
+    const stripped = raw.replace(/^(bearer\s+|token-)/i, '');
+    const cleanNum = stripped.replace(/[^0-9]/g, '');
 
     const found = this.db.users.find(u => {
       if (!u) return false;
@@ -566,10 +587,13 @@ class LocalDBStore {
 
       return (
         uEmail === raw ||
+        uEmail === stripped ||
         uAcc.toLowerCase() === raw ||
+        uAcc.toLowerCase() === stripped ||
         (cleanNum.length > 0 && uAccClean === cleanNum) ||
         uId === raw ||
-        (raw.length >= 4 && uEmail.includes(raw)) ||
+        uId === stripped ||
+        (stripped.length >= 4 && uEmail.includes(stripped)) ||
         (cleanNum.length >= 6 && uAccClean.includes(cleanNum))
       );
     }) || null;
@@ -585,8 +609,33 @@ class LocalDBStore {
 
   getCurrentUser(): User | null {
     const token = this.getStoredToken();
-    if (!token) return null;
-    return this.getUserById(token) || this.getUserByEmail(token);
+    if (token) {
+      const user = this.getUserById(token) || this.getUserByEmail(token) || this.findUserByEmailOrAccount(token);
+      if (user) return user;
+    }
+
+    // Try reading cached active user from localStorage
+    try {
+      const cached = localStorage.getItem(ACTIVE_USER_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as User;
+        if (parsed && (parsed.id || parsed.email)) {
+          // Re-hydrate into db.users if not present
+          const existingIdx = this.db.users.findIndex(u => u.id === parsed.id || u.email.toLowerCase() === parsed.email.toLowerCase());
+          if (existingIdx >= 0) {
+            this.db.users[existingIdx] = { ...this.db.users[existingIdx], ...parsed };
+          } else {
+            this.db.users.push(parsed);
+            this.persist();
+          }
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Error parsing cached active user:', e);
+    }
+
+    return null;
   }
 
   saveUser(user: User): User {
@@ -602,6 +651,9 @@ class LocalDBStore {
     } else if (user.profilePicture === '') {
       try { localStorage.removeItem(`svb_avatar_${user.id}`); } catch (e) {}
     }
+    try {
+      localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
+    } catch (e) {}
     this.persist();
     return user;
   }

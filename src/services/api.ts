@@ -293,26 +293,30 @@ export const api = {
 
   async getMe(): Promise<{ user: User }> {
     // 1. Try Express backend API
-    const backendRes = await requestApi<{ user: User }>('/auth/me');
-    if (backendRes && backendRes.user) {
-      const u = backendRes.user;
-      const txns = dbStore.getTransactions(u.id);
-      const { availableBalance, ledgerBalance } = calculateUserBalance(u, txns);
-      if (availableBalance > 0 && (u.balance === 0 || !u.balance)) {
-        u.balance = availableBalance;
-        u.ledgerBalance = ledgerBalance;
+    try {
+      const backendRes = await requestApi<{ user: User }>('/auth/me');
+      if (backendRes && backendRes.user) {
+        const u = backendRes.user;
+        const txns = dbStore.getTransactions(u.id);
+        const { availableBalance, ledgerBalance } = calculateUserBalance(u, txns);
+        if (availableBalance > 0 && (u.balance === 0 || !u.balance)) {
+          u.balance = availableBalance;
+          u.ledgerBalance = ledgerBalance;
+        }
+        if (!u.profilePicture) {
+          try {
+            const cachedAvatar = localStorage.getItem(`svb_avatar_${u.id}`);
+            if (cachedAvatar) u.profilePicture = cachedAvatar;
+          } catch (e) {}
+        } else {
+          try { localStorage.setItem(`svb_avatar_${u.id}`, u.profilePicture); } catch (e) {}
+        }
+        dbStore.saveUser(u);
+        syncUserToFirestore(u);
+        return { user: u };
       }
-      if (!u.profilePicture) {
-        try {
-          const cachedAvatar = localStorage.getItem(`svb_avatar_${u.id}`);
-          if (cachedAvatar) u.profilePicture = cachedAvatar;
-        } catch (e) {}
-      } else {
-        try { localStorage.setItem(`svb_avatar_${u.id}`, u.profilePicture); } catch (e) {}
-      }
-      dbStore.saveUser(u);
-      syncUserToFirestore(u);
-      return { user: u };
+    } catch (backendErr) {
+      console.warn('Backend /auth/me fallback activated:', backendErr);
     }
 
     // 2. Local dbStore session restoration

@@ -76,41 +76,38 @@ export default function App() {
   const initSession = async () => {
     setLoading(true);
     try {
+      // Seed user immediately from dbStore to prevent landing page flashes
+      const localUser = dbStore.getCurrentUser();
+      if (localUser) {
+        setUser(localUser);
+        if (localUser.role === 'admin' && activeTab === 'home') {
+          setActiveTab('admin');
+        }
+      }
+
       const token = getStoredToken();
       if (token) {
         try {
           const res = await api.getMe();
-          setUser(res.user);
-          if (res.user.role === 'admin') {
-            setActiveTab(prev => prev === 'home' ? 'admin' : prev);
+          if (res?.user) {
+            setUser(res.user);
+            if (res.user.role === 'admin' && activeTab === 'home') {
+              setActiveTab('admin');
+            }
           }
         } catch (apiErr) {
-          console.warn('api.getMe error, checking local fallback:', apiErr);
-          const localUser = dbStore.getCurrentUser();
-          if (localUser) {
-            setUser(localUser);
-            if (localUser.role === 'admin') {
-              setActiveTab(prev => prev === 'home' ? 'admin' : prev);
-            }
-          } else {
-            removeStoredToken();
-            setUser(null);
+          console.warn('api.getMe error, preserving local session:', apiErr);
+          const fallbackUser = dbStore.getCurrentUser();
+          if (fallbackUser) {
+            setUser(fallbackUser);
           }
         }
-      } else {
-        setUser(null);
       }
     } catch (err) {
       console.warn('Session restoration error:', err);
-      const localUser = dbStore.getCurrentUser();
-      if (localUser) {
-        setUser(localUser);
-        if (localUser.role === 'admin') {
-          setActiveTab(prev => prev === 'home' ? 'admin' : prev);
-        }
-      } else {
-        removeStoredToken();
-        setUser(null);
+      const fallbackUser = dbStore.getCurrentUser();
+      if (fallbackUser) {
+        setUser(fallbackUser);
       }
     } finally {
       setLoading(false);
@@ -132,7 +129,9 @@ export default function App() {
   const refreshUser = async () => {
     try {
       const res = await api.getMe();
-      setUser(res.user);
+      if (res?.user) {
+        setUser(res.user);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -145,25 +144,25 @@ export default function App() {
     try {
       if (user.role === 'admin') {
         const txnsRes = await api.getAllTransactions();
-        setTransactions(txnsRes.transactions);
+        if (txnsRes?.transactions) setTransactions(txnsRes.transactions);
       } else {
         const txnsRes = await api.getTransactions();
-        setTransactions(txnsRes.transactions);
+        if (txnsRes?.transactions) setTransactions(txnsRes.transactions);
       }
 
       const notifsRes = await api.getNotifications();
-      setNotifications(notifsRes.notifications);
+      if (notifsRes?.notifications) setNotifications(notifsRes.notifications);
     } catch (err) {
-      console.error('Data fetch error:', err);
+      console.warn('Data fetch warning:', err);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 1000); // 1s fast-refresh fallback
+    const interval = setInterval(fetchData, 10000); // Stable 10s background sync
     
     // Instant cross-tab / same-tab realtime event bus listener
-    const unsubRealtimeBus = subscribeRealtimeUpdates((event) => {
+    const unsubRealtimeBus = subscribeRealtimeUpdates(() => {
       fetchData();
       refreshUser();
     });
@@ -176,7 +175,7 @@ export default function App() {
 
   // Real-time Firestore snapshot listeners (instantly sync balance & transactions across sessions without logging out)
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
 
     const unsubUser = subscribeUserFromFirestore(user.id, user.email, (updatedUser) => {
       setUser(prev => {
@@ -217,7 +216,7 @@ export default function App() {
       unsubUser();
       unsubTxns();
     };
-  }, [user?.id, user?.email, user?.role, transactions.length]);
+  }, [user?.id, user?.email, user?.role]);
 
   const navigateToTab = (newTab: NavTabType, pushHistory = true) => {
     if (newTab === activeTab) return;
@@ -264,10 +263,13 @@ export default function App() {
       }
       const validTabs: NavTabType[] = ['home', 'dashboard', 'cards', 'bills', 'deposit', 'withdraw', 'send', 'receive', 'history', 'profile', 'settings', 'support', 'admin'];
       if (validTabs.includes(targetTab)) {
-        setActiveTab(targetTab);
-        setNavHistory(prev => [...prev, targetTab]);
+        if (targetTab === 'home' && (user || dbStore.getStoredToken())) {
+          setActiveTab('dashboard');
+        } else {
+          setActiveTab(targetTab);
+        }
       } else {
-        setActiveTab(user ? 'dashboard' : 'home');
+        setActiveTab((user || dbStore.getStoredToken()) ? 'dashboard' : 'home');
       }
     };
 
@@ -440,7 +442,6 @@ export default function App() {
                     fetchData();
                   }}
                   onNavigateTab={navigateToTab}
-                  onBack={handleNavigateBack}
                 />
               )}
 
@@ -453,7 +454,6 @@ export default function App() {
                     fetchData();
                   }}
                   onNavigateTab={navigateToTab}
-                  onBack={handleNavigateBack}
                 />
               )}
 
@@ -466,7 +466,6 @@ export default function App() {
                   transactions={transactions}
                   onOpenReceipt={(txn) => setReceiptTxn(txn)}
                   isAdmin={user.role === 'admin'}
-                  onBack={handleNavigateBack}
                 />
               )}
 
@@ -492,7 +491,6 @@ export default function App() {
                 <AdminPanel
                   adminUser={user}
                   onDepositSuccess={handleDepositSuccess}
-                  onBack={handleNavigateBack}
                 />
               )}
 
