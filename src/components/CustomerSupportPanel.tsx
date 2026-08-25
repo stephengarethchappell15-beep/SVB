@@ -424,6 +424,10 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
 
   const handleDeleteMessage = async (msgId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (user.role !== 'admin') {
+      alert('Only administrators have permission to delete chat records.');
+      return;
+    }
     if (!selectedTicket || !msgId) return;
 
     if (!window.confirm('Are you sure you want to permanently delete this message from the chat thread and Firebase?')) {
@@ -465,6 +469,10 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   };
 
   const handleClearTestMessages = async () => {
+    if (user.role !== 'admin') {
+      alert('Only administrators have permission to clear chat records.');
+      return;
+    }
     if (!selectedTicket) return;
     const testMsgs = (selectedTicket.messages || []).filter(m => {
       const txt = extractMessageText(m).toLowerCase();
@@ -941,17 +949,19 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                           )}
                           <span>• {new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
-                          {/* Delete Message Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteMessage(messageIdentifier, e)}
-                            disabled={isDeleting}
-                            className="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded-md transition-all ml-1 cursor-pointer flex items-center gap-0.5 opacity-60 group-hover:opacity-100"
-                            title="Permanently delete message from Firebase"
-                          >
-                            <Trash2 className={`w-3 h-3 ${isDeleting ? 'animate-spin text-rose-400' : ''}`} />
-                            <span className="text-[9px] hidden sm:inline">{isDeleting ? 'Deleting...' : 'Delete'}</span>
-                          </button>
+                          {/* Delete Message Button (Admin Only) */}
+                          {user.role === 'admin' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteMessage(messageIdentifier, e)}
+                              disabled={isDeleting}
+                              className="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded-md transition-all ml-1 cursor-pointer flex items-center gap-0.5 opacity-60 group-hover:opacity-100"
+                              title="Permanently delete message from Firebase"
+                            >
+                              <Trash2 className={`w-3 h-3 ${isDeleting ? 'animate-spin text-rose-400' : ''}`} />
+                              <span className="text-[9px] hidden sm:inline">{isDeleting ? 'Deleting...' : 'Delete'}</span>
+                            </button>
+                          )}
                         </div>
 
                         <div className={`p-3.5 rounded-2xl text-xs space-y-2 ${

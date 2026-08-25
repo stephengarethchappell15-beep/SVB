@@ -1937,6 +1937,9 @@ export const api = {
   async deleteSupportMessage(ticketId: string, messageId: string): Promise<{ success: boolean; ticket: SupportTicket | null }> {
     const current = dbStore.getCurrentUser();
     if (!current) throw new Error('Not authenticated');
+    if (current.role !== 'admin') {
+      throw new Error('Unauthorized: Only administrators have permission to delete support chat messages.');
+    }
 
     // Remove from local dbStore
     let updatedTicket = dbStore.deleteSupportMessage(ticketId, messageId);

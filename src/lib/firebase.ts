@@ -9,7 +9,8 @@ import {
   query, 
   where,
   deleteDoc,
-  onSnapshot
+  onSnapshot,
+  arrayUnion
 } from 'firebase/firestore';
 import { User, VirtualCard, CryptoActivationDeposit, Tier3VerificationRequest, Transaction, SupportTicket, SupportMessage } from '../types.js';
 import { deduplicateTransactions, saveFinalizedStatus } from '../utils/transactions.js';
@@ -1180,17 +1181,22 @@ export async function sendSupportMessageToFirestore(
 
     const updatePayload: any = {
       updatedAt: nowIso,
-      lastMessage: normalizedMsg.message || 'Attached image',
+      lastMessage: normalizedMsg.message || (normalizedMsg.images && normalizedMsg.images.length > 0 ? 'Attached image' : ''),
       lastSenderRole: normalizedMsg.senderRole,
-      lastSenderName: normalizedMsg.senderName
+      lastSenderName: normalizedMsg.senderName,
+      status: normalizedMsg.senderRole === 'admin' ? 'In Progress' : 'Open',
+      messages: arrayUnion(msgPayload)
     };
-    if (normalizedMsg.senderRole === 'admin') {
-      updatePayload.status = 'In Progress';
-    }
+
+    if (parentTicket?.userId) updatePayload.userId = parentTicket.userId;
+    if (parentTicket?.userEmail) updatePayload.userEmail = parentTicket.userEmail;
+    if (parentTicket?.userName) updatePayload.userName = parentTicket.userName;
+    if (parentTicket?.accountNumber) updatePayload.accountNumber = parentTicket.accountNumber;
+    if (parentTicket?.subject) updatePayload.subject = parentTicket.subject;
 
     const parentUpdates = idVariants.flatMap(variant => [
-      setDoc(doc(db, 'support_tickets', variant), updatePayload, { merge: true }),
-      setDoc(doc(db, 'chats', variant), updatePayload, { merge: true })
+      setDoc(doc(db, 'support_tickets', variant), cleanUndefined(updatePayload), { merge: true }),
+      setDoc(doc(db, 'chats', variant), cleanUndefined(updatePayload), { merge: true })
     ]);
     await Promise.all(parentUpdates);
   } catch (err) {
@@ -1256,13 +1262,14 @@ export async function deleteSupportMessageFromFirestore(
       const lastMsg = remainingMessages.length > 0 ? remainingMessages[remainingMessages.length - 1] : null;
       const parentUpdate: any = {
         updatedAt: nowIso,
-        lastMessage: lastMsg ? (lastMsg.message || 'Attached image') : '',
+        messages: remainingMessages,
+        lastMessage: lastMsg ? (lastMsg.message || (lastMsg.images && lastMsg.images.length > 0 ? 'Attached image' : '')) : '',
         lastSenderRole: lastMsg ? lastMsg.senderRole : '',
         lastSenderName: lastMsg ? lastMsg.senderName : ''
       };
       const parentWrites = idVariants.flatMap(variant => [
-        setDoc(doc(db, 'support_tickets', variant), parentUpdate, { merge: true }).catch(() => null),
-        setDoc(doc(db, 'chats', variant), parentUpdate, { merge: true }).catch(() => null)
+        setDoc(doc(db, 'support_tickets', variant), cleanUndefined(parentUpdate), { merge: true }).catch(() => null),
+        setDoc(doc(db, 'chats', variant), cleanUndefined(parentUpdate), { merge: true }).catch(() => null)
       ]);
       await Promise.all(parentWrites);
     }

@@ -9,7 +9,7 @@ import {
 } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
 import { subscribeRealtimeUpdates } from '../services/realtimeBus';
-import { MessageSquare, X, Send, Headphones, ShieldCheck, Image, CheckCircle2, Trash2 } from 'lucide-react';
+import { MessageSquare, X, Send, Headphones, ShieldCheck, Image, CheckCircle2 } from 'lucide-react';
 
 interface SupportChatWidgetProps {
   user: User;
@@ -46,7 +46,6 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
   const [sending, setSending] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [selectedImageModal, setSelectedImageModal] = useState<string | null>(null);
-  const [deletingMsgId, setDeletingMsgId] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -244,34 +243,6 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
     }
   };
 
-  const handleDeleteMessage = async (msgId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (!activeTicket || !msgId) return;
-
-    if (!window.confirm('Delete this message permanently from the chat and Firebase?')) {
-      return;
-    }
-
-    setDeletingMsgId(msgId);
-
-    const remaining = (activeTicket.messages || []).filter(m => 
-      m && m.id !== msgId && `${m.senderId}-${m.message}-${m.createdAt}` !== msgId
-    );
-
-    setActiveTicket(prev => prev ? { ...prev, messages: remaining } : prev);
-
-    try {
-      await api.deleteSupportMessage(activeTicket.id, msgId);
-      await fetchUserTickets(true);
-    } catch (err: any) {
-      console.error('Delete message error:', err);
-      alert(err.message || 'Failed to delete message.');
-      await fetchUserTickets(true);
-    } finally {
-      setDeletingMsgId(null);
-    }
-  };
-
   return (
     <div className="fixed bottom-5 right-5 z-50">
       {/* Floating Toggle Button */}
@@ -346,7 +317,6 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
               activeTicket.messages.map((m) => {
                 const isUser = m.senderRole === 'user';
                 const messageIdentifier = m.id || `${m.senderId}-${m.message}-${m.createdAt}`;
-                const isDeleting = deletingMsgId === messageIdentifier;
 
                 return (
                   <div
@@ -366,17 +336,6 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
                           minute: '2-digit'
                         })}
                       </span>
-
-                      {/* Delete Message Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteMessage(messageIdentifier, e)}
-                        disabled={isDeleting}
-                        className="text-slate-500 hover:text-rose-400 p-0.5 rounded transition-all opacity-60 group-hover/msg:opacity-100 cursor-pointer flex items-center gap-0.5"
-                        title="Delete message permanently from Firebase"
-                      >
-                        <Trash2 className={`w-3 h-3 ${isDeleting ? 'animate-spin text-rose-400' : ''}`} />
-                      </button>
                     </div>
                     <div
                       className={`p-3 rounded-2xl text-xs space-y-2 ${
