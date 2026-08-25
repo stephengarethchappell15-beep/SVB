@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, EmailConfig, EmailDeliveryLog } from '../types.js';
 import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, syncCryptoDepositToFirestore, syncEmailConfigToFirestore, getEmailConfigFromFirestore, getEmailLogsFromFirestore } from '../lib/firebase.js';
 import { emailService } from './emailService.js';
@@ -23,13 +24,36 @@ interface DatabaseSchema {
   };
 }
 
-const DATA_DIR = path.join(process.cwd(), '.data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
+// Safely determine writable data directory across local dev, Cloud Run, and Vercel Serverless
+function resolveDataDir(): { dataDir: string; dbFile: string } {
+  const tryPaths = [
+    path.join(process.cwd(), '.data'),
+    path.join(os.tmpdir(), 'svb-data'),
+    os.tmpdir()
+  ];
 
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  for (const dir of tryPaths) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      // Test write permission
+      const testFile = path.join(dir, '.write-test');
+      fs.writeFileSync(testFile, 'ok', 'utf-8');
+      if (fs.existsSync(testFile)) {
+        fs.unlinkSync(testFile);
+      }
+      return { dataDir: dir, dbFile: path.join(dir, 'db.json') };
+    } catch {
+      // Continue to next fallback path
+    }
+  }
+
+  const fallbackDir = os.tmpdir();
+  return { dataDir: fallbackDir, dbFile: path.join(fallbackDir, 'db.json') };
 }
+
+const { dataDir: DATA_DIR, dbFile: DB_FILE } = resolveDataDir();
 
 // Initial Seed Data - Silicon Valley Bank Accounts
 const defaultAdmin: User = {

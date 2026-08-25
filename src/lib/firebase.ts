@@ -71,6 +71,21 @@ function cleanUndefined<T>(obj: T): T {
   return clean as T;
 }
 
+// Helper to prevent hanging in serverless or constrained networks
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 2500, fallback: T): Promise<T> {
+  let timeoutId: any;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timeoutId);
+      return res;
+    }),
+    timeoutPromise
+  ]);
+}
+
 /**
  * Save or update user persistently in Firestore
  */
@@ -85,18 +100,20 @@ export async function syncUserToFirestore(user: User, password?: string): Promis
       ...(password ? { password } : {})
     });
 
+    const ops: Promise<any>[] = [];
     if (user.id) {
-      await setDoc(doc(db, 'users', user.id), payload, { merge: true });
+      ops.push(setDoc(doc(db, 'users', user.id), payload, { merge: true }));
     }
-    await setDoc(doc(db, 'users_by_email', cleanEmail), payload, { merge: true });
+    ops.push(setDoc(doc(db, 'users_by_email', cleanEmail), payload, { merge: true }));
 
     if (user.accountNumber) {
       const cleanAcc = user.accountNumber.replace(/[^0-9]/g, '');
-      await setDoc(doc(db, 'users_by_account', user.accountNumber), payload, { merge: true });
+      ops.push(setDoc(doc(db, 'users_by_account', user.accountNumber), payload, { merge: true }));
       if (cleanAcc) {
-        await setDoc(doc(db, 'users_by_account', cleanAcc), payload, { merge: true });
+        ops.push(setDoc(doc(db, 'users_by_account', cleanAcc), payload, { merge: true }));
       }
     }
+    await withTimeout(Promise.all(ops), 3000, null);
   } catch (err) {
     console.warn('Firestore user sync warning:', err);
   }
@@ -110,58 +127,61 @@ export async function getUserFromFirestore(identifier: string): Promise<User | n
   const raw = identifier.trim().toLowerCase();
   const cleanNum = raw.replace(/[^0-9]/g, '');
 
-  try {
-    const byIdSnap = await getDoc(doc(db, 'users', identifier));
-    if (byIdSnap.exists()) return byIdSnap.data() as User;
+  const fetchInternal = async (): Promise<User | null> => {
+    try {
+      const byIdSnap = await getDoc(doc(db, 'users', identifier));
+      if (byIdSnap.exists()) return byIdSnap.data() as User;
 
-    const byEmailSnap = await getDoc(doc(db, 'users_by_email', raw));
-    if (byEmailSnap.exists()) return byEmailSnap.data() as User;
+      const byEmailSnap = await getDoc(doc(db, 'users_by_email', raw));
+      if (byEmailSnap.exists()) return byEmailSnap.data() as User;
 
-    const byAccSnap = await getDoc(doc(db, 'users_by_account', identifier));
-    if (byAccSnap.exists()) return byAccSnap.data() as User;
+      const byAccSnap = await getDoc(doc(db, 'users_by_account', identifier));
+      if (byAccSnap.exists()) return byAccSnap.data() as User;
 
-    if (cleanNum) {
-      const byCleanAccSnap = await getDoc(doc(db, 'users_by_account', cleanNum));
-      if (byCleanAccSnap.exists()) return byCleanAccSnap.data() as User;
+      if (cleanNum) {
+        const byCleanAccSnap = await getDoc(doc(db, 'users_by_account', cleanNum));
+        if (byCleanAccSnap.exists()) return byCleanAccSnap.data() as User;
+      }
+
+      const usersRef = collection(db, 'users');
+      const qEmail = query(usersRef, where('email', '==', raw));
+      const snapEmail = await getDocs(qEmail);
+      if (!snapEmail.empty) return snapEmail.docs[0].data() as User;
+
+      const qAcc = query(usersRef, where('accountNumber', '==', identifier));
+      const snapAcc = await getDocs(qAcc);
+      if (!snapAcc.empty) return snapAcc.docs[0].data() as User;
+
+      if (cleanNum) {
+        const qCleanAcc = query(usersRef, where('accountNumber', '==', cleanNum));
+        const snapCleanAcc = await getDocs(qCleanAcc);
+        if (!snapCleanAcc.empty) return snapCleanAcc.docs[0].data() as User;
+      }
+
+      const allUsers = await getAllUsersFromFirestore();
+      const matched = allUsers.find(u => {
+        if (!u) return false;
+        const emailClean = (u.email || '').trim().toLowerCase();
+        const accRaw = (u.accountNumber || '').trim().toLowerCase();
+        const accClean = accRaw.replace(/[^0-9]/g, '');
+        const uid = (u.id || '').trim().toLowerCase();
+
+        return (
+          emailClean === raw ||
+          accRaw === raw ||
+          (cleanNum.length > 0 && accClean === cleanNum) ||
+          uid === raw
+        );
+      });
+
+      if (matched) return matched;
+    } catch (err) {
+      console.warn('Firestore user fetch error:', err);
     }
+    return null;
+  };
 
-    const usersRef = collection(db, 'users');
-    const qEmail = query(usersRef, where('email', '==', raw));
-    const snapEmail = await getDocs(qEmail);
-    if (!snapEmail.empty) return snapEmail.docs[0].data() as User;
-
-    const qAcc = query(usersRef, where('accountNumber', '==', identifier));
-    const snapAcc = await getDocs(qAcc);
-    if (!snapAcc.empty) return snapAcc.docs[0].data() as User;
-
-    if (cleanNum) {
-      const qCleanAcc = query(usersRef, where('accountNumber', '==', cleanNum));
-      const snapCleanAcc = await getDocs(qCleanAcc);
-      if (!snapCleanAcc.empty) return snapCleanAcc.docs[0].data() as User;
-    }
-
-    const allUsers = await getAllUsersFromFirestore();
-    const matched = allUsers.find(u => {
-      if (!u) return false;
-      const emailClean = (u.email || '').trim().toLowerCase();
-      const accRaw = (u.accountNumber || '').trim().toLowerCase();
-      const accClean = accRaw.replace(/[^0-9]/g, '');
-      const uid = (u.id || '').trim().toLowerCase();
-
-      return (
-        emailClean === raw ||
-        accRaw === raw ||
-        (cleanNum.length > 0 && accClean === cleanNum) ||
-        uid === raw
-      );
-    });
-
-    if (matched) return matched;
-  } catch (err) {
-    console.warn('Firestore user fetch error:', err);
-  }
-
-  return null;
+  return withTimeout(fetchInternal(), 2500, null);
 }
 
 /**
