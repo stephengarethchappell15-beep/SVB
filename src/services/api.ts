@@ -118,21 +118,21 @@ export const api = {
 
       if (backendRes && backendRes.user) {
         finalUser = backendRes.user;
-        tokenStr = backendRes.token.replace(/^token-/, '');
+        tokenStr = backendRes.token ? backendRes.token.replace(/^token-/, '') : backendRes.user.id;
       }
     } catch (err: any) {
-      if (err && err.message) {
-        // If backend returned duplicate error or bad request, re-throw directly
+      if (err?.message && (err.message.includes('already linked') || err.message.includes('required') || err.message.includes('valid email'))) {
+        // If backend returned a clear user validation/conflict message, re-throw it
         throw err;
       }
       console.warn('Backend register call fallback:', err);
     }
 
-    // 2. Local fallback if server unreachable
+    // 2. Client-side & Firestore fallback if server was unreachable or in static preview
     if (!finalUser) {
       const isAdmin = emailClean.includes('admin') || emailClean === 'admin@svb.com' || emailClean === 'siliconvalleybank51@gmail.com';
       const accountNumber = `10${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-      const uid = `usr-${Date.now()}`;
+      const uid = `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
       finalUser = {
         id: uid,
@@ -151,7 +151,20 @@ export const api = {
         accountPin: data.accountPin || '1234',
         fourDigitCode: isAdmin ? '8842' : '',
         transferCodeApproved: isAdmin ? true : false,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        accounts: [
+          {
+            id: `acc-${uid}-1`,
+            userId: uid,
+            accountType: 'Personal Checking',
+            accountNumber: accountNumber,
+            routingNumber: '121000358',
+            balance: 0.00,
+            currency: 'USD',
+            isPrimary: true,
+            createdAt: new Date().toISOString()
+          }
+        ]
       };
       tokenStr = uid;
 
@@ -174,7 +187,11 @@ export const api = {
     dbStore.setStoredToken(tokenStr || finalUser.id);
 
     // Sync user asynchronously to Firebase Firestore SDK so accounts NEVER vanish
-    await syncUserToFirestore(finalUser, data.password || 'password123');
+    try {
+      await syncUserToFirestore(finalUser, data.password || 'password123');
+    } catch (fsErr) {
+      console.warn('Firestore sync warning during user registration:', fsErr);
+    }
 
     return { user: finalUser, token: tokenStr || finalUser.id };
   },

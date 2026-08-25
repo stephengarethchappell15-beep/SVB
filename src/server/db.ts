@@ -981,7 +981,7 @@ class DatabaseManager {
   }
 
   public createUser(userData: { fullName: string; email: string; phone: string; password: string; accountPin?: string }): { user: User; token: string } {
-    const emailClean = userData.email.trim().toLowerCase();
+    const emailClean = (userData.email || '').trim().toLowerCase();
     const existing = this.findUserByExactEmail(emailClean);
     if (existing) {
       throw new Error('This email address is already linked to an existing account. Please log in or use a different email.');
@@ -992,7 +992,7 @@ class DatabaseManager {
 
     const newUser: User = {
       id: userId,
-      fullName: userData.fullName.trim(),
+      fullName: (userData.fullName || '').trim(),
       email: emailClean,
       phone: (userData.phone && userData.phone.trim()) || '+1 (555) 019-2834',
       accountNumber,
@@ -1010,11 +1010,26 @@ class DatabaseManager {
       smsNotifications: false,
       fourDigitCode: '',
       transferCodeApproved: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      accounts: [
+        {
+          id: `acc-${userId}-1`,
+          userId: userId,
+          accountType: 'Personal Checking',
+          accountNumber: accountNumber,
+          routingNumber: '121000358',
+          balance: 0.00,
+          currency: 'USD',
+          isPrimary: true,
+          createdAt: new Date().toISOString()
+        }
+      ]
     };
 
+    if (!Array.isArray(this.db.users)) this.db.users = [];
     this.db.users.push(newUser);
-    this.db.passwords[userId] = userData.password;
+    if (!this.db.passwords) this.db.passwords = {};
+    this.db.passwords[userId] = userData.password || 'password123';
 
     // Auto-generate primary virtual card for new user
     const defaultCard: VirtualCard = {
@@ -1032,7 +1047,7 @@ class DatabaseManager {
       status: 'Active',
       createdAt: new Date().toISOString()
     };
-    if (!this.db.virtualCards) this.db.virtualCards = [];
+    if (!Array.isArray(this.db.virtualCards)) this.db.virtualCards = [];
     this.db.virtualCards.unshift(defaultCard);
 
     // Initial Welcome Deposit Notification
@@ -1047,19 +1062,23 @@ class DatabaseManager {
       read: false,
       createdAt: new Date().toISOString()
     };
-    if (!this.db.notifications) this.db.notifications = [];
+    if (!Array.isArray(this.db.notifications)) this.db.notifications = [];
     this.db.notifications.unshift(initialNotification);
 
-    // Log audit action
-    this.addAuditLog({
-      adminId: 'system',
-      adminEmail: 'system@auth',
-      action: 'USER_REGISTERED',
-      targetEmail: newUser.email,
-      targetAccountNumber: newUser.accountNumber,
-      description: `New user registration: ${newUser.fullName} (${newUser.email}) assigned account ${newUser.accountNumber}`,
-      details: { phone: newUser.phone, accountNumber: newUser.accountNumber }
-    });
+    // Log audit action safely
+    try {
+      this.addAuditLog({
+        adminId: 'system',
+        adminEmail: 'system@auth',
+        action: 'USER_REGISTERED',
+        targetEmail: newUser.email,
+        targetAccountNumber: newUser.accountNumber,
+        description: `New user registration: ${newUser.fullName} (${newUser.email}) assigned account ${newUser.accountNumber}`,
+        details: { phone: newUser.phone, accountNumber: newUser.accountNumber }
+      });
+    } catch (auditErr) {
+      console.warn('Audit log write warning in createUser:', auditErr);
+    }
 
     this.saveDB(this.db);
 
@@ -1083,10 +1102,25 @@ class DatabaseManager {
   }
 
   public async createUserAsync(userData: { fullName: string; email: string; phone: string; password: string; accountPin?: string }): Promise<{ user: User; token: string }> {
-    const emailClean = userData.email.trim().toLowerCase();
-    const existing = await this.findUserByEmailOrAccountAsync(emailClean);
-    if (existing) {
+    const emailClean = (userData.email || '').trim().toLowerCase();
+    
+    // 1. Check in-memory DB
+    const existingMemory = this.findUserByExactEmail(emailClean);
+    if (existingMemory) {
       throw new Error('This email address is already linked to an existing account. Please log in or use a different email.');
+    }
+
+    // 2. Check Firestore for exact match
+    try {
+      const fsUser = await getUserFromFirestore(emailClean);
+      if (fsUser && fsUser.email && fsUser.email.trim().toLowerCase() === emailClean) {
+        throw new Error('This email address is already linked to an existing account. Please log in or use a different email.');
+      }
+    } catch (fsErr: any) {
+      if (fsErr?.message?.includes('already linked')) {
+        throw fsErr;
+      }
+      console.warn('Firestore duplicate lookup warning in createUserAsync:', fsErr);
     }
 
     const res = this.createUser(userData);
@@ -2060,10 +2094,13 @@ class DatabaseManager {
 
   // Audit Logs
   public getAuditLogs(): AuditLog[] {
-    return this.db.auditLogs;
+    return Array.isArray(this.db.auditLogs) ? this.db.auditLogs : [];
   }
 
   public addAuditLog(entry: Omit<AuditLog, 'id' | 'timestamp'>): AuditLog {
+    if (!Array.isArray(this.db.auditLogs)) {
+      this.db.auditLogs = [];
+    }
     const newLog: AuditLog = {
       id: `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       ...entry,

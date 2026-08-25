@@ -117,16 +117,22 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
       return res.status(400).json({ error: 'Full name and email address are required.' });
     }
 
+    const cleanEmail = String(email).trim().toLowerCase();
+    if (!cleanEmail.includes('@')) {
+      return res.status(400).json({ error: 'Please provide a valid email address.' });
+    }
+
     const result = await dbManager.createUserAsync({
-      fullName,
-      email,
-      phone: phone || '',
-      password: password || 'password123',
-      accountPin
+      fullName: String(fullName).trim(),
+      email: cleanEmail,
+      phone: phone ? String(phone).trim() : '+1 (555) 019-2834',
+      password: password ? String(password) : 'password123',
+      accountPin: accountPin ? String(accountPin).trim() : '1234'
     });
-    res.status(201).json(result);
+    return res.status(201).json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Registration failed.' });
+    console.error('Registration processing error in handleRegister:', err);
+    return res.status(400).json({ error: err.message || 'Registration failed. Please try again.' });
   }
 };
 app.post('/api/auth/register', handleRegister);
