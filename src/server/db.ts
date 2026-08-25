@@ -1754,7 +1754,37 @@ class DatabaseManager {
 
   // Transactions
   public getUserTransactions(userId: string): Transaction[] {
-    return this.db.transactions.filter(t => t.userId === userId);
+    if (!userId) return [];
+    const user = this.findUserById(userId) || this.findUserByEmail(userId) || this.findUserByAccountNumber(userId) || this.findUserByEmailOrAccount(userId);
+    const cleanId = userId.trim();
+    const cleanIdNum = cleanId.replace(/[^0-9]/g, '');
+    const uEmail = (user?.email || '').toLowerCase().trim();
+    const uAcc = (user?.accountNumber || '').trim();
+    const uAccClean = uAcc.replace(/[^0-9]/g, '');
+
+    return this.db.transactions.filter(t => {
+      if (!t) return false;
+      const tUserId = (t.userId || '').trim();
+      const tEmail = (t.userEmail || '').toLowerCase().trim();
+      const tAcc = (t.accountNumber || '').trim();
+      const tAccClean = tAcc.replace(/[^0-9]/g, '');
+      const tRecAcc = (t.recipientAccountNumber || '').trim();
+      const tRecAccClean = tRecAcc.replace(/[^0-9]/g, '');
+      const tRecEmail = (t.recipientEmail || '').toLowerCase().trim();
+
+      return (
+        tUserId === cleanId ||
+        (user && tUserId === user.id) ||
+        (uEmail && tEmail === uEmail) ||
+        (uEmail && tRecEmail === uEmail) ||
+        (uAcc && tAcc === uAcc) ||
+        (uAccClean.length > 3 && tAccClean === uAccClean) ||
+        (uAcc && tRecAcc === uAcc) ||
+        (uAccClean.length > 3 && tRecAccClean === uAccClean) ||
+        (cleanIdNum.length > 3 && (tAccClean === cleanIdNum || tRecAccClean === cleanIdNum)) ||
+        (cleanId.includes('@') && (tEmail === cleanId.toLowerCase() || tRecEmail === cleanId.toLowerCase()))
+      );
+    });
   }
 
   public getAllTransactions(): Transaction[] {

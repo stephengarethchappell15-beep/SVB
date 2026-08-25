@@ -68,6 +68,21 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     document.body.removeChild(link);
   };
 
+  const isCreditTxn = (txn: Transaction) => {
+    const type = (txn.type || '').toLowerCase();
+    const desc = (txn.description || '').toLowerCase();
+    return (
+      type.includes('credit') ||
+      type.includes('deposit') ||
+      type.includes('received') ||
+      desc.includes('credit') ||
+      desc.includes('deposit') ||
+      desc.includes('incoming') ||
+      desc.includes('received') ||
+      desc.includes('activation')
+    );
+  };
+
   return (
     <div className="space-y-6 w-full max-w-full">
       
@@ -178,9 +193,9 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                       </span>
                     </td>
                     <td className={`py-3.5 px-3 font-bold text-sm whitespace-nowrap ${
-                      txn.type === 'Deposit' || txn.type === 'Credit' ? 'text-emerald-400' : 'text-slate-200'
+                      isCreditTxn(txn) ? 'text-emerald-400' : 'text-slate-200'
                     }`}>
-                      {txn.type === 'Deposit' || txn.type === 'Credit' ? '+' : '-'}${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
+                      {isCreditTxn(txn) ? '+' : '-'}${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
                     </td>
                     <td className="py-3.5 px-3 whitespace-nowrap">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${

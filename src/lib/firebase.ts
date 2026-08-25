@@ -499,20 +499,48 @@ export async function updateTransactionInFirestore(
 /**
  * Get Transactions for user from Firestore
  */
-export async function getTransactionsFromFirestore(userId?: string): Promise<Transaction[]> {
+export async function getTransactionsFromFirestore(userOrId?: string | User | null): Promise<Transaction[]> {
   try {
-    let q;
-    if (userId) {
-      q = query(collection(db, 'transactions'), where('userId', '==', userId));
-    } else {
-      q = collection(db, 'transactions');
-    }
-    const snap = await getDocs(q);
+    const snap = await getDocs(collection(db, 'transactions'));
     const list: Transaction[] = [];
     snap.forEach((d) => {
       if (d.exists()) list.push(d.data() as Transaction);
     });
-    return deduplicateTransactions(list);
+    const deduped = deduplicateTransactions(list);
+
+    if (!userOrId) return deduped;
+
+    let uId = '';
+    let uEmail = '';
+    let uAcc = '';
+
+    if (typeof userOrId === 'string') {
+      const clean = userOrId.trim().toLowerCase();
+      if (clean.includes('@')) uEmail = clean;
+      else if (clean.replace(/[^0-9]/g, '').length >= 6) uAcc = clean.replace(/[^0-9]/g, '');
+      else uId = userOrId.trim();
+    } else if (userOrId && typeof userOrId === 'object') {
+      uId = (userOrId.id || '').trim();
+      uEmail = (userOrId.email || '').trim().toLowerCase();
+      uAcc = (userOrId.accountNumber || '').trim().replace(/[^0-9]/g, '');
+    }
+
+    return deduped.filter(t => {
+      if (!t) return false;
+      const tUserId = (t.userId || '').trim();
+      const tEmail = (t.userEmail || '').toLowerCase().trim();
+      const tAcc = (t.accountNumber || '').replace(/[^0-9]/g, '');
+      const tRecAcc = (t.recipientAccountNumber || '').replace(/[^0-9]/g, '');
+      const tRecEmail = (t.recipientEmail || '').toLowerCase().trim();
+
+      return (
+        (uId && tUserId === uId) ||
+        (uEmail && tEmail === uEmail) ||
+        (uEmail && tRecEmail === uEmail) ||
+        (uAcc && tAcc === uAcc) ||
+        (uAcc && tRecAcc === uAcc)
+      );
+    });
   } catch (err) {
     console.warn('Firestore getTransactions error:', err);
     return [];
@@ -558,21 +586,53 @@ export function subscribeUserFromFirestore(userId: string | undefined, email: st
 /**
  * Subscribe to real-time Transactions snapshot updates from Firestore
  */
-export function subscribeTransactionsFromFirestore(userId: string | null | undefined, callback: (txns: Transaction[]) => void): () => void {
+export function subscribeTransactionsFromFirestore(userOrId: string | User | null | undefined, callback: (txns: Transaction[]) => void): () => void {
   try {
-    let q;
-    if (userId) {
-      q = query(collection(db, 'transactions'), where('userId', '==', userId));
-    } else {
-      q = collection(db, 'transactions');
-    }
-
-    const unsub = onSnapshot(q, (snap) => {
+    const unsub = onSnapshot(collection(db, 'transactions'), (snap) => {
       const list: Transaction[] = [];
       snap.forEach((d) => {
         if (d.exists()) list.push(d.data() as Transaction);
       });
-      callback(deduplicateTransactions(list));
+      const deduped = deduplicateTransactions(list);
+
+      if (!userOrId) {
+        callback(deduped);
+        return;
+      }
+
+      let uId = '';
+      let uEmail = '';
+      let uAcc = '';
+
+      if (typeof userOrId === 'string') {
+        const clean = userOrId.trim().toLowerCase();
+        if (clean.includes('@')) uEmail = clean;
+        else if (clean.replace(/[^0-9]/g, '').length >= 6) uAcc = clean.replace(/[^0-9]/g, '');
+        else uId = userOrId.trim();
+      } else if (userOrId && typeof userOrId === 'object') {
+        uId = (userOrId.id || '').trim();
+        uEmail = (userOrId.email || '').trim().toLowerCase();
+        uAcc = (userOrId.accountNumber || '').trim().replace(/[^0-9]/g, '');
+      }
+
+      const filtered = deduped.filter(t => {
+        if (!t) return false;
+        const tUserId = (t.userId || '').trim();
+        const tEmail = (t.userEmail || '').toLowerCase().trim();
+        const tAcc = (t.accountNumber || '').replace(/[^0-9]/g, '');
+        const tRecAcc = (t.recipientAccountNumber || '').replace(/[^0-9]/g, '');
+        const tRecEmail = (t.recipientEmail || '').toLowerCase().trim();
+
+        return (
+          (uId && tUserId === uId) ||
+          (uEmail && tEmail === uEmail) ||
+          (uEmail && tRecEmail === uEmail) ||
+          (uAcc && tAcc === uAcc) ||
+          (uAcc && tRecAcc === uAcc)
+        );
+      });
+
+      callback(filtered);
     }, (err) => console.warn('Transactions snapshot error:', err));
 
     return unsub;

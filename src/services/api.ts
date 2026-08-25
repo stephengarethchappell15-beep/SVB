@@ -1307,16 +1307,30 @@ export const api = {
   },
 
   async getTransactions(): Promise<{ transactions: Transaction[] }> {
-    const backendRes = await requestApi<{ transactions: Transaction[] }>('/user/transactions');
-    if (backendRes && Array.isArray(backendRes.transactions)) {
-      backendRes.transactions.forEach(t => dbStore.addTransaction(t));
-      return { transactions: deduplicateTransactions(backendRes.transactions) };
+    const current = dbStore.getCurrentUser();
+    let backendTxns: Transaction[] = [];
+    try {
+      const backendRes = await requestApi<{ transactions: Transaction[] }>('/user/transactions');
+      if (backendRes && Array.isArray(backendRes.transactions)) {
+        backendTxns = backendRes.transactions;
+      }
+    } catch (e) {
+      console.warn('Backend /user/transactions fallback:', e);
     }
 
-    const current = dbStore.getCurrentUser();
-    if (!current) return { transactions: [] };
-    const txns = dbStore.getTransactions(current.id);
-    return { transactions: deduplicateTransactions(txns) };
+    const localTxns = current ? dbStore.getTransactions(current.id) : dbStore.getTransactions();
+    let fsTxns: Transaction[] = [];
+    if (current) {
+      try {
+        fsTxns = await getTransactionsFromFirestore(current);
+      } catch (fsErr) {
+        console.warn('Firestore getTransactions error:', fsErr);
+      }
+    }
+
+    const combined = deduplicateTransactions([...localTxns, ...backendTxns, ...fsTxns]);
+    combined.forEach(t => dbStore.addTransaction(t));
+    return { transactions: combined };
   },
 
   async getAllTransactions(): Promise<{ transactions: Transaction[] }> {

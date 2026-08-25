@@ -180,12 +180,13 @@ export default function App() {
     const unsubUser = subscribeUserFromFirestore(user.id, user.email, (updatedUser) => {
       setUser(prev => {
         if (!prev) return updatedUser;
-        const { availableBalance, ledgerBalance } = calculateUserBalance(updatedUser, transactions);
+        const currentTxns = dbStore.getTransactions(updatedUser.id);
+        const { availableBalance, ledgerBalance } = calculateUserBalance(updatedUser, currentTxns);
         const merged = { 
           ...prev, 
           ...updatedUser,
-          balance: availableBalance > 0 ? availableBalance : (updatedUser.balance || prev.balance),
-          ledgerBalance: ledgerBalance > 0 ? ledgerBalance : (updatedUser.ledgerBalance || prev.ledgerBalance)
+          balance: Math.max(prev.balance || 0, updatedUser.balance || 0, availableBalance),
+          ledgerBalance: Math.max(prev.ledgerBalance || 0, updatedUser.ledgerBalance || 0, ledgerBalance)
         };
         dbStore.saveUser(merged);
         return merged;
@@ -193,21 +194,23 @@ export default function App() {
     });
 
     const unsubTxns = subscribeTransactionsFromFirestore(
-      user.role === 'admin' ? null : user.id,
+      user.role === 'admin' ? null : user,
       (fsTxns) => {
-        setTransactions(fsTxns);
         fsTxns.forEach(t => dbStore.addTransaction(t));
+        const mergedTxns = dbStore.getTransactions(user.role === 'admin' ? undefined : user.id);
+        setTransactions(mergedTxns);
         
         // Reconcile user balance whenever new transactions are received
         setUser(prevUser => {
           if (!prevUser) return prevUser;
-          const { availableBalance, ledgerBalance } = calculateUserBalance(prevUser, fsTxns);
-          if (prevUser.balance !== availableBalance || prevUser.ledgerBalance !== ledgerBalance) {
-            const reconciled = { ...prevUser, balance: availableBalance, ledgerBalance: ledgerBalance };
-            dbStore.saveUser(reconciled);
-            return reconciled;
-          }
-          return prevUser;
+          const { availableBalance, ledgerBalance } = calculateUserBalance(prevUser, mergedTxns);
+          const reconciled = { 
+            ...prevUser, 
+            balance: Math.max(prevUser.balance || 0, availableBalance), 
+            ledgerBalance: Math.max(prevUser.ledgerBalance || 0, ledgerBalance) 
+          };
+          dbStore.saveUser(reconciled);
+          return reconciled;
         });
       }
     );
