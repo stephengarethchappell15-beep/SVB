@@ -33,6 +33,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   const [subTab, setSubTab] = useState<'pending' | 'users' | 'funding' | 'crypto' | 'withdraw' | 'audit' | 'support' | 'verifications' | 'email'>('pending');
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [userSearchFilter, setUserSearchFilter] = useState<'all' | 'account' | 'email'>('all');
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUserForDeposit, setSelectedUserForDeposit] = useState<User | null>(null);
 
@@ -201,6 +202,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     }
   };
 
+  // Instant reactive client-side & server-backed filtering for users
+  const filteredUsers = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return users;
+    const cleanDigits = q.replace(/[^0-9]/g, '');
+
+    return users.filter(u => {
+      if (!u) return false;
+      const email = (u.email || '').toLowerCase().trim();
+      const acc = (u.accountNumber || '').trim().toLowerCase();
+      const accClean = acc.replace(/[^0-9]/g, '');
+      const name = (u.fullName || '').toLowerCase().trim();
+      const phone = (u.phone || '').replace(/[^0-9]/g, '');
+      const id = (u.id || '').toLowerCase().trim();
+
+      if (userSearchFilter === 'account') {
+        return acc.includes(q) || (cleanDigits.length > 0 && accClean.includes(cleanDigits));
+      }
+      if (userSearchFilter === 'email') {
+        return email.includes(q);
+      }
+      return (
+        acc.includes(q) ||
+        (cleanDigits.length > 0 && accClean.includes(cleanDigits)) ||
+        email.includes(q) ||
+        name.includes(q) ||
+        (cleanDigits.length > 0 && phone.includes(cleanDigits)) ||
+        id.includes(q)
+      );
+    });
+  }, [users, searchQuery, userSearchFilter]);
+
   const fetchCryptoDeposits = async () => {
     try {
       setLoadingCrypto(true);
@@ -237,8 +270,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     }
   };
 
+  // Debounce search query to backend search
   useEffect(() => {
-    fetchUsers(searchQuery);
+    const timer = setTimeout(() => {
+      fetchUsers(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    fetchUsers('');
     fetchSysTxns();
     fetchCryptoDeposits();
     fetchVerifications();
@@ -351,7 +392,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       unsubSupport();
       unsubRealtime();
     };
-  }, [searchQuery]);
+  }, []);
 
   useEffect(() => {
     if (subTab === 'pending' || subTab === 'withdraw') fetchSysTxns();
@@ -1401,26 +1442,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       {/* Sub-Tab 1: User Directory & Search */}
       {subTab === 'users' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Users className="w-5 h-5 text-amber-400" />
-                Registered User Directory & Accounts
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Search clients by email, 10-digit account number, or name.</p>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-400" />
+                  Registered User Directory & Accounts
+                </h3>
+                <span className="bg-slate-800 text-slate-300 text-xs px-2.5 py-0.5 rounded-full font-mono font-semibold">
+                  {users.length} Total Clients
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Instantly search and locate client profiles by 10-digit account number or email address.
+              </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-64">
+            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+              <div className="relative flex-1 sm:w-80">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search email, account #..."
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 outline-none"
+                  placeholder="Search by account #, email, name..."
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-slate-500 outline-none transition-colors"
                 />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-white transition-colors"
+                    title="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
+
               <button
                 onClick={() => {
                   setCreateUserError(null);
@@ -1432,6 +1490,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                 <UserPlus className="w-4 h-4" />
                 <span>Create Account</span>
               </button>
+            </div>
+          </div>
+
+          {/* Quick Search Mode Filter Chips & Results Count */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 mr-1">
+                <Filter className="w-3.5 h-3.5 text-slate-400" /> Filter by:
+              </span>
+              <button
+                onClick={() => setUserSearchFilter('all')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  userSearchFilter === 'all'
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                All Attributes
+              </button>
+              <button
+                onClick={() => setUserSearchFilter('account')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  userSearchFilter === 'account'
+                    ? 'bg-emerald-500 text-slate-950 font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <span>Account Number (#)</span>
+              </button>
+              <button
+                onClick={() => setUserSearchFilter('email')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  userSearchFilter === 'email'
+                    ? 'bg-cyan-500 text-slate-950 font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <span>Email Address (@)</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-400">
+                Showing <strong className="text-white font-mono">{filteredUsers.length}</strong> of <strong className="text-white font-mono">{users.length}</strong> clients
+              </span>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-amber-400 hover:underline text-[11px] font-semibold ml-2"
+                >
+                  Reset Filter
+                </button>
+              )}
             </div>
           </div>
 
@@ -1450,111 +1561,143 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <tbody className="divide-y divide-slate-800/60 text-slate-200">
                 {loadingUsers ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500">
-                      Loading users...
+                    <td colSpan={6} className="text-center py-10 text-slate-500">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <RefreshCw className="w-5 h-5 animate-spin text-amber-400" />
+                        <span>Searching registered clients...</span>
+                      </div>
                     </td>
                   </tr>
-                ) : users.length === 0 ? (
+                ) : filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500">
-                      No matching user accounts found.
+                    <td colSpan={6} className="text-center py-12 text-slate-400">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <Search className="w-8 h-8 text-slate-600" />
+                        <p className="font-semibold text-slate-300">
+                          {searchQuery ? `No user accounts found matching "${searchQuery}"` : 'No registered users found.'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {searchQuery ? 'Try typing a 10-digit account number (e.g. 1084920148) or email address.' : 'Newly registered accounts will automatically display here.'}
+                        </p>
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery('')}
+                            className="mt-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-1.5 rounded-xl text-xs font-semibold"
+                          >
+                            Clear Search Query
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  users.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-950/50 transition-colors">
-                      <td className="py-3 px-3 font-medium">
-                        <div className="font-semibold text-white">{u.fullName}</div>
-                        <div className="text-[11px] text-slate-400">{u.email}</div>
-                      </td>
+                  filteredUsers.map((u) => {
+                    const isNewAccount = u.createdAt && (Date.now() - new Date(u.createdAt).getTime() < 24 * 60 * 60 * 1000);
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-950/50 transition-colors">
+                        <td className="py-3.5 px-3 font-medium">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white">{u.fullName}</span>
+                            {isNewAccount && (
+                              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded">
+                                New
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-slate-500" />
+                            <span>{u.email}</span>
+                          </div>
+                        </td>
 
-                      <td className="py-3 px-3 font-mono text-emerald-400 font-semibold">
-                        {u.accountNumber}
-                      </td>
+                        <td className="py-3.5 px-3 font-mono text-emerald-400 font-bold text-xs">
+                          {u.accountNumber}
+                        </td>
 
-                      <td className="py-3 px-3 font-mono font-bold text-white">
-                        ${u.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </td>
+                        <td className="py-3.5 px-3 font-mono font-bold text-white">
+                          ${u.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
 
-                      <td className="py-3 px-3 font-mono">
-                        {u.transferCodeApproved && u.fourDigitCode ? (
-                          <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-bold px-2 py-0.5 rounded">
-                            {u.fourDigitCode}
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 italic text-[11px]">Not Issued ($200 Req)</span>
-                        )}
-                      </td>
+                        <td className="py-3.5 px-3 font-mono">
+                          {u.transferCodeApproved && u.fourDigitCode ? (
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-bold px-2 py-0.5 rounded">
+                              {u.fourDigitCode}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px]">Not Issued ($200 Req)</span>
+                          )}
+                        </td>
 
-                      <td className="py-3 px-3">
-                        {u.role === 'admin' ? (
-                          <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
-                            SVB Review
-                          </span>
-                        ) : (
-                          <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
-                            User
-                          </span>
-                        )}
-                      </td>
+                        <td className="py-3.5 px-3">
+                          {u.role === 'admin' ? (
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                              SVB Review
+                            </span>
+                          ) : (
+                            <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                              User
+                            </span>
+                          )}
+                        </td>
 
-                      <td className="py-3 px-3 text-right space-x-2">
-                        <button
-                          onClick={() => {
-                            setSelectedUserForDeposit(u);
-                            setSubTab('funding');
-                          }}
-                          className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                        >
-                          <DollarSign className="w-3 h-3" /> Deposit
-                        </button>
+                        <td className="py-3.5 px-3 text-right space-x-2 whitespace-nowrap">
+                          <button
+                            onClick={() => {
+                              setSelectedUserForDeposit(u);
+                              setSubTab('funding');
+                            }}
+                            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                          >
+                            <DollarSign className="w-3 h-3" /> Deposit
+                          </button>
 
-                        <button
-                          onClick={() => {
-                            setWithdrawTarget(u.accountNumber);
-                            setSubTab('withdraw');
-                          }}
-                          className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                        >
-                          <ArrowDownRight className="w-3 h-3" /> Withdraw
-                        </button>
+                          <button
+                            onClick={() => {
+                              setWithdrawTarget(u.accountNumber);
+                              setSubTab('withdraw');
+                            }}
+                            className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                          >
+                            <ArrowDownRight className="w-3 h-3" /> Withdraw
+                          </button>
 
-                        <button
-                          onClick={() => handleRegenerateCode(u.id, u.fullName)}
-                          className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                          title="Regenerate 4-Digit Security Code"
-                        >
-                          <Key className="w-3 h-3" /> Code
-                        </button>
+                          <button
+                            onClick={() => handleRegenerateCode(u.id, u.fullName)}
+                            className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                            title="Regenerate 4-Digit Security Code"
+                          >
+                            <Key className="w-3 h-3" /> Code
+                          </button>
 
-                        <button
-                          onClick={() => handleRevokeCode(u.id, u.fullName)}
-                          className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                          title="Cancel and Revoke 4-Digit Security Code"
-                        >
-                          <XCircle className="w-3 h-3" /> Revoke
-                        </button>
+                          <button
+                            onClick={() => handleRevokeCode(u.id, u.fullName)}
+                            className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                            title="Cancel and Revoke 4-Digit Security Code"
+                          >
+                            <XCircle className="w-3 h-3" /> Revoke
+                          </button>
 
-                        <button
-                          onClick={() => {
-                            setSupportSearchEmail(u.email);
-                            setSubTab('support');
-                          }}
-                          className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                          title="Search & Message User Support Tickets"
-                        >
-                          <Headphones className="w-3 h-3" /> Support
-                        </button>
+                          <button
+                            onClick={() => {
+                              setSupportSearchEmail(u.email);
+                              setSubTab('support');
+                            }}
+                            className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                            title="Search & Message User Support Tickets"
+                          >
+                            <Headphones className="w-3 h-3" /> Support
+                          </button>
 
-                        <button
-                          onClick={() => handleToggleRole(u.id, u.role)}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors"
-                        >
-                          Toggle Role
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                          <button
+                            onClick={() => handleToggleRole(u.id, u.role)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors"
+                          >
+                            Toggle Role
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
