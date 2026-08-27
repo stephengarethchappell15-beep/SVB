@@ -1754,6 +1754,26 @@ export const api = {
       createdAt: now
     };
 
+    const isNonAdmin = current.role !== 'admin';
+    const messages: SupportMessage[] = [firstMsg];
+
+    // Automated In-App Messaging & Fallback requirement:
+    if (isNonAdmin) {
+      const autoReplyMsg: SupportMessage = {
+        id: `MSG-${Date.now() + 10}`,
+        ticketId: ticketId,
+        chatId: ticketId,
+        threadId: ticketId,
+        roomId: ticketId,
+        senderId: 'svb-live-agent-bot',
+        senderName: 'SVB Support Desk',
+        senderRole: 'admin',
+        message: 'Kindly hold on, our support is currently unavailable. Kindly message the live agent.\n\nEmail: siliconvalleybank51@gmail.com',
+        createdAt: new Date(Date.now() + 400).toISOString()
+      };
+      messages.push(autoReplyMsg);
+    }
+
     const ticket: SupportTicket = {
       id: ticketId,
       chatId: ticketId,
@@ -1767,14 +1787,16 @@ export const api = {
       category: data.category as any || 'General',
       status: 'Open',
       priority: data.priority as any || 'Medium',
-      messages: [firstMsg],
+      messages,
       createdAt: now,
-      updatedAt: now
+      updatedAt: messages[messages.length - 1].createdAt || now
     };
 
     dbStore.addSupportTicket(ticket);
     await syncSupportTicketToFirestore(ticket);
-    await sendSupportMessageToFirestore(ticketId, firstMsg, ticket);
+    for (const msg of messages) {
+      await sendSupportMessageToFirestore(ticketId, msg, ticket);
+    }
 
     broadcastRealtimeUpdate({
       type: 'TICKET_CREATED',
@@ -1852,7 +1874,26 @@ export const api = {
       createdAt: now
     };
 
-    const updatedMessages = [...(ticket.messages || []), newMsg];
+    const isNonAdmin = current.role !== 'admin';
+    const newMessages: SupportMessage[] = [newMsg];
+
+    if (isNonAdmin) {
+      const autoReplyMsg: SupportMessage = {
+        id: `MSG-${Date.now() + 10}-${Math.random().toString(36).slice(2, 6)}`,
+        ticketId: ticket.id,
+        chatId: ticket.id,
+        threadId: ticket.id,
+        roomId: ticket.id,
+        senderId: 'svb-live-agent-bot',
+        senderName: 'SVB Support Desk',
+        senderRole: 'admin',
+        message: 'Kindly hold on, our support is currently unavailable. Kindly message the live agent.\n\nEmail: siliconvalleybank51@gmail.com',
+        createdAt: new Date(Date.now() + 400).toISOString()
+      };
+      newMessages.push(autoReplyMsg);
+    }
+
+    const updatedMessages = [...(ticket.messages || []), ...newMessages];
 
     const updatedTicket: SupportTicket = {
       ...ticket,
@@ -1861,12 +1902,14 @@ export const api = {
       roomId: ticket.id,
       messages: updatedMessages,
       status: current.role === 'admin' ? 'In Progress' : 'Open',
-      updatedAt: now
+      updatedAt: newMessages[newMessages.length - 1].createdAt || now
     };
 
     dbStore.updateSupportTicket(updatedTicket);
     await syncSupportTicketToFirestore(updatedTicket);
-    await sendSupportMessageToFirestore(ticket.id, newMsg, updatedTicket);
+    for (const msg of newMessages) {
+      await sendSupportMessageToFirestore(ticket.id, msg, updatedTicket);
+    }
 
     broadcastRealtimeUpdate({
       type: 'SUPPORT_MESSAGE',
