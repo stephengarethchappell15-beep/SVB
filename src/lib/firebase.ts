@@ -56,10 +56,21 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.databaseId);
 
+// Helper to check if object is a special Firestore type that should not be stripped
+function isSpecialObject(val: any): boolean {
+  if (!val || typeof val !== 'object') return false;
+  if ('_delegate' in val || '_methodName' in val) return true;
+  const name = val.constructor?.name;
+  if (name && (name.includes('FieldValue') || name.includes('Timestamp') || name === 'Date')) return true;
+  if (typeof val.isEqual === 'function' && typeof val.toMillis === 'function') return true;
+  return false;
+}
+
 // Helper to remove undefined fields recursively to prevent Firestore write crashes
 function cleanUndefined<T>(obj: T): T {
   if (obj === undefined) return null as unknown as T;
   if (obj === null || typeof obj !== 'object') return obj;
+  if (isSpecialObject(obj)) return obj;
   if (Array.isArray(obj)) {
     return obj.map(cleanUndefined) as unknown as T;
   }
@@ -1144,6 +1155,20 @@ export async function syncSupportTicketToFirestore(ticket: SupportTicket): Promi
 }
 
 /**
+ * Bulk sync default/local support tickets to Firestore
+ */
+export async function syncAllDefaultTicketsToFirestore(tickets: SupportTicket[]): Promise<void> {
+  if (!tickets || tickets.length === 0) return;
+  for (const t of tickets) {
+    try {
+      await syncSupportTicketToFirestore(t);
+    } catch (e) {
+      console.warn('Failed to sync default ticket to Firestore:', e);
+    }
+  }
+}
+
+/**
  * Send an individual message directly to Firestore with real-time atomic propagation
  */
 export async function sendSupportMessageToFirestore(
@@ -1179,13 +1204,22 @@ export async function sendSupportMessageToFirestore(
       setDoc(doc(db, 'messages', msgId), msgPayload, { merge: true })
     ]);
 
+    const existingMsgs = Array.isArray(parentTicket?.messages) ? parentTicket.messages : [];
+    const allMsgs = [...existingMsgs.filter(m => m && m.id !== msgId), normalizedMsg].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
     const updatePayload: any = {
+      id: canonicalId,
+      chatId: canonicalId,
+      threadId: canonicalId,
+      roomId: canonicalId,
       updatedAt: nowIso,
       lastMessage: normalizedMsg.message || (normalizedMsg.images && normalizedMsg.images.length > 0 ? 'Attached image' : ''),
       lastSenderRole: normalizedMsg.senderRole,
       lastSenderName: normalizedMsg.senderName,
       status: normalizedMsg.senderRole === 'admin' ? 'In Progress' : 'Open',
-      messages: arrayUnion(msgPayload)
+      messages: allMsgs.map(cleanUndefined)
     };
 
     if (parentTicket?.userId) updatePayload.userId = parentTicket.userId;
@@ -1193,6 +1227,8 @@ export async function sendSupportMessageToFirestore(
     if (parentTicket?.userName) updatePayload.userName = parentTicket.userName;
     if (parentTicket?.accountNumber) updatePayload.accountNumber = parentTicket.accountNumber;
     if (parentTicket?.subject) updatePayload.subject = parentTicket.subject;
+    if (parentTicket?.category) updatePayload.category = parentTicket.category;
+    if (parentTicket?.priority) updatePayload.priority = parentTicket.priority;
 
     const parentUpdates = idVariants.flatMap(variant => [
       setDoc(doc(db, 'support_tickets', variant), cleanUndefined(updatePayload), { merge: true }),
@@ -1514,6 +1550,43 @@ export function subscribeAllSupportTicketsFromFirestore(callback: (tickets: Supp
     }
   };
 
+  const processMessageDoc = (d: any) => {
+    if (d && d.exists()) {
+      const raw = d.data();
+      const normMsg = normalizeSupportMessage(raw, raw);
+      const ticketId = raw.ticketId || raw.chatId || raw.threadId || raw.roomId || d.id;
+      if (!ticketId) return;
+      const canonical = getCanonicalTicketId(ticketId);
+      const existing = ticketMap.get(canonical);
+      if (existing) {
+        const merged = mergeSupportTickets(existing, {
+          ...existing,
+          id: canonical,
+          messages: [normMsg],
+          updatedAt: normMsg.createdAt || existing.updatedAt
+        });
+        ticketMap.set(canonical, merged);
+      } else {
+        const synthTicket = normalizeSupportTicket({
+          id: canonical,
+          chatId: canonical,
+          userId: raw.userId || (normMsg.senderRole !== 'admin' ? normMsg.senderId : ''),
+          userEmail: raw.userEmail || (normMsg.senderRole !== 'admin' && normMsg.senderId?.includes('@') ? normMsg.senderId : ''),
+          userName: raw.userName || (normMsg.senderRole !== 'admin' ? normMsg.senderName : 'Client'),
+          accountNumber: raw.accountNumber,
+          subject: raw.subject || 'Customer Support Consultation',
+          category: raw.category || 'General',
+          status: raw.status || 'Open',
+          priority: raw.priority || 'Medium',
+          messages: [normMsg],
+          createdAt: normMsg.createdAt || new Date().toISOString(),
+          updatedAt: normMsg.createdAt || new Date().toISOString()
+        }, canonical);
+        ticketMap.set(canonical, synthTicket);
+      }
+    }
+  };
+
   try {
     const uTickets = onSnapshot(collection(db, 'support_tickets'), (snap) => {
       snap.forEach(processTicketDoc);
@@ -1526,6 +1599,18 @@ export function subscribeAllSupportTicketsFromFirestore(callback: (tickets: Supp
       emit();
     }, (err) => console.warn('All chats snapshot error:', err));
     unsubs.push(uChats);
+
+    const uSupportMsgs = onSnapshot(collection(db, 'support_messages'), (snap) => {
+      snap.forEach(processMessageDoc);
+      emit();
+    }, (err) => console.warn('All support_messages snapshot error:', err));
+    unsubs.push(uSupportMsgs);
+
+    const uMsgs = onSnapshot(collection(db, 'messages'), (snap) => {
+      snap.forEach(processMessageDoc);
+      emit();
+    }, (err) => console.warn('All messages snapshot error:', err));
+    unsubs.push(uMsgs);
 
     return () => {
       unsubs.forEach(u => u());
@@ -1556,14 +1641,55 @@ export async function getAllSupportTicketsFromFirestore(): Promise<SupportTicket
     }
   };
 
+  const processMessageDoc = (d: any) => {
+    if (d && d.exists()) {
+      const raw = d.data();
+      const normMsg = normalizeSupportMessage(raw, raw);
+      const ticketId = raw.ticketId || raw.chatId || raw.threadId || raw.roomId || d.id;
+      if (!ticketId) return;
+      const canonical = getCanonicalTicketId(ticketId);
+      const existing = ticketMap.get(canonical);
+      if (existing) {
+        const merged = mergeSupportTickets(existing, {
+          ...existing,
+          id: canonical,
+          messages: [normMsg],
+          updatedAt: normMsg.createdAt || existing.updatedAt
+        });
+        ticketMap.set(canonical, merged);
+      } else {
+        const synthTicket = normalizeSupportTicket({
+          id: canonical,
+          chatId: canonical,
+          userId: raw.userId || (normMsg.senderRole !== 'admin' ? normMsg.senderId : ''),
+          userEmail: raw.userEmail || (normMsg.senderRole !== 'admin' && normMsg.senderId?.includes('@') ? normMsg.senderId : ''),
+          userName: raw.userName || (normMsg.senderRole !== 'admin' ? normMsg.senderName : 'Client'),
+          accountNumber: raw.accountNumber,
+          subject: raw.subject || 'Customer Support Consultation',
+          category: raw.category || 'General',
+          status: raw.status || 'Open',
+          priority: raw.priority || 'Medium',
+          messages: [normMsg],
+          createdAt: normMsg.createdAt || new Date().toISOString(),
+          updatedAt: normMsg.createdAt || new Date().toISOString()
+        }, canonical);
+        ticketMap.set(canonical, synthTicket);
+      }
+    }
+  };
+
   try {
-    const [ticketsSnap, chatsSnap] = await Promise.all([
+    const [ticketsSnap, chatsSnap, supportMsgsSnap, msgsSnap] = await Promise.all([
       getDocs(collection(db, 'support_tickets')).catch(() => null),
-      getDocs(collection(db, 'chats')).catch(() => null)
+      getDocs(collection(db, 'chats')).catch(() => null),
+      getDocs(collection(db, 'support_messages')).catch(() => null),
+      getDocs(collection(db, 'messages')).catch(() => null)
     ]);
 
     if (ticketsSnap) ticketsSnap.forEach(processTicketDoc);
     if (chatsSnap) chatsSnap.forEach(processTicketDoc);
+    if (supportMsgsSnap) supportMsgsSnap.forEach(processMessageDoc);
+    if (msgsSnap) msgsSnap.forEach(processMessageDoc);
   } catch (err) {
     console.warn('getAllSupportTicketsFromFirestore error:', err);
   }

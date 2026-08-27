@@ -1,4 +1,4 @@
-import { User, Transaction, UserNotification, SupportTicket, VirtualCard, BillPayment, CryptoActivationDeposit, Tier3VerificationRequest, AuditLog, EmailConfig, EmailDeliveryLog } from '../types';
+import { User, Transaction, UserNotification, SupportTicket, SupportMessage, VirtualCard, BillPayment, CryptoActivationDeposit, Tier3VerificationRequest, AuditLog, EmailConfig, EmailDeliveryLog } from '../types';
 import { deduplicateTransactions, getFinalizedStatuses, saveFinalizedStatus } from '../utils/transactions';
 
 const STORAGE_KEY = 'svb_core_ledger_v2';
@@ -128,6 +128,25 @@ const DEFAULT_USERS: User[] = [
     ledgerBalance: 0.00,
     currency: 'USD',
     address: 'Global Energy Solution HQ',
+    country: 'United States',
+    verificationTier: 'Tier 1',
+    status: 'Active',
+    accountPin: '1234',
+    fourDigitCode: '8842',
+    transferCodeApproved: true,
+    createdAt: new Date('2024-03-01').toISOString()
+  },
+  {
+    id: 'usr-diego-daniel-ifuu1',
+    fullName: 'Diego Daniel',
+    email: 'ifuu1@gmail.com',
+    phone: '+1 (555) 018-4921',
+    accountNumber: '1098421089',
+    role: 'user',
+    balance: 0.00,
+    ledgerBalance: 0.00,
+    currency: 'USD',
+    address: 'Silicon Valley, CA',
     country: 'United States',
     verificationTier: 'Tier 1',
     status: 'Active',
@@ -322,6 +341,67 @@ const DEFAULT_TRANSACTIONS: Transaction[] = [
   }
 ];
 
+const DEFAULT_SUPPORT_TICKETS: SupportTicket[] = [
+  {
+    id: 'TICKET-1740646100000',
+    chatId: 'TICKET-1740646100000',
+    threadId: 'TICKET-1740646100000',
+    roomId: 'TICKET-1740646100000',
+    userId: 'usr-diego-daniel-ifuu1',
+    userEmail: 'ifuu1@gmail.com',
+    userName: 'Diego Daniel',
+    accountNumber: '1098421089',
+    subject: 'How can I withdraw my money',
+    category: 'Withdrawal',
+    status: 'Open',
+    priority: 'High',
+    messages: [
+      {
+        id: 'MSG-ifuu1-1',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hello',
+        createdAt: '2026-08-27T14:47:00.000Z'
+      },
+      {
+        id: 'MSG-ifuu1-2',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hello silicon support',
+        createdAt: '2026-08-27T14:48:00.000Z'
+      },
+      {
+        id: 'MSG-ifuu1-3',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'How can I withdraw my money',
+        createdAt: '2026-08-27T14:49:00.000Z'
+      },
+      {
+        id: 'MSG-ifuu1-4',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hey',
+        createdAt: '2026-08-27T15:14:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-27T14:47:00.000Z',
+    updatedAt: '2026-08-27T15:14:00.000Z'
+  }
+];
+
 const EXTRA_USERS_KEY = 'svb_registered_users_v2';
 
 function getInitialDB(): DBStructure {
@@ -397,7 +477,36 @@ function getInitialDB(): DBStructure {
         parsed.transactions = Array.from(txnMap.values());
 
         parsed.notifications = parsed.notifications || [];
-        parsed.supportTickets = parsed.supportTickets || [];
+        
+        // Ensure default support tickets (including ifuu1@gmail.com) are merged
+        const ticketMap = new Map<string, SupportTicket>();
+        for (const defTicket of DEFAULT_SUPPORT_TICKETS) {
+          if (defTicket && defTicket.id) ticketMap.set(defTicket.id, defTicket);
+        }
+        if (Array.isArray(parsed.supportTickets)) {
+          for (const t of parsed.supportTickets) {
+            if (t && t.id) {
+              const existing = ticketMap.get(t.id);
+              if (existing) {
+                // Merge messages
+                const msgMap = new Map<string, SupportMessage>();
+                (existing.messages || []).forEach(m => msgMap.set(m.id, m));
+                (t.messages || []).forEach(m => msgMap.set(m.id, m));
+                ticketMap.set(t.id, {
+                  ...existing,
+                  ...t,
+                  messages: Array.from(msgMap.values()).sort(
+                    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                  )
+                });
+              } else {
+                ticketMap.set(t.id, t);
+              }
+            }
+          }
+        }
+        parsed.supportTickets = Array.from(ticketMap.values());
+
         parsed.virtualCards = parsed.virtualCards || [];
         parsed.billPayments = parsed.billPayments || [];
         parsed.cryptoDeposits = parsed.cryptoDeposits || [];
@@ -442,7 +551,7 @@ function getInitialDB(): DBStructure {
         createdAt: new Date().toISOString()
       }
     ],
-    supportTickets: [],
+    supportTickets: DEFAULT_SUPPORT_TICKETS,
     virtualCards: [
       {
         id: 'CARD-1',

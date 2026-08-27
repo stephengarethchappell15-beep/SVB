@@ -62,7 +62,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState(initialUserEmail || '');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'In Progress' | 'Resolved'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'In Progress' | 'Resolved' | 'Closed'>('All');
   const [mobileView, setMobileView] = useState<'list' | 'chat'>(initialTicketId || initialUserEmail ? 'chat' : 'list');
 
   // Keep ref in sync
@@ -559,7 +559,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       (details.accountNumber && details.accountNumber.toLowerCase().includes(query)) ||
       (t.messages && t.messages.some(m => extractMessageText(m).toLowerCase().includes(query)));
     return matchesStatus && matchesSearch;
-  });
+  }).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
 
   const handleStartMessageWithUser = async (targetUser: User) => {
     // Check if user already has an existing ticket
@@ -737,7 +737,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
 
             {/* Status Filter Tabs */}
             <div className="flex items-center gap-1 overflow-x-auto text-[11px] pt-1">
-              {(['All', 'Open', 'In Progress', 'Resolved'] as const).map((st) => (
+              {(['All', 'Open', 'In Progress', 'Resolved', 'Closed'] as const).map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}

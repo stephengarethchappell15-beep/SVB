@@ -240,6 +240,24 @@ const defaultUserDominic: User = {
   createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
 };
 
+const defaultUserDiegoIfuu1: User = {
+  id: 'usr-diego-daniel-ifuu1',
+  fullName: 'Diego Daniel',
+  email: 'ifuu1@gmail.com',
+  phone: '+1 (555) 018-4921',
+  accountNumber: '1098421089',
+  role: 'user',
+  balance: 0.00,
+  currency: 'USD',
+  address: 'Silicon Valley, CA',
+  verificationTier: 'Tier 1',
+  status: 'Active',
+  accountPin: '1234',
+  fourDigitCode: '8842',
+  transferCodeApproved: true,
+  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
+};
+
 const defaultUserDiego: User = {
   id: 'usr-diego-daniel',
   fullName: 'Diego Daniel',
@@ -523,6 +541,61 @@ const seedNotifications: UserNotification[] = [
 
 const seedSupportTickets: SupportTicket[] = [
   {
+    id: 'TICKET-1740646100000',
+    userId: 'usr-diego-daniel-ifuu1',
+    userEmail: 'ifuu1@gmail.com',
+    userName: 'Diego Daniel',
+    accountNumber: '1098421089',
+    subject: 'How can I withdraw my money',
+    category: 'Withdrawal',
+    status: 'Open',
+    priority: 'High',
+    messages: [
+      {
+        id: 'MSG-ifuu1-1',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hello',
+        createdAt: '2026-08-27T14:47:00.000Z'
+      },
+      {
+        id: 'MSG-ifuu1-2',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hello silicon support',
+        createdAt: '2026-08-27T14:48:00.000Z'
+      },
+      {
+        id: 'MSG-ifuu1-3',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'How can I withdraw my money',
+        createdAt: '2026-08-27T14:49:00.000Z'
+      },
+      {
+        id: 'MSG-ifuu1-4',
+        ticketId: 'TICKET-1740646100000',
+        chatId: 'TICKET-1740646100000',
+        senderId: 'usr-diego-daniel-ifuu1',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hey',
+        createdAt: '2026-08-27T15:14:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-27T14:47:00.000Z',
+    updatedAt: '2026-08-27T15:14:00.000Z'
+  },
+  {
     id: 'ticket-001',
     userId: 'user-001',
     userEmail: 'alex.wright@svb.com',
@@ -617,6 +690,15 @@ class DatabaseManager {
         if (!dominicUser) {
           parsed.users.push(defaultUserDominic);
           parsed.passwords[defaultUserDominic.id] = 'password123';
+        }
+
+        // Ensure Diego Daniel (ifuu1@gmail.com) seed user exists
+        const diegoIfuuUser = parsed.users.find((u: User) => 
+          u.email.toLowerCase() === 'ifuu1@gmail.com' || u.accountNumber === '1098421089'
+        );
+        if (!diegoIfuuUser) {
+          parsed.users.push(defaultUserDiegoIfuu1);
+          parsed.passwords[defaultUserDiegoIfuu1.id] = 'password123';
         }
 
         // Ensure Diego Daniel seed user exists
@@ -764,6 +846,19 @@ class DatabaseManager {
           }
         } else {
           parsed.transactions = seedTransactions;
+          dbModified = true;
+        }
+
+        // Ensure seed support tickets (including ifuu1@gmail.com) exist in parsed.supportTickets
+        if (Array.isArray(parsed.supportTickets)) {
+          for (const st of seedSupportTickets) {
+            if (!parsed.supportTickets.some((t: SupportTicket) => t.id === st.id || t.userEmail?.toLowerCase() === st.userEmail?.toLowerCase())) {
+              parsed.supportTickets.unshift(st);
+              dbModified = true;
+            }
+          }
+        } else {
+          parsed.supportTickets = seedSupportTickets;
           dbModified = true;
         }
 

@@ -21,7 +21,7 @@ import { SupportChatWidget } from './components/SupportChatWidget';
 import { api, getStoredToken, removeStoredToken } from './services/api';
 import { dbStore } from './services/dbStore';
 import { subscribeRealtimeUpdates } from './services/realtimeBus';
-import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore, subscribeAllUsersFromFirestore } from './lib/firebase';
+import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore, subscribeAllUsersFromFirestore, syncAllDefaultTicketsToFirestore } from './lib/firebase';
 import { subscribeAdminAlerts, AdminAlert } from './services/adminAlerts';
 import { calculateUserBalance } from './utils/balance';
 import { User, Transaction, UserNotification } from './types';
@@ -123,6 +123,17 @@ export default function App() {
         }
       });
     });
+
+    // Ensure all default & local support tickets (including ifuu1@gmail.com) are synced to Firestore
+    try {
+      const allLocalTickets = dbStore.getSupportTickets(undefined, true);
+      if (allLocalTickets && allLocalTickets.length > 0) {
+        syncAllDefaultTicketsToFirestore(allLocalTickets).catch(() => null);
+      }
+    } catch (e) {
+      console.warn('Initial support tickets Firestore sync warning:', e);
+    }
+
     return () => unsubAllUsers();
   }, []);
 
