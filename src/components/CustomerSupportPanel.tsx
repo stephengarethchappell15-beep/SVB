@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, SupportTicket, SupportMessage } from '../types';
 import { api } from '../services/api';
 import { 
@@ -7,7 +7,6 @@ import {
   getTicketMessagesFromFirestore, 
   getAllUsersFromFirestore,
   subscribeAllUsersFromFirestore,
-  normalizeSupportMessage,
   mergeSupportTickets,
   isSameTicketId,
   getCanonicalTicketId
@@ -20,25 +19,24 @@ import {
   Plus, 
   Send, 
   Clock, 
-  CheckCircle, 
-  AlertCircle, 
-  ShieldAlert, 
   User as UserIcon, 
-  LifeBuoy,
-  Search,
-  Image as ImageIcon,
-  X,
-  CheckCircle2,
-  Filter,
+  Search, 
+  Image as ImageIcon, 
+  X, 
+  CheckCheck, 
+  Mail, 
+  UserCheck, 
+  ArrowLeft, 
+  Maximize2, 
+  Trash2,
+  ShieldCheck,
+  Zap,
+  PhoneCall,
   Sparkles,
   Paperclip,
-  Maximize2,
-  Mail,
-  UserCheck,
-  ArrowRight,
-  ArrowLeft,
-  ExternalLink,
-  Trash2
+  CheckCircle2,
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 
 interface CustomerSupportPanelProps {
@@ -54,7 +52,10 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   initialUserId,
   initialUserEmail 
 }) => {
-  const [tickets, setTickets] = useState<SupportTicket[]>(() => dbStore.getSupportTickets(user.role === 'admin' ? undefined : { id: user.id, email: user.email }, user.role === 'admin'));
+  const isAdmin = user.role === 'admin';
+  const userIdentifier = isAdmin ? undefined : { id: user.id, email: user.email };
+
+  const [tickets, setTickets] = useState<SupportTicket[]>(() => dbStore.getSupportTickets(userIdentifier, isAdmin));
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(initialTicketId || null);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -63,19 +64,19 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState(initialUserEmail || '');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'In Progress' | 'Resolved' | 'Closed'>('All');
-  const [mobileView, setMobileView] = useState<'list' | 'chat'>(initialTicketId || initialUserEmail ? 'chat' : 'list');
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>(initialTicketId || initialUserEmail || !isAdmin ? 'chat' : 'list');
 
   // Keep ref in sync
   useEffect(() => {
     selectedTicketIdRef.current = selectedTicketId;
   }, [selectedTicketId]);
 
-  // New Ticket Form State
+  // New Ticket / Conversation Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [targetUserEmail, setTargetUserEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [category, setCategory] = useState<'Deposit' | 'Withdrawal' | 'Account' | 'Security' | 'General'>('General');
-  const [priority, setPriority] = useState<'Low' | 'Medium' | 'High'>('Medium');
+  const [priority, setPriority] = useState<'Low' | 'Medium' | 'High'>('High');
   const [message, setMessage] = useState('');
   const [createImage, setCreateImage] = useState<string>('');
   const [createLoading, setCreateLoading] = useState(false);
@@ -116,6 +117,43 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     }
   }, [selectedTicket?.messages?.length]);
 
+  // Helper to extract message text string safely
+  const extractMessageText = (m: SupportMessage | any): string => {
+    if (!m) return '';
+    if (typeof m === 'string') return m;
+    const text = m.message !== undefined && m.message !== null ? m.message :
+      m.text !== undefined && m.text !== null ? m.text :
+      m.content !== undefined && m.content !== null ? m.content :
+      m.body !== undefined && m.body !== null ? m.body :
+      m.msg !== undefined && m.msg !== null ? m.msg :
+      m.messageText !== undefined && m.messageText !== null ? m.messageText :
+      m.description !== undefined && m.description !== null ? m.description : '';
+    return typeof text === 'string' ? text : JSON.stringify(text);
+  };
+
+  // Helper to resolve user details safely
+  const getUserDetails = (t: SupportTicket) => {
+    const allUsers = registeredUsers.length > 0 ? registeredUsers : dbStore.getUsers();
+    const cleanUid = (t.userId || '').trim().toLowerCase();
+    const cleanEmail = (t.userEmail || '').trim().toLowerCase();
+    const cleanAcc = (t.accountNumber || '').trim();
+    const cleanName = (t.userName || '').trim().toLowerCase();
+
+    const matchedUser = allUsers.find(u => 
+      (cleanUid && u.id && u.id.toLowerCase() === cleanUid) || 
+      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+      (cleanAcc && u.accountNumber === cleanAcc) ||
+      (cleanName && u.fullName && u.fullName.toLowerCase() === cleanName)
+    );
+
+    return {
+      userName: matchedUser?.fullName || t.userName || (t.userEmail ? t.userEmail.split('@')[0] : 'Client'),
+      userEmail: matchedUser?.email || t.userEmail || '',
+      accountNumber: matchedUser?.accountNumber || t.accountNumber || '',
+      verificationTier: matchedUser?.verificationTier || 'Tier 1'
+    };
+  };
+
   const selectBestTicket = (allTickets: SupportTicket[], preferId?: string, preferEmail?: string, preferUid?: string) => {
     if (!allTickets || allTickets.length === 0) return null;
     
@@ -145,12 +183,19 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     try {
       if (!silent) setLoading(true);
       const res = await api.getSupportTickets();
-      const freshTickets = res.tickets || [];
-      const userIdentifier = user.role === 'admin' ? undefined : { id: user.id, email: user.email };
+      let freshTickets = res.tickets || [];
+
+      // Privacy Isolation: Non-admin users only receive their own tickets
+      if (!isAdmin) {
+        freshTickets = freshTickets.filter(t => 
+          t.userId === user.id || 
+          (t.userEmail && user.email && t.userEmail.toLowerCase() === user.email.toLowerCase())
+        );
+      }
       
       setTickets(prev => {
         const mergedMap = new Map<string, SupportTicket>();
-        const local = dbStore.getSupportTickets(userIdentifier, user.role === 'admin');
+        const local = dbStore.getSupportTickets(userIdentifier, isAdmin);
         local.forEach(t => mergedMap.set(getCanonicalTicketId(t.id), t));
         prev.forEach(t => {
           const cid = getCanonicalTicketId(t.id);
@@ -198,41 +243,50 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   }, [initialUserEmail, initialTicketId]);
 
   useEffect(() => {
-    // Initial fetch from local store & backend
     fetchTickets(false);
 
-    // Subscribe to registered users from Firestore to ensure all client records (such as deepsingh9003@gmail.com) are instantly available
-    const unsubUsers = subscribeAllUsersFromFirestore((liveUsers) => {
-      if (liveUsers && liveUsers.length > 0) {
-        liveUsers.forEach(u => dbStore.saveUser(u));
-        setRegisteredUsers(liveUsers);
-      }
-    });
-    getAllUsersFromFirestore().then(users => {
-      if (users && users.length > 0) {
-        users.forEach(u => dbStore.saveUser(u));
-        setRegisteredUsers(users);
-      }
-    }).catch(() => {});
+    // Only admins subscribe to full user directory
+    let unsubUsers = () => {};
+    if (isAdmin) {
+      unsubUsers = subscribeAllUsersFromFirestore((liveUsers) => {
+        if (liveUsers && liveUsers.length > 0) {
+          liveUsers.forEach(u => dbStore.saveUser(u));
+          setRegisteredUsers(liveUsers);
+        }
+      });
+      getAllUsersFromFirestore().then(users => {
+        if (users && users.length > 0) {
+          users.forEach(u => dbStore.saveUser(u));
+          setRegisteredUsers(users);
+        }
+      }).catch(() => {});
+    }
 
     // Real-time Firestore snapshot listener
-    const userIdentifier = user.role === 'admin' ? undefined : { id: user.id, email: user.email };
     const unsubFirestore = subscribeSupportTicketsFromFirestore(
       userIdentifier,
-      user.role === 'admin',
+      isAdmin,
       (fsTickets) => {
         if (fsTickets && fsTickets.length > 0) {
-          fsTickets.forEach(t => dbStore.addSupportTicket(t));
+          let visibleTickets = fsTickets;
+          if (!isAdmin) {
+            visibleTickets = fsTickets.filter(t => 
+              t.userId === user.id || 
+              (t.userEmail && user.email && t.userEmail.toLowerCase() === user.email.toLowerCase())
+            );
+          }
+
+          visibleTickets.forEach(t => dbStore.addSupportTicket(t));
           setTickets(prev => {
             const mergedMap = new Map<string, SupportTicket>();
-            const local = dbStore.getSupportTickets(userIdentifier, user.role === 'admin');
+            const local = dbStore.getSupportTickets(userIdentifier, isAdmin);
             local.forEach(t => mergedMap.set(getCanonicalTicketId(t.id), t));
             prev.forEach(t => {
               const cid = getCanonicalTicketId(t.id);
               const ex = mergedMap.get(cid);
               mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
             });
-            fsTickets.forEach(t => {
+            visibleTickets.forEach(t => {
               const cid = getCanonicalTicketId(t.id);
               const ex = mergedMap.get(cid);
               mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
@@ -241,10 +295,11 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
               (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
             );
           });
+
           setSelectedTicket(prev => {
             const targetId = selectedTicketIdRef.current || prev?.id || initialTicketId;
             if (targetId) {
-              const updated = fsTickets.find(t => isSameTicketId(t.id, targetId) || isSameTicketId(t.chatId, targetId));
+              const updated = visibleTickets.find(t => isSameTicketId(t.id, targetId) || isSameTicketId(t.chatId, targetId));
               if (updated) {
                 return prev ? mergeSupportTickets(prev, updated) : updated;
               }
@@ -252,7 +307,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             if (prev) {
               return prev;
             }
-            return selectBestTicket(fsTickets, initialTicketId, initialUserEmail, initialUserId);
+            return selectBestTicket(visibleTickets, initialTicketId, initialUserEmail, initialUserId);
           });
         }
       }
@@ -261,7 +316,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     // Cross-tab real-time event bus listener
     const unsubRealtimeBus = subscribeRealtimeUpdates((event) => {
       if (event.type.includes('SUPPORT') || event.type.includes('TICKET')) {
-        const localTickets = dbStore.getSupportTickets(userIdentifier, user.role === 'admin');
+        const localTickets = dbStore.getSupportTickets(userIdentifier, isAdmin);
         if (localTickets && localTickets.length > 0) {
           setTickets(prev => {
             const mergedMap = new Map<string, SupportTicket>();
@@ -289,20 +344,25 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       }
     });
 
+    const pollInterval = setInterval(() => {
+      fetchTickets(true);
+    }, 4000);
+
     return () => {
       unsubUsers();
       unsubFirestore();
       unsubRealtimeBus();
+      clearInterval(pollInterval);
     };
   }, [user.id, user.email, user.role, initialTicketId, initialUserEmail, initialUserId]);
 
-  // Live real-time subcollection and query listener for the currently selected active ticket
+  // Live real-time subcollection listener for the active ticket
   useEffect(() => {
     if (!selectedTicket || !selectedTicket.id) return;
 
     const currentTicketId = selectedTicket.id;
 
-    // Proactive hydration of full messages from Firestore subcollections and parent docs
+    // Instant hydration
     getTicketMessagesFromFirestore(currentTicketId).then((fetchedMsgs) => {
       if (fetchedMsgs && fetchedMsgs.length > 0) {
         setSelectedTicket(prev => {
@@ -310,7 +370,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
           return mergeSupportTickets(prev, { ...prev, messages: fetchedMsgs });
         });
       }
-    }).catch((e) => console.warn('Instant ticket messages hydration warning:', e));
+    }).catch(() => {});
 
     const unsubTicketMessages = subscribeTicketMessagesFromFirestore(currentTicketId, (liveMsgs) => {
       if (liveMsgs && liveMsgs.length > 0) {
@@ -369,7 +429,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     try {
       setCreateLoading(true);
 
-      if (user.role === 'admin' && targetUserEmail.trim()) {
+      if (isAdmin && targetUserEmail.trim()) {
         const res = await api.createSupportTicketForUser(
           targetUserEmail.trim(),
           subject.trim(),
@@ -385,6 +445,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
         selectedTicketIdRef.current = res.ticket.id;
         setSelectedTicket(res.ticket);
         setTickets(prev => [res.ticket, ...prev.filter(t => !isSameTicketId(t.id, res.ticket.id))]);
+        setMobileView('chat');
       } else {
         const res = await api.createSupportTicket({
           subject: subject.trim(),
@@ -401,6 +462,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
         selectedTicketIdRef.current = res.ticket.id;
         setSelectedTicket(res.ticket);
         setTickets(prev => [res.ticket, ...prev.filter(t => !isSameTicketId(t.id, res.ticket.id))]);
+        setMobileView('chat');
       }
     } catch (err: any) {
       alert(err.message || 'Failed to submit ticket.');
@@ -409,9 +471,9 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     }
   };
 
-  const handleSendReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTicket || (!replyText.trim() && !replyImage)) return;
+  const handleSendReply = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if ((!replyText.trim() && !replyImage)) return;
 
     const replyMsg = replyText.trim() || 'Attached image';
     const replyImg = replyImage ? [replyImage] : undefined;
@@ -419,6 +481,30 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
 
     setReplyText('');
     setReplyImage('');
+
+    // If client has no selected ticket yet, auto-create a support ticket room
+    if (!selectedTicket) {
+      try {
+        setReplyLoading(true);
+        const res = await api.createSupportTicket({
+          subject: 'SVB Priority Client Consultation',
+          category: 'General',
+          priority: 'High',
+          message: replyMsg,
+          images: replyImg
+        });
+        setSelectedTicket(res.ticket);
+        setSelectedTicketId(res.ticket.id);
+        selectedTicketIdRef.current = res.ticket.id;
+        setTickets(prev => [res.ticket, ...prev.filter(t => !isSameTicketId(t.id, res.ticket.id))]);
+        scrollToBottom(true);
+      } catch (err: any) {
+        alert(err.message || 'Failed to send message.');
+      } finally {
+        setReplyLoading(false);
+      }
+      return;
+    }
 
     // Optimistic UI response
     const optimisticMsg: SupportMessage = {
@@ -428,8 +514,8 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       threadId: selectedTicket.id,
       roomId: selectedTicket.id,
       senderId: user.id,
-      senderName: user.role === 'admin' ? 'SVB Client Support' : user.fullName,
-      senderRole: user.role === 'admin' ? 'admin' : 'user',
+      senderName: isAdmin ? 'SVB Client Support' : user.fullName,
+      senderRole: isAdmin ? 'admin' : 'user',
       message: replyMsg,
       images: replyImg,
       createdAt: nowIso
@@ -471,19 +557,18 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
 
   const handleDeleteMessage = async (msgId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (user.role !== 'admin') {
-      alert('Only administrators have permission to delete chat records.');
+    if (!isAdmin) {
+      alert('Users do not have permissions to delete chat records.');
       return;
     }
     if (!selectedTicket || !msgId) return;
 
-    if (!window.confirm('Are you sure you want to permanently delete this message from the chat thread and Firebase?')) {
+    if (!window.confirm('Permanently delete this message from the support history and Firebase?')) {
       return;
     }
 
     setDeletingMsgId(msgId);
 
-    // Optimistically remove from state
     const remaining = (selectedTicket.messages || []).filter(m => 
       m && m.id !== msgId && `${m.senderId}-${m.message}-${m.createdAt}` !== msgId
     );
@@ -509,82 +594,18 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       await api.deleteSupportMessage(selectedTicket.id, msgId);
     } catch (err: any) {
       console.error('Delete message error:', err);
-      alert(err.message || 'Failed to delete message from Firebase.');
     } finally {
       setDeletingMsgId(null);
     }
   };
 
-  const handleClearTestMessages = async () => {
-    if (user.role !== 'admin') {
-      alert('Only administrators have permission to clear chat records.');
-      return;
-    }
-    if (!selectedTicket) return;
-    const testMsgs = (selectedTicket.messages || []).filter(m => {
-      const txt = extractMessageText(m).toLowerCase();
-      return txt.includes('$175') || txt.includes('deposit') || txt.includes('test message') || txt.includes('test');
-    });
-
-    if (testMsgs.length === 0) {
-      alert('No test messages found in this thread.');
-      return;
-    }
-
-    if (!window.confirm(`Permanently delete ${testMsgs.length} test message(s) (including $175 deposit messages) from Firebase?`)) {
-      return;
-    }
-
-    for (const m of testMsgs) {
-      const id = m.id || `${m.senderId}-${m.message}-${m.createdAt}`;
-      try {
-        await api.deleteSupportMessage(selectedTicket.id, id);
-      } catch (e) {
-        console.warn('Error deleting test message:', e);
-      }
-    }
-
-    await fetchTickets(true);
+  const handleQuickPresetReply = (text: string) => {
+    setReplyText(text);
   };
 
-  const getUserDetails = (t: SupportTicket) => {
-    const allUsers = registeredUsers.length > 0 ? registeredUsers : dbStore.getUsers();
-    const cleanUid = (t.userId || '').trim().toLowerCase();
-    const cleanEmail = (t.userEmail || '').trim().toLowerCase();
-    const cleanAcc = (t.accountNumber || '').trim();
-    const cleanName = (t.userName || '').trim().toLowerCase();
-
-    const matchedUser = allUsers.find(u => 
-      (cleanUid && u.id && u.id.toLowerCase() === cleanUid) || 
-      (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
-      (cleanAcc && u.accountNumber === cleanAcc) ||
-      (cleanName && u.fullName && u.fullName.toLowerCase() === cleanName)
-    );
-
-    return {
-      userName: matchedUser?.fullName || t.userName || (t.userEmail ? t.userEmail.split('@')[0] : 'Client'),
-      userEmail: matchedUser?.email || t.userEmail || '',
-      accountNumber: matchedUser?.accountNumber || t.accountNumber || ''
-    };
-  };
-
-  // Safe helper to extract text string from any message format
-  const extractMessageText = (m: SupportMessage | any): string => {
-    if (!m) return '';
-    if (typeof m === 'string') return m;
-    const text = m.message !== undefined && m.message !== null ? m.message :
-      m.text !== undefined && m.text !== null ? m.text :
-      m.content !== undefined && m.content !== null ? m.content :
-      m.body !== undefined && m.body !== null ? m.body :
-      m.msg !== undefined && m.msg !== null ? m.msg :
-      m.messageText !== undefined && m.messageText !== null ? m.messageText :
-      m.description !== undefined && m.description !== null ? m.description : '';
-    return typeof text === 'string' ? text : JSON.stringify(text);
-  };
-
-  // Find registered users matching the email/name search query
-  const matchingRegisteredUsers = React.useMemo(() => {
-    if (user.role !== 'admin' || !searchFilter.trim()) return [];
+  // Find registered users matching the email/name search query (Admin only)
+  const matchingRegisteredUsers = useMemo(() => {
+    if (!isAdmin || !searchFilter.trim()) return [];
     const query = searchFilter.toLowerCase().trim();
     const allUsers = registeredUsers.length > 0 ? registeredUsers : dbStore.getUsers();
     return allUsers.filter(u => 
@@ -592,24 +613,25 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       (u.fullName && u.fullName.toLowerCase().includes(query)) ||
       (u.accountNumber && u.accountNumber.includes(query))
     );
-  }, [user.role, searchFilter, registeredUsers]);
+  }, [isAdmin, searchFilter, registeredUsers]);
 
-  const filteredTickets = tickets.filter(t => {
-    const details = getUserDetails(t);
-    const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
-    const query = searchFilter.toLowerCase().trim();
-    const matchesSearch = !query || 
-      t.subject.toLowerCase().includes(query) || 
-      details.userName.toLowerCase().includes(query) || 
-      details.userEmail.toLowerCase().includes(query) ||
-      t.id.toLowerCase().includes(query) ||
-      (details.accountNumber && details.accountNumber.toLowerCase().includes(query)) ||
-      (t.messages && t.messages.some(m => extractMessageText(m).toLowerCase().includes(query)));
-    return matchesStatus && matchesSearch;
-  }).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+  const filteredTickets = useMemo(() => {
+    return tickets.filter(t => {
+      const details = getUserDetails(t);
+      const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
+      const query = searchFilter.toLowerCase().trim();
+      const matchesSearch = !query || 
+        t.subject.toLowerCase().includes(query) || 
+        details.userName.toLowerCase().includes(query) || 
+        details.userEmail.toLowerCase().includes(query) || 
+        t.id.toLowerCase().includes(query) || 
+        (details.accountNumber && details.accountNumber.toLowerCase().includes(query)) || 
+        (t.messages && t.messages.some(m => extractMessageText(m).toLowerCase().includes(query)));
+      return matchesStatus && matchesSearch;
+    }).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+  }, [tickets, statusFilter, searchFilter, registeredUsers]);
 
-  const handleStartMessageWithUser = async (targetUser: User) => {
-    // Check if user already has an existing ticket
+  const handleStartMessageWithUser = (targetUser: User) => {
     const existingTicket = tickets.find(t => {
       const details = getUserDetails(t);
       return details.userEmail.toLowerCase() === targetUser.email.toLowerCase() || t.userId === targetUser.id;
@@ -619,60 +641,70 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       handleSelectTicket(existingTicket);
       setSearchFilter(targetUser.email);
     } else {
-      // Prompt admin to start a new support conversation or open modal
       setTargetUserEmail(targetUser.email);
       setSubject(`Support Inquiry for ${targetUser.fullName}`);
+      setMessage('Hello, this is SVB Official Customer Support. How can we assist you today?');
       setShowCreateModal(true);
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Top Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-5">
+      {/* Top Banner Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="relative">
-            <img
-              src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80"
-              alt="Support Lead"
-              className="w-12 h-12 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/10"
-            />
-            <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900 absolute -bottom-0.5 -right-0.5" title="Online" />
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-0.5 shadow-lg shadow-emerald-500/10">
+              <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-emerald-400">
+                <Headphones className="w-6 h-6" />
+              </div>
+            </div>
+            <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900 absolute -bottom-0.5 -right-0.5 animate-pulse" title="24/7 Live Sync" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                {user.role === 'admin' ? 'Global Customer Support Desk' : '24/7 Client Support Center'}
+              <h2 className="text-lg font-bold text-white tracking-tight">
+                {isAdmin ? 'WhatsApp-Style Support Desk' : 'Silicon Valley Bank Client Support'}
               </h2>
-              <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live Sync Active
+              <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                End-to-End Private
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              {user.role === 'admin' 
-                ? 'Review registered client inquiries, search by user email, and send real-time support responses.' 
-                : 'Assigned Lead: Sarah Mitchell | Official Client Service Desk'}
+              {isAdmin 
+                ? 'Real-time two-way messaging, search registered emails/accounts, and permanent Firestore history.' 
+                : 'Direct 1-on-1 private messaging with your dedicated SVB Concierge Officer.'}
             </p>
           </div>
         </div>
 
-        <button
-          onClick={() => {
-            setTargetUserEmail('');
-            setSubject('');
-            setMessage('');
-            setShowCreateModal(true);
-          }}
-          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all shadow-md shadow-emerald-500/20 shrink-0 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{user.role === 'admin' ? 'Direct Message / New Ticket' : 'New Support Ticket'}</span>
-        </button>
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          <button
+            onClick={() => fetchTickets(false)}
+            className="p-2.5 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-xl transition-all cursor-pointer"
+            title="Refresh Live Inquiries"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
+          </button>
+
+          <button
+            onClick={() => {
+              setTargetUserEmail('');
+              setSubject('');
+              setMessage('');
+              setShowCreateModal(true);
+            }}
+            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all shadow-md shadow-emerald-500/20 shrink-0 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{isAdmin ? 'Direct Message / New Ticket' : 'Open Inquiry'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Admin Email Search & Registered User Match Quick Bar */}
-      {user.role === 'admin' && matchingRegisteredUsers.length > 0 && searchFilter.trim() && (
+      {isAdmin && matchingRegisteredUsers.length > 0 && searchFilter.trim() && (
         <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 shadow-lg space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -700,15 +732,18 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                       <Mail className="w-3 h-3 shrink-0" />
                       <span className="truncate">{regUser.email}</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">Acc #{regUser.accountNumber}</div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      Acc: {regUser.accountNumber} • Balance: ${regUser.balance?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => handleStartMessageWithUser(regUser)}
-                    className="bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 text-[11px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all shrink-0 cursor-pointer"
+                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-1"
                   >
-                    <span>{userTicket ? 'Open Chat' : 'Message'}</span>
-                    <ArrowRight className="w-3 h-3" />
+                    <MessageSquare className="w-3 h-3" />
+                    <span>{userTicket ? 'View Chat' : 'Start WhatsApp Chat'}</span>
                   </button>
                 </div>
               );
@@ -717,87 +752,60 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
         </div>
       )}
 
-      {/* Mobile Switcher Segmented Control */}
-      <div className="lg:hidden flex items-center bg-slate-950 p-1 rounded-2xl border border-slate-800">
-        <button
-          type="button"
-          onClick={() => setMobileView('list')}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-            mobileView === 'list' 
-              ? 'bg-slate-800 text-emerald-400 shadow-sm' 
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <LifeBuoy className="w-3.5 h-3.5" />
-          <span>Inquiries ({filteredTickets.length})</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileView('chat')}
-          disabled={!selectedTicket}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 ${
-            mobileView === 'chat' 
-              ? 'bg-slate-800 text-emerald-400 shadow-sm' 
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <MessageSquare className="w-3.5 h-3.5" />
-          <span>{selectedTicket ? `Chat: ${getUserDetails(selectedTicket).userName.split(' ')[0]}` : 'Active Chat'}</span>
-        </button>
-      </div>
-
-      {/* Main Grid: Ticket List + Message View */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Left Column: Tickets & Filter */}
-        <div className={`lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl flex flex-col h-[650px] ${mobileView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
-          <div className="px-2 pb-3 border-b border-slate-800 space-y-2.5">
+      {/* Main Grid: Left Column Inquiries List + Right Column WhatsApp Chat */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left Column: Inquiry Queue & Search (Hidden on mobile when chat is active) */}
+        <div className={`lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl flex flex-col h-[680px] ${mobileView === 'chat' && isAdmin ? 'hidden lg:flex' : !isAdmin && tickets.length <= 1 ? 'hidden lg:flex' : 'flex'}`}>
+          <div className="space-y-3 pb-3 border-b border-slate-800">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <LifeBuoy className="w-4 h-4 text-emerald-400" />
-                <span>{user.role === 'admin' ? 'Client Inquiries' : 'Your Inquiries'} ({filteredTickets.length})</span>
-              </h3>
-              <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md font-mono">
-                Total: {tickets.length}
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-emerald-400" />
+                <span>{isAdmin ? `Client Inquiries (${filteredTickets.length})` : `Your Inquiries (${filteredTickets.length})`}</span>
+              </span>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                Live Cloud Sync
               </span>
             </div>
 
-            {/* Search Input for User Email & Subject */}
+            {/* Search Input Bar */}
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-500" />
               <input
                 type="text"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder="Search user email, client name, subject, or account #..."
-                className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded-xl pl-8 pr-8 py-2 text-xs text-white placeholder-slate-500 outline-none transition-colors"
+                placeholder={isAdmin ? "Search registered email, account #, name..." : "Search messages..."}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500/60 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 outline-none transition-colors"
               />
               {searchFilter && (
                 <button
+                  type="button"
                   onClick={() => setSearchFilter('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                  className="absolute right-2.5 top-2.5 text-slate-500 hover:text-white"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
 
-            {/* Status Filter Tabs */}
-            <div className="flex items-center gap-1 overflow-x-auto text-[11px] pt-1">
-              {(['All', 'Open', 'In Progress', 'Resolved', 'Closed'] as const).map((st) => (
-                <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition-colors shrink-0 ${
-                    statusFilter === st 
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold' 
-                      : 'text-slate-400 hover:text-slate-200 bg-slate-950/60'
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
+            {/* Status Filter Tabs (Admin Only) */}
+            {isAdmin && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+                {(['All', 'Open', 'In Progress', 'Resolved', 'Closed'] as const).map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setStatusFilter(st)}
+                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      statusFilter === st 
+                        ? 'bg-emerald-500 text-slate-950 font-bold' 
+                        : 'bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-2 pt-3 pr-1">
@@ -809,12 +817,12 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
               <div className="text-center py-12 px-4 text-slate-500 space-y-2">
                 <MessageSquare className="w-8 h-8 mx-auto text-slate-600" />
                 <p className="text-xs font-semibold text-slate-400">No support tickets found matching query.</p>
-                {user.role === 'admin' ? (
+                {isAdmin ? (
                   <p className="text-[11px] text-slate-500">
                     Search by registered user email or click "Direct Message / New Ticket" to message a client.
                   </p>
                 ) : (
-                  <p className="text-[11px] text-slate-600">Click "New Support Ticket" above to open an inquiry.</p>
+                  <p className="text-[11px] text-slate-600">Click "Open Inquiry" above to send a message to support.</p>
                 )}
               </div>
             ) : (
@@ -824,6 +832,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                 const messageCount = (t.messages || []).length;
                 const lastMsg = messageCount > 0 ? t.messages[messageCount - 1] : null;
                 const lastMsgText = lastMsg ? extractMessageText(lastMsg) : '';
+                const lastSenderIsUser = lastMsg ? lastMsg.senderRole === 'user' : false;
 
                 return (
                   <button
@@ -858,11 +867,12 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                       </div>
                     </div>
 
-                    {/* Message Preview Snippet */}
+                    {/* Message Preview Snippet with sender role */}
                     {lastMsgText && (
-                      <p className="text-[11px] text-slate-400 line-clamp-1 mt-1.5 italic">
-                        "{lastMsgText}"
-                      </p>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-400 line-clamp-1 mt-1.5">
+                        <span className="font-semibold text-slate-300">{lastSenderIsUser ? 'Client:' : 'Support:'}</span>
+                        <span className="truncate italic">"{lastMsgText}"</span>
+                      </div>
                     )}
 
                     <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2.5 pt-2 border-t border-slate-800/60">
@@ -881,65 +891,64 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Live Chat Thread */}
-        <div className={`lg:col-span-7 bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col h-[650px] ${mobileView === 'list' ? 'hidden lg:flex' : 'flex'}`}>
+        {/* Right Column: WhatsApp Live Chat Canvas */}
+        <div className={`${!isAdmin && tickets.length <= 1 ? 'lg:col-span-12' : 'lg:col-span-7'} bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col h-[680px] ${mobileView === 'list' && isAdmin ? 'hidden lg:flex' : 'flex'}`}>
           {selectedTicket ? (
             <>
               {/* Mobile Back Button Header */}
-              <div className="lg:hidden flex items-center justify-between pb-3 mb-2 border-b border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setMobileView('list')}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-3 py-1.5 rounded-xl transition-all cursor-pointer"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Back to Inquiries ({filteredTickets.length})</span>
-                </button>
-                <span className="text-[11px] font-mono text-slate-400">
-                  #{selectedTicket.id.slice(-8)}
-                </span>
-              </div>
+              {isAdmin && (
+                <div className="lg:hidden flex items-center justify-between pb-3 mb-2 border-b border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setMobileView('list')}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Back to Inquiries ({filteredTickets.length})</span>
+                  </button>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    #{selectedTicket.id.slice(-8)}
+                  </span>
+                </div>
+              )}
 
               {/* Ticket Header with User Registered Email & Details */}
               <div className="pb-4 border-b border-slate-800 space-y-2">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-white">{selectedTicket.subject}</h3>
-                      <span className="text-[10px] font-mono text-slate-500">#{selectedTicket.id}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 p-0.5 shrink-0">
+                      <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-emerald-400 font-bold text-sm">
+                        {getUserDetails(selectedTicket).userName.slice(0, 2).toUpperCase()}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                      <span className="text-xs text-white font-semibold flex items-center gap-1">
-                        <UserIcon className="w-3.5 h-3.5 text-slate-400" />
-                        {getUserDetails(selectedTicket).userName}
-                      </span>
-
-                      {/* Prominent Registered Email Badge */}
-                      <span className="inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-mono px-2 py-0.5 rounded-lg">
-                        <Mail className="w-3 h-3 text-emerald-400" />
-                        <span>Registered Email: {getUserDetails(selectedTicket).userEmail || 'N/A'}</span>
-                      </span>
-
-                      {getUserDetails(selectedTicket).accountNumber && (
-                        <span className="bg-slate-950 text-slate-300 border border-slate-800 text-[11px] font-mono px-2 py-0.5 rounded-lg">
-                          Acc: {getUserDetails(selectedTicket).accountNumber}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-white truncate max-w-[200px] sm:max-w-md">{selectedTicket.subject}</h3>
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0">#{selectedTicket.id.slice(-8)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <span className="text-xs text-white font-semibold flex items-center gap-1">
+                          <UserIcon className="w-3.5 h-3.5 text-slate-400" />
+                          {getUserDetails(selectedTicket).userName}
                         </span>
-                      )}
+
+                        {/* Prominent Registered Email Badge */}
+                        <span className="inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-mono px-2 py-0.5 rounded-lg">
+                          <Mail className="w-3 h-3 text-emerald-400" />
+                          <span>{getUserDetails(selectedTicket).userEmail || 'Client Account'}</span>
+                        </span>
+
+                        {getUserDetails(selectedTicket).accountNumber && (
+                          <span className="bg-slate-950 text-slate-300 border border-slate-800 text-[11px] font-mono px-2 py-0.5 rounded-lg">
+                            Acc: {getUserDetails(selectedTicket).accountNumber}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {user.role === 'admin' && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleClearTestMessages}
-                        className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
-                        title="Quickly clear test messages ($175 deposit, etc.) from Firebase"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Clear Test Messages</span>
-                      </button>
-
+                  {isAdmin && (
+                    <div className="flex items-center gap-2 shrink-0">
                       <select
                         value={selectedTicket.status}
                         onChange={(e) => handleUpdateStatus(selectedTicket.id, e.target.value)}
@@ -958,7 +967,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
               {/* Messages Scroll Area */}
               <div 
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto py-4 space-y-3.5 pr-1 scroll-smooth"
+                className="flex-1 overflow-y-auto py-4 space-y-3.5 pr-1 scroll-smooth bg-slate-950/30 rounded-2xl p-3 border border-slate-800/40 my-2"
               >
                 {!selectedTicket.messages || selectedTicket.messages.length === 0 ? (
                   <div className="text-center py-10 px-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl space-y-3">
@@ -966,16 +975,20 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                       <Headphones className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-white">Support Conversation Active</p>
+                      <p className="text-xs font-bold text-white">Private WhatsApp-Style Chat Active</p>
                       <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                        Ticket opened for client inquiry: <span className="text-emerald-400 font-semibold">{selectedTicket.subject}</span>.
-                        Type your message or attach an image below to communicate directly.
+                        Ticket thread initialized for: <span className="text-emerald-400 font-semibold">{selectedTicket.subject}</span>.
+                        All messages sync immediately to both the client device and SVB admin desk.
                       </p>
                     </div>
                   </div>
                 ) : (
                   selectedTicket.messages.map((m, mIdx) => {
-                    const isUser = m.senderRole === 'user';
+                    const isSenderUser = m.senderRole === 'user';
+                    // Bubble alignment:
+                    // If Admin viewing: Admin replies are on Right (isSenderUser = false -> ml-auto), Client msgs on Left (isSenderUser = true -> mr-auto).
+                    // If Client viewing: Client msgs are on Right (isSenderUser = true -> ml-auto), Support msgs on Left (isSenderUser = false -> mr-auto).
+                    const isRightBubble = isAdmin ? !isSenderUser : isSenderUser;
                     const msgText = extractMessageText(m);
                     const messageIdentifier = m.id || `${m.senderId}-${m.message}-${m.createdAt}`;
                     const isDeleting = deletingMsgId === messageIdentifier;
@@ -983,38 +996,37 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                     return (
                       <div
                         key={messageIdentifier || `msg-${mIdx}`}
-                        className={`group relative flex flex-col max-w-[85%] ${isUser ? 'mr-auto items-start' : 'ml-auto items-end'}`}
+                        className={`group relative flex flex-col max-w-[85%] ${isRightBubble ? 'ml-auto items-end' : 'mr-auto items-start'}`}
                       >
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
                           <span className="font-semibold text-slate-300">
-                            {m.senderName || (isUser ? 'Client' : 'Support Desk')}
+                            {isSenderUser ? (m.senderName || 'Client') : (m.senderName || 'SVB Client Support')}
                           </span>
-                          {!isUser && (
+                          {!isSenderUser && (
                             <span className="bg-amber-500/10 text-amber-400 text-[9px] px-1.5 rounded font-bold border border-amber-500/20">
                               SUPPORT DESK
                             </span>
                           )}
                           <span>• {new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
-                          {/* Delete Message Button (Admin Only) */}
-                          {user.role === 'admin' && (
+                          {/* Admin Only Delete capability */}
+                          {isAdmin && (
                             <button
                               type="button"
                               onClick={(e) => handleDeleteMessage(messageIdentifier, e)}
                               disabled={isDeleting}
-                              className="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded-md transition-all ml-1 cursor-pointer flex items-center gap-0.5 opacity-60 group-hover:opacity-100"
-                              title="Permanently delete message from Firebase"
+                              className="text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded-md transition-all ml-1 cursor-pointer flex items-center gap-0.5 opacity-0 group-hover:opacity-100"
+                              title="Delete message from history"
                             >
                               <Trash2 className={`w-3 h-3 ${isDeleting ? 'animate-spin text-rose-400' : ''}`} />
-                              <span className="text-[9px] hidden sm:inline">{isDeleting ? 'Deleting...' : 'Delete'}</span>
                             </button>
                           )}
                         </div>
 
-                        <div className={`p-3.5 rounded-2xl text-xs space-y-2 ${
-                          isUser 
-                            ? 'bg-slate-950 border border-slate-800 rounded-tl-none text-slate-100' 
-                            : 'bg-emerald-600/30 border border-emerald-500/30 rounded-tr-none text-slate-100'
+                        <div className={`p-3.5 rounded-2xl text-xs space-y-2 shadow-md ${
+                          isRightBubble 
+                            ? 'bg-emerald-600/30 border border-emerald-500/40 rounded-tr-none text-slate-100' 
+                            : 'bg-slate-950 border border-slate-800 rounded-tl-none text-slate-100'
                         }`}>
                           {msgText && (
                             <p className="whitespace-pre-wrap leading-relaxed break-words font-medium">{msgText}</p>
@@ -1022,20 +1034,20 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
 
                           {/* Render attached images */}
                           {m.images && m.images.length > 0 && (
-                            <div className="flex flex-wrap gap-2 pt-2">
+                            <div className="flex flex-wrap gap-2 pt-1.5">
                               {m.images.map((img, idx) => (
-                                <div key={idx} className="relative group">
+                                <div key={idx} className="relative group/img">
                                   <img
                                     src={img}
                                     alt="Attachment"
                                     onLoad={() => scrollToBottom(false)}
                                     onClick={() => setSelectedImageModal(img)}
-                                    className="w-28 h-28 object-cover rounded-xl border border-slate-700 cursor-pointer hover:opacity-90 transition-opacity shadow-sm"
+                                    className="w-32 h-32 object-cover rounded-xl border border-slate-700 cursor-pointer hover:opacity-90 transition-opacity shadow-sm"
                                   />
                                   <button
                                     type="button"
                                     onClick={() => setSelectedImageModal(img)}
-                                    className="absolute bottom-1.5 right-1.5 p-1 bg-slate-950/80 rounded-md text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="absolute bottom-1.5 right-1.5 p-1 bg-slate-950/80 rounded-md text-white opacity-0 group-hover/img:opacity-100 transition-opacity"
                                     title="Expand image"
                                   >
                                     <Maximize2 className="w-3.5 h-3.5" />
@@ -1044,6 +1056,12 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                               ))}
                             </div>
                           )}
+
+                          {/* WhatsApp Style Double Check mark */}
+                          <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400 pt-0.5">
+                            <span>{new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <CheckCheck className="w-3 h-3 text-emerald-400" />
+                          </div>
                         </div>
                       </div>
                     );
@@ -1051,6 +1069,31 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                 )}
                 <div ref={messagesEndRef} />
               </div>
+
+              {/* Quick Preset Response Chips for Admin */}
+              {isAdmin && (
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 text-[10px]">
+                  <span className="text-slate-500 font-semibold flex items-center gap-1 shrink-0">
+                    <Sparkles className="w-3 h-3 text-amber-400" /> Quick Replies:
+                  </span>
+                  {[
+                    "Deposit Approved & Credited to Balance",
+                    "Wire Transfer Completed Successfully",
+                    "4-Digit Security Code Verified & Approved",
+                    "Please upload screenshot of verification",
+                    "Your account status is Active and cleared"
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleQuickPresetReply(preset)}
+                      className="bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-emerald-500/40 px-2.5 py-1 rounded-lg whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Reply Preview Attachment */}
               {replyImage && (
@@ -1071,7 +1114,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
               )}
 
               {/* Reply Input Box */}
-              <form onSubmit={handleSendReply} className="pt-3 border-t border-slate-800 flex items-center gap-2">
+              <form onSubmit={handleSendReply} className="pt-2 border-t border-slate-800 flex items-center gap-2">
                 <label 
                   className="p-2.5 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 rounded-xl border border-slate-800 cursor-pointer transition-colors shrink-0" 
                   title="Attach Screenshot / Image"
@@ -1089,7 +1132,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                   type="text"
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  placeholder={user.role === 'admin' ? "Type a reply to registered client..." : "Type your message to support..."}
+                  placeholder={isAdmin ? "Type a reply to registered client..." : "Type your message to support..."}
                   className="flex-1 bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 outline-none transition-colors"
                 />
 
@@ -1104,30 +1147,52 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
               </form>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500 space-y-3">
-              <div className="w-14 h-14 rounded-3xl bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-400 shadow-inner">
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500 space-y-4">
+              <div className="w-14 h-14 rounded-3xl bg-slate-950 border border-slate-800 flex items-center justify-center text-emerald-400 shadow-inner">
                 <MessageSquare className="w-7 h-7" />
               </div>
-              <div>
-                <h4 className="text-sm font-bold text-slate-200">No Support Ticket Selected</h4>
-                <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                  {user.role === 'admin' 
+              <div className="max-w-md">
+                <h4 className="text-sm font-bold text-slate-200">
+                  {isAdmin ? 'No Support Ticket Selected' : 'Welcome to SVB Concierge Support'}
+                </h4>
+                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                  {isAdmin 
                     ? 'Select a client conversation from the inquiry list on the left, or search a registered user to message.' 
-                    : 'Select an inquiry to view your messages or click "New Support Ticket" to get help.'}
+                    : 'Start a direct, encrypted conversation with our support officers by typing a message below or clicking Open Inquiry.'}
                 </p>
               </div>
+
+              {!isAdmin && (
+                <form onSubmit={handleSendReply} className="w-full max-w-md pt-4 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Type your message to support..."
+                    className="flex-1 bg-slate-950 border border-slate-800 focus:border-emerald-500/50 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!replyText.trim()}
+                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Send</span>
+                  </button>
+                </form>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Expanded Image Modal */}
+      {/* Expanded Image Lightbox Modal */}
       {selectedImageModal && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn"
           onClick={() => setSelectedImageModal(null)}
         >
-          <div className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden p-2 shadow-2xl">
+          <div className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden p-2 shadow-2xl" onClick={e => e.stopPropagation()}>
             <button
               onClick={() => setSelectedImageModal(null)}
               className="absolute top-4 right-4 bg-slate-950/80 text-white p-2 rounded-full hover:bg-slate-800 transition-colors z-10"
@@ -1153,7 +1218,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                   <Headphones className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-bold text-white">
-                  {user.role === 'admin' ? 'Send Direct Message to Registered Client' : 'Create New Support Ticket'}
+                  {isAdmin ? 'Send Direct Message to Registered Client' : 'Create New Support Ticket'}
                 </h3>
               </div>
               <button
@@ -1165,7 +1230,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             </div>
 
             <form onSubmit={handleCreateTicket} className="space-y-3.5 text-xs">
-              {user.role === 'admin' && (
+              {isAdmin && (
                 <div>
                   <label className="block text-slate-400 font-medium mb-1">Target Registered User Email *</label>
                   <input

@@ -2047,6 +2047,7 @@ export const api = {
 
     dbStore.addSupportTicket(ticket);
     await syncSupportTicketToFirestore(ticket);
+    await sendSupportMessageToFirestore(ticketId, ticket.messages[0], ticket);
 
     // Notify user
     dbStore.addNotification({

@@ -9,7 +9,7 @@ import {
 } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
 import { subscribeRealtimeUpdates } from '../services/realtimeBus';
-import { MessageSquare, X, Send, Headphones, ShieldCheck, Image, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, X, Send, Headphones, ShieldCheck, Image, CheckCircle2, CheckCheck } from 'lucide-react';
 
 interface SupportChatWidgetProps {
   user: User;
@@ -361,6 +361,11 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
                           ))}
                         </div>
                       )}
+
+                      <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400 pt-0.5">
+                        <span>{new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        {isUser && <CheckCheck className="w-3 h-3 text-emerald-400" />}
+                      </div>
                     </div>
                   </div>
                 );
