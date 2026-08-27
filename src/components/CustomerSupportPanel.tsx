@@ -54,7 +54,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   initialUserId,
   initialUserEmail 
 }) => {
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [tickets, setTickets] = useState<SupportTicket[]>(() => dbStore.getSupportTickets(user.role === 'admin' ? undefined : { id: user.id, email: user.email }, user.role === 'admin'));
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(initialTicketId || null);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -146,7 +146,26 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       if (!silent) setLoading(true);
       const res = await api.getSupportTickets();
       const freshTickets = res.tickets || [];
-      setTickets(freshTickets);
+      const userIdentifier = user.role === 'admin' ? undefined : { id: user.id, email: user.email };
+      
+      setTickets(prev => {
+        const mergedMap = new Map<string, SupportTicket>();
+        const local = dbStore.getSupportTickets(userIdentifier, user.role === 'admin');
+        local.forEach(t => mergedMap.set(getCanonicalTicketId(t.id), t));
+        prev.forEach(t => {
+          const cid = getCanonicalTicketId(t.id);
+          const ex = mergedMap.get(cid);
+          mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+        });
+        freshTickets.forEach(t => {
+          const cid = getCanonicalTicketId(t.id);
+          const ex = mergedMap.get(cid);
+          mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+        });
+        return Array.from(mergedMap.values()).sort(
+          (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+        );
+      });
       
       setSelectedTicket(prev => {
         const targetId = selectedTicketIdRef.current || prev?.id || initialTicketId;
@@ -204,7 +223,24 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       (fsTickets) => {
         if (fsTickets && fsTickets.length > 0) {
           fsTickets.forEach(t => dbStore.addSupportTicket(t));
-          setTickets(fsTickets);
+          setTickets(prev => {
+            const mergedMap = new Map<string, SupportTicket>();
+            const local = dbStore.getSupportTickets(userIdentifier, user.role === 'admin');
+            local.forEach(t => mergedMap.set(getCanonicalTicketId(t.id), t));
+            prev.forEach(t => {
+              const cid = getCanonicalTicketId(t.id);
+              const ex = mergedMap.get(cid);
+              mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+            });
+            fsTickets.forEach(t => {
+              const cid = getCanonicalTicketId(t.id);
+              const ex = mergedMap.get(cid);
+              mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+            });
+            return Array.from(mergedMap.values()).sort(
+              (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+            );
+          });
           setSelectedTicket(prev => {
             const targetId = selectedTicketIdRef.current || prev?.id || initialTicketId;
             if (targetId) {
@@ -227,7 +263,18 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       if (event.type.includes('SUPPORT') || event.type.includes('TICKET')) {
         const localTickets = dbStore.getSupportTickets(userIdentifier, user.role === 'admin');
         if (localTickets && localTickets.length > 0) {
-          setTickets(localTickets);
+          setTickets(prev => {
+            const mergedMap = new Map<string, SupportTicket>();
+            localTickets.forEach(t => mergedMap.set(getCanonicalTicketId(t.id), t));
+            prev.forEach(t => {
+              const cid = getCanonicalTicketId(t.id);
+              const ex = mergedMap.get(cid);
+              mergedMap.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+            });
+            return Array.from(mergedMap.values()).sort(
+              (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+            );
+          });
           setSelectedTicket(prev => {
             const targetId = selectedTicketIdRef.current || prev?.id || initialTicketId;
             if (targetId) {

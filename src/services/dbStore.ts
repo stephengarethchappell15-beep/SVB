@@ -175,6 +175,44 @@ const DEFAULT_USERS: User[] = [
     createdAt: new Date('2024-03-01').toISOString()
   },
   {
+    id: 'usr-deep-singh-9083',
+    fullName: 'Gagandeep Singh',
+    email: 'deepnsingh9083@gmail.com',
+    phone: '+1 (555) 019-3829',
+    accountNumber: '108007560894',
+    role: 'user',
+    balance: 0.00,
+    ledgerBalance: 0.00,
+    currency: 'USD',
+    address: 'Silicon Valley, CA',
+    country: 'United States',
+    verificationTier: 'Tier 1',
+    status: 'Active',
+    accountPin: '1234',
+    fourDigitCode: '8842',
+    transferCodeApproved: true,
+    createdAt: new Date('2024-03-01').toISOString()
+  },
+  {
+    id: 'usr-diego-daniel-mmad',
+    fullName: 'Diego Daniel',
+    email: 'mmaduabuchinwanoro@gmail.com',
+    phone: '+1 (555) 018-4921',
+    accountNumber: '101248197458',
+    role: 'user',
+    balance: 0.00,
+    ledgerBalance: 0.00,
+    currency: 'USD',
+    address: 'Silicon Valley, CA',
+    country: 'United States',
+    verificationTier: 'Tier 1',
+    status: 'Active',
+    accountPin: '1234',
+    fourDigitCode: '8842',
+    transferCodeApproved: true,
+    createdAt: new Date('2024-03-01').toISOString()
+  },
+  {
     id: 'usr-deep-singh',
     fullName: 'Deep Singh',
     email: 'deepsingh9003@gmail.com',
@@ -399,6 +437,62 @@ const DEFAULT_SUPPORT_TICKETS: SupportTicket[] = [
     ],
     createdAt: '2026-08-27T14:47:00.000Z',
     updatedAt: '2026-08-27T15:14:00.000Z'
+  },
+  {
+    id: 'TICKET-1786636751931',
+    chatId: 'TICKET-1786636751931',
+    threadId: 'TICKET-1786636751931',
+    roomId: 'TICKET-1786636751931',
+    userId: 'usr-deep-singh-9083',
+    userEmail: 'deepnsingh9083@gmail.com',
+    userName: 'Gagandeep Singh',
+    accountNumber: '108007560894',
+    subject: 'SVB Client Support Desk - Gagandeep',
+    category: 'General',
+    status: 'Open',
+    priority: 'High',
+    messages: [
+      {
+        id: 'MSG-deep-1',
+        ticketId: 'TICKET-1786636751931',
+        chatId: 'TICKET-1786636751931',
+        senderId: 'usr-deep-singh-9083',
+        senderName: 'Gagandeep Singh',
+        senderRole: 'user',
+        message: 'Hello SVB support team, I need assistance with my account consultation.',
+        createdAt: '2026-08-27T10:00:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-27T10:00:00.000Z',
+    updatedAt: '2026-08-27T10:00:00.000Z'
+  },
+  {
+    id: 'TICKET-1786273560263',
+    chatId: 'TICKET-1786273560263',
+    threadId: 'TICKET-1786273560263',
+    roomId: 'TICKET-1786273560263',
+    userId: 'usr-diego-daniel-mmad',
+    userEmail: 'mmaduabuchinwanoro@gmail.com',
+    userName: 'Diego Daniel',
+    accountNumber: '101248197458',
+    subject: 'SVB Client Support Desk - Diego Daniel',
+    category: 'General',
+    status: 'Open',
+    priority: 'Medium',
+    messages: [
+      {
+        id: 'MSG-diego-1',
+        ticketId: 'TICKET-1786273560263',
+        chatId: 'TICKET-1786273560263',
+        senderId: 'usr-diego-daniel-mmad',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hello SVB support desk.',
+        createdAt: '2026-08-27T09:00:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-27T09:00:00.000Z',
+    updatedAt: '2026-08-27T09:00:00.000Z'
   }
 ];
 

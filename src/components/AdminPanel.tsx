@@ -11,7 +11,8 @@ import {
   subscribeVerificationsFromFirestore,
   subscribeTransactionsFromFirestore,
   subscribeSupportTicketsFromFirestore,
-  subscribeEmailLogsFromFirestore
+  subscribeEmailLogsFromFirestore,
+  mergeSupportTickets
 } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
 import { subscribeRealtimeUpdates } from '../services/realtimeBus';
@@ -367,11 +368,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       }
     });
 
-    // 6. Subscribe to Live Support Inquiries
+    // 6. Initialize and subscribe to Live Support Inquiries
+    setSupportTickets(dbStore.getSupportTickets(undefined, true));
+
     const unsubSupport = subscribeSupportTicketsFromFirestore(undefined, true, (liveTickets) => {
       if (liveTickets) {
         liveTickets.forEach(t => dbStore.addSupportTicket(t));
-        setSupportTickets(liveTickets);
+        setSupportTickets(prev => {
+          const map = new Map<string, SupportTicket>();
+          dbStore.getSupportTickets(undefined, true).forEach(t => map.set(t.id, t));
+          prev.forEach(t => map.set(t.id, map.get(t.id) ? mergeSupportTickets(map.get(t.id)!, t) : t));
+          liveTickets.forEach(t => map.set(t.id, map.get(t.id) ? mergeSupportTickets(map.get(t.id)!, t) : t));
+          return Array.from(map.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+        });
       }
     });
 
@@ -379,7 +388,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     const unsubRealtime = subscribeRealtimeUpdates((event) => {
       if (event.type.includes('SUPPORT') || event.type.includes('TICKET')) {
         const localTickets = dbStore.getSupportTickets(undefined, true);
-        setSupportTickets(localTickets);
+        setSupportTickets(prev => {
+          const map = new Map<string, SupportTicket>();
+          localTickets.forEach(t => map.set(t.id, t));
+          prev.forEach(t => map.set(t.id, map.get(t.id) ? mergeSupportTickets(map.get(t.id)!, t) : t));
+          return Array.from(map.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+        });
       }
     });
 

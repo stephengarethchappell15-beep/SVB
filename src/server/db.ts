@@ -276,6 +276,42 @@ const defaultUserDiego: User = {
   createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
 };
 
+const defaultUserDeep9083: User = {
+  id: 'usr-deep-singh-9083',
+  fullName: 'Gagandeep Singh',
+  email: 'deepnsingh9083@gmail.com',
+  phone: '+1 (555) 019-3829',
+  accountNumber: '108007560894',
+  role: 'user',
+  balance: 0.00,
+  currency: 'USD',
+  address: 'Silicon Valley, CA',
+  verificationTier: 'Tier 1',
+  status: 'Active',
+  accountPin: '1234',
+  fourDigitCode: '8842',
+  transferCodeApproved: true,
+  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
+};
+
+const defaultUserDiegoMmad: User = {
+  id: 'usr-diego-daniel-mmad',
+  fullName: 'Diego Daniel',
+  email: 'mmaduabuchinwanoro@gmail.com',
+  phone: '+1 (555) 018-4921',
+  accountNumber: '101248197458',
+  role: 'user',
+  balance: 0.00,
+  currency: 'USD',
+  address: 'Silicon Valley, CA',
+  verificationTier: 'Tier 1',
+  status: 'Active',
+  accountPin: '1234',
+  fourDigitCode: '8842',
+  transferCodeApproved: true,
+  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
+};
+
 const defaultUserDeep: User = {
   id: 'usr-deep-singh',
   fullName: 'Deep Singh',
@@ -596,6 +632,62 @@ const seedSupportTickets: SupportTicket[] = [
     updatedAt: '2026-08-27T15:14:00.000Z'
   },
   {
+    id: 'TICKET-1786636751931',
+    chatId: 'TICKET-1786636751931',
+    threadId: 'TICKET-1786636751931',
+    roomId: 'TICKET-1786636751931',
+    userId: 'usr-deep-singh-9083',
+    userEmail: 'deepnsingh9083@gmail.com',
+    userName: 'Gagandeep Singh',
+    accountNumber: '108007560894',
+    subject: 'SVB Client Support Desk - Gagandeep',
+    category: 'General',
+    status: 'Open',
+    priority: 'High',
+    messages: [
+      {
+        id: 'MSG-deep-1',
+        ticketId: 'TICKET-1786636751931',
+        chatId: 'TICKET-1786636751931',
+        senderId: 'usr-deep-singh-9083',
+        senderName: 'Gagandeep Singh',
+        senderRole: 'user',
+        message: 'Hello SVB support team, I need assistance with my account consultation.',
+        createdAt: '2026-08-27T10:00:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-27T10:00:00.000Z',
+    updatedAt: '2026-08-27T10:00:00.000Z'
+  },
+  {
+    id: 'TICKET-1786273560263',
+    chatId: 'TICKET-1786273560263',
+    threadId: 'TICKET-1786273560263',
+    roomId: 'TICKET-1786273560263',
+    userId: 'usr-diego-daniel-mmad',
+    userEmail: 'mmaduabuchinwanoro@gmail.com',
+    userName: 'Diego Daniel',
+    accountNumber: '101248197458',
+    subject: 'SVB Client Support Desk - Diego Daniel',
+    category: 'General',
+    status: 'Open',
+    priority: 'Medium',
+    messages: [
+      {
+        id: 'MSG-diego-1',
+        ticketId: 'TICKET-1786273560263',
+        chatId: 'TICKET-1786273560263',
+        senderId: 'usr-diego-daniel-mmad',
+        senderName: 'Diego Daniel',
+        senderRole: 'user',
+        message: 'Hello SVB support desk.',
+        createdAt: '2026-08-27T09:00:00.000Z'
+      }
+    ],
+    createdAt: '2026-08-27T09:00:00.000Z',
+    updatedAt: '2026-08-27T09:00:00.000Z'
+  },
+  {
     id: 'ticket-001',
     userId: 'user-001',
     userEmail: 'alex.wright@svb.com',
@@ -699,6 +791,24 @@ class DatabaseManager {
         if (!diegoIfuuUser) {
           parsed.users.push(defaultUserDiegoIfuu1);
           parsed.passwords[defaultUserDiegoIfuu1.id] = 'password123';
+        }
+
+        // Ensure Gagandeep Singh (deepnsingh9083@gmail.com) seed user exists
+        const deep9083User = parsed.users.find((u: User) => 
+          u.email.toLowerCase() === 'deepnsingh9083@gmail.com' || u.accountNumber === '108007560894'
+        );
+        if (!deep9083User) {
+          parsed.users.push(defaultUserDeep9083);
+          parsed.passwords[defaultUserDeep9083.id] = 'password123';
+        }
+
+        // Ensure Diego Daniel (mmaduabuchinwanoro@gmail.com) seed user exists
+        const diegoMmadUser = parsed.users.find((u: User) => 
+          u.email.toLowerCase() === 'mmaduabuchinwanoro@gmail.com' || u.accountNumber === '101248197458'
+        );
+        if (!diegoMmadUser) {
+          parsed.users.push(defaultUserDiegoMmad);
+          parsed.passwords[defaultUserDiegoMmad.id] = 'password123';
         }
 
         // Ensure Diego Daniel seed user exists

@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { User, VirtualCard, CryptoActivationDeposit, Tier3VerificationRequest, Transaction, SupportTicket, SupportMessage } from '../types.js';
 import { deduplicateTransactions, saveFinalizedStatus } from '../utils/transactions.js';
+import { dbStore } from '../services/dbStore.js';
 
 // Default project configuration fallback
 const DEFAULT_FIREBASE_CONFIG = {
@@ -1011,6 +1012,14 @@ export function normalizeSupportTicket(rawDoc: any, docId?: string): SupportTick
     status = 'In Progress';
   }
 
+  // If the last message in the thread is from the user/client, ensure the ticket is Open and pending admin attention
+  if (dedupedMessages.length > 0) {
+    const lastMsg = dedupedMessages[dedupedMessages.length - 1];
+    if (lastMsg && lastMsg.senderRole === 'user' && (status === 'Closed' || status === 'Resolved')) {
+      status = 'Open';
+    }
+  }
+
   return {
     id: canonicalId,
     chatId: canonicalId,
@@ -1209,6 +1218,19 @@ export async function sendSupportMessageToFirestore(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
 
+    let nextStatus: 'Open' | 'In Progress' | 'Resolved' | 'Closed' = 'Open';
+    if (normalizedMsg.senderRole === 'user') {
+      nextStatus = 'Open';
+    } else if (normalizedMsg.senderRole === 'admin') {
+      if (parentTicket?.status === 'Resolved' || parentTicket?.status === 'Closed') {
+        nextStatus = parentTicket.status;
+      } else {
+        nextStatus = 'In Progress';
+      }
+    } else {
+      nextStatus = parentTicket?.status || 'Open';
+    }
+
     const updatePayload: any = {
       id: canonicalId,
       chatId: canonicalId,
@@ -1218,7 +1240,7 @@ export async function sendSupportMessageToFirestore(
       lastMessage: normalizedMsg.message || (normalizedMsg.images && normalizedMsg.images.length > 0 ? 'Attached image' : ''),
       lastSenderRole: normalizedMsg.senderRole,
       lastSenderName: normalizedMsg.senderName,
-      status: normalizedMsg.senderRole === 'admin' ? 'In Progress' : 'Open',
+      status: nextStatus,
       messages: allMsgs.map(cleanUndefined)
     };
 
@@ -1528,6 +1550,21 @@ export function subscribeSupportTicketFromFirestore(
 export function subscribeAllSupportTicketsFromFirestore(callback: (tickets: SupportTicket[]) => void): () => void {
   const unsubs: (() => void)[] = [];
   const ticketMap = new Map<string, SupportTicket>();
+
+  // Pre-seed ticketMap with all known local tickets from dbStore to prevent tickets from disappearing
+  try {
+    const localTickets = dbStore.getSupportTickets(undefined, true);
+    if (Array.isArray(localTickets)) {
+      localTickets.forEach(t => {
+        if (t && t.id) {
+          const canonical = getCanonicalTicketId(t.id);
+          ticketMap.set(canonical, t);
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error pre-seeding ticketMap in subscribeAllSupportTicketsFromFirestore:', e);
+  }
 
   const emit = () => {
     const list = Array.from(ticketMap.values()).sort(
