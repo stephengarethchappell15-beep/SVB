@@ -96,7 +96,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
   useEffect(() => {
     fetchUserTickets();
 
-    const unsubFirestore = subscribeSupportTicketsFromFirestore(user.id, false, (fsTickets) => {
+    const unsubFirestore = subscribeSupportTicketsFromFirestore({ id: user.id, email: user.email }, false, (fsTickets) => {
       if (fsTickets) {
         fsTickets.forEach(t => dbStore.addSupportTicket(t));
         const userTickets = fsTickets.filter(t => 

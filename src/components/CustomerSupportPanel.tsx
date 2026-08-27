@@ -87,6 +87,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   const [replyLoading, setReplyLoading] = useState(false);
   const [selectedImageModal, setSelectedImageModal] = useState<string | null>(null);
   const [deletingMsgId, setDeletingMsgId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'thread' | 'unified'>('thread');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -631,6 +632,45 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     }).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
   }, [tickets, statusFilter, searchFilter, registeredUsers]);
 
+  // Compute all tickets associated with the currently selected client
+  const clientAllTickets = useMemo(() => {
+    if (!selectedTicket || !isAdmin) return [];
+    const det = getUserDetails(selectedTicket);
+    const targetEmail = det.userEmail.toLowerCase().trim();
+    const targetUid = (selectedTicket.userId || '').trim();
+    const targetAcc = det.accountNumber.trim();
+    return tickets.filter(t => {
+      const d = getUserDetails(t);
+      return (targetEmail && d.userEmail.toLowerCase() === targetEmail) ||
+        (targetUid && t.userId === targetUid) ||
+        (targetAcc && d.accountNumber === targetAcc);
+    }).sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  }, [tickets, selectedTicket, isAdmin, registeredUsers]);
+
+  // Compute all messages across all tickets for this client in chronological unbroken order
+  const clientUnifiedMessages = useMemo(() => {
+    if (!isAdmin || clientAllTickets.length <= 1) {
+      return (selectedTicket?.messages || []).map(m => ({ ...m, ticketSubject: selectedTicket?.subject }));
+    }
+    const combined: (SupportMessage & { ticketSubject?: string; ticketStatus?: string })[] = [];
+    const seen = new Set<string>();
+    
+    clientAllTickets.forEach(t => {
+      (t.messages || []).forEach(m => {
+        const key = m.id || `${m.senderId}-${m.message}-${m.createdAt}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push({
+            ...m,
+            ticketSubject: t.subject,
+            ticketStatus: t.status
+          });
+        }
+      });
+    });
+    return combined.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  }, [isAdmin, clientAllTickets, selectedTicket]);
+
   const handleStartMessageWithUser = (targetUser: User) => {
     const existingTicket = tickets.find(t => {
       const details = getUserDetails(t);
@@ -962,6 +1002,41 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Admin Multi-Ticket Unified History View Switcher */}
+                {isAdmin && clientAllTickets.length > 1 && (
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Found <strong className="text-white">{clientAllTickets.length} past tickets</strong> for this client</span>
+                    </span>
+                    <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('thread')}
+                        className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                          viewMode === 'thread'
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Active Thread ({selectedTicket.messages?.length || 0})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewMode('unified')}
+                        className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                          viewMode === 'unified'
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Display unbroken chronological conversation history across all tickets for this user"
+                      >
+                        Unbroken History ({clientUnifiedMessages.length})
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Messages Scroll Area */}
@@ -969,21 +1044,29 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                 ref={messagesContainerRef}
                 className="flex-1 overflow-y-auto py-4 space-y-3.5 pr-1 scroll-smooth bg-slate-950/30 rounded-2xl p-3 border border-slate-800/40 my-2"
               >
-                {!selectedTicket.messages || selectedTicket.messages.length === 0 ? (
-                  <div className="text-center py-10 px-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl space-y-3">
-                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto shadow-md shadow-emerald-500/10">
-                      <Headphones className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-white">Private WhatsApp-Style Chat Active</p>
-                      <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                        Ticket thread initialized for: <span className="text-emerald-400 font-semibold">{selectedTicket.subject}</span>.
-                        All messages sync immediately to both the client device and SVB admin desk.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  selectedTicket.messages.map((m, mIdx) => {
+                {(() => {
+                  const messagesToRender = (viewMode === 'unified' && isAdmin && clientAllTickets.length > 1) 
+                    ? clientUnifiedMessages 
+                    : (selectedTicket.messages || []);
+
+                  if (!messagesToRender || messagesToRender.length === 0) {
+                    return (
+                      <div className="text-center py-10 px-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl space-y-3">
+                        <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto shadow-md shadow-emerald-500/10">
+                          <Headphones className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-white">Private WhatsApp-Style Chat Active</p>
+                          <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
+                            Ticket thread initialized for: <span className="text-emerald-400 font-semibold">{selectedTicket.subject}</span>.
+                            All messages sync immediately to both the client device and SVB admin desk.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return messagesToRender.map((m: any, mIdx: number) => {
                     const isSenderUser = m.senderRole === 'user';
                     // Bubble alignment:
                     // If Admin viewing: Admin replies are on Right (isSenderUser = false -> ml-auto), Client msgs on Left (isSenderUser = true -> mr-auto).
@@ -1005,6 +1088,11 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                           {!isSenderUser && (
                             <span className="bg-amber-500/10 text-amber-400 text-[9px] px-1.5 rounded font-bold border border-amber-500/20">
                               SUPPORT DESK
+                            </span>
+                          )}
+                          {m.ticketSubject && viewMode === 'unified' && (
+                            <span className="bg-slate-800 text-slate-300 text-[9px] px-1.5 rounded border border-slate-700 font-mono truncate max-w-[120px]" title={m.ticketSubject}>
+                              {m.ticketSubject}
                             </span>
                           )}
                           <span>• {new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1035,7 +1123,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                           {/* Render attached images */}
                           {m.images && m.images.length > 0 && (
                             <div className="flex flex-wrap gap-2 pt-1.5">
-                              {m.images.map((img, idx) => (
+                              {m.images.map((img: string, idx: number) => (
                                 <div key={idx} className="relative group/img">
                                   <img
                                     src={img}
@@ -1065,8 +1153,8 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
                 <div ref={messagesEndRef} />
               </div>
 
