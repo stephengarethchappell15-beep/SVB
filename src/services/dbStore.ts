@@ -812,18 +812,22 @@ class LocalDBStore {
 
   getCurrentUser(): User | null {
     const token = this.getStoredToken();
-    if (token) {
-      const user = this.getUserById(token) || this.getUserByEmail(token) || this.findUserByEmailOrAccount(token);
-      if (user) return user;
+    if (!token) {
+      return null;
     }
 
-    // Try reading cached active user from localStorage
+    const cleanToken = token.replace(/^token-/, '').trim();
+    const user = this.getUserById(cleanToken) || this.getUserByEmail(cleanToken) || this.findUserByEmailOrAccount(cleanToken);
+    if (user) {
+      return user;
+    }
+
+    // Try reading cached active user from localStorage ONLY if it matches the active token
     try {
       const cached = localStorage.getItem(ACTIVE_USER_KEY);
       if (cached) {
         const parsed = JSON.parse(cached) as User;
-        if (parsed && (parsed.id || parsed.email)) {
-          // Re-hydrate into db.users if not present
+        if (parsed && (parsed.id === cleanToken || parsed.email?.toLowerCase() === cleanToken.toLowerCase() || parsed.accountNumber === cleanToken)) {
           const existingIdx = this.db.users.findIndex(u => u.id === parsed.id || u.email.toLowerCase() === parsed.email.toLowerCase());
           if (existingIdx >= 0) {
             this.db.users[existingIdx] = { ...this.db.users[existingIdx], ...parsed };
@@ -841,7 +845,7 @@ class LocalDBStore {
     return null;
   }
 
-  saveUser(user: User): User {
+  saveUser(user: User, isCurrentUser = false): User {
     this.refresh();
     const idx = this.db.users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
     if (idx >= 0) {
@@ -854,11 +858,48 @@ class LocalDBStore {
     } else if (user.profilePicture === '') {
       try { localStorage.removeItem(`svb_avatar_${user.id}`); } catch (e) {}
     }
-    try {
-      localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
-    } catch (e) {}
+
+    // Strict isolation: only update ACTIVE_USER_KEY if this user is explicitly the authenticated user
+    const currentToken = this.getStoredToken();
+    const cleanToken = currentToken ? currentToken.replace(/^token-/, '').trim() : null;
+    if (isCurrentUser || (cleanToken && (cleanToken === user.id || cleanToken.toLowerCase() === user.email?.toLowerCase() || cleanToken === user.accountNumber))) {
+      try {
+        localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
+      } catch (e) {}
+    }
     this.persist();
     return user;
+  }
+
+  // Cache user without touching active session
+  cacheUser(user: User): User {
+    this.refresh();
+    const idx = this.db.users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+    if (idx >= 0) {
+      this.db.users[idx] = { ...this.db.users[idx], ...user };
+    } else {
+      this.db.users.push(user);
+    }
+    if (user.profilePicture) {
+      try { localStorage.setItem(`svb_avatar_${user.id}`, user.profilePicture); } catch (e) {}
+    }
+    this.persist();
+    return user;
+  }
+
+  setActiveUser(user: User): void {
+    try {
+      localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
+      if (user.id) {
+        this.setStoredToken(user.id);
+      }
+    } catch (e) {
+      console.warn('Failed to set active user:', e);
+    }
+  }
+
+  clearActiveUser(): void {
+    this.removeStoredToken();
   }
 
   // Transactions

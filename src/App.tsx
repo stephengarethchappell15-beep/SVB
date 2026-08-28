@@ -119,7 +119,7 @@ export default function App() {
     const unsubAllUsers = subscribeAllUsersFromFirestore((allFsUsers) => {
       allFsUsers.forEach(u => {
         if (u && u.email) {
-          dbStore.saveUser(u);
+          dbStore.cacheUser(u);
         }
       });
     });
@@ -199,7 +199,7 @@ export default function App() {
           balance: Math.max(prev.balance || 0, updatedUser.balance || 0, availableBalance),
           ledgerBalance: Math.max(prev.ledgerBalance || 0, updatedUser.ledgerBalance || 0, ledgerBalance)
         };
-        dbStore.saveUser(merged);
+        dbStore.saveUser(merged, true);
         return merged;
       });
     });
@@ -220,7 +220,7 @@ export default function App() {
             balance: Math.max(prevUser.balance || 0, availableBalance), 
             ledgerBalance: Math.max(prevUser.ledgerBalance || 0, ledgerBalance) 
           };
-          dbStore.saveUser(reconciled);
+          dbStore.saveUser(reconciled, true);
           return reconciled;
         });
       }
@@ -244,6 +244,20 @@ export default function App() {
   };
 
   const handleNavigateBack = () => {
+    // If a transaction receipt modal is open, cleanly close it first
+    if (receiptTxn) {
+      setReceiptTxn(null);
+      return;
+    }
+    if (showNotifDrawer) {
+      setShowNotifDrawer(false);
+      return;
+    }
+    if (showLegalModal) {
+      setShowLegalModal(false);
+      return;
+    }
+
     if (typeof window !== 'undefined' && window.history.state && window.history.state.tab) {
       window.history.back();
     } else {
@@ -271,6 +285,9 @@ export default function App() {
 
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
+      if (receiptTxn) {
+        setReceiptTxn(null);
+      }
       let targetTab: any = e.state?.tab;
       if (!targetTab && typeof window !== 'undefined' && window.location.hash) {
         targetTab = window.location.hash.replace('#', '');
@@ -289,7 +306,7 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [user]);
+  }, [user, receiptTxn]);
 
   const getTabLabel = (tab: NavTabType): string => {
     switch (tab) {

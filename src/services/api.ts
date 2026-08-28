@@ -1874,24 +1874,7 @@ export const api = {
       createdAt: now
     };
 
-    const isNonAdmin = current.role !== 'admin';
     const newMessages: SupportMessage[] = [newMsg];
-
-    if (isNonAdmin) {
-      const autoReplyMsg: SupportMessage = {
-        id: `MSG-${Date.now() + 10}-${Math.random().toString(36).slice(2, 6)}`,
-        ticketId: ticket.id,
-        chatId: ticket.id,
-        threadId: ticket.id,
-        roomId: ticket.id,
-        senderId: 'svb-live-agent-bot',
-        senderName: 'SVB Support Desk',
-        senderRole: 'admin',
-        message: 'Kindly hold on, our support is currently unavailable. Kindly message the live agent.\n\nEmail: siliconvalleybank51@gmail.com',
-        createdAt: new Date(Date.now() + 400).toISOString()
-      };
-      newMessages.push(autoReplyMsg);
-    }
 
     const updatedMessages = [...(ticket.messages || []), ...newMessages];
 

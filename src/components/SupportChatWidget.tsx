@@ -230,7 +230,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
       setSending(true);
 
       if (activeTicket) {
-        // Optimistic UI append for user message
+        // Optimistic UI append for user message only
         const optimisticMsg: SupportMessage = {
           id: `msg-opt-${Date.now()}`,
           ticketId: activeTicket.id,
@@ -245,23 +245,9 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
           createdAt: nowIso
         };
 
-        // Also optimistic auto-reply from desk
-        const optimisticAutoReply: SupportMessage = {
-          id: `msg-opt-auto-${Date.now() + 1}`,
-          ticketId: activeTicket.id,
-          chatId: activeTicket.id,
-          threadId: activeTicket.id,
-          roomId: activeTicket.id,
-          senderId: 'svb-live-agent-bot',
-          senderName: 'SVB Support Desk',
-          senderRole: 'admin',
-          message: 'Kindly hold on, our support is currently unavailable. Kindly message the live agent.\n\nEmail: siliconvalleybank51@gmail.com',
-          createdAt: new Date(Date.now() + 300).toISOString()
-        };
-
         setActiveTicket(prev => prev ? { 
           ...prev, 
-          messages: [...(prev.messages || []), optimisticMsg, optimisticAutoReply] 
+          messages: [...(prev.messages || []), optimisticMsg] 
         } : prev);
         scrollToBottom(false);
 
@@ -286,17 +272,17 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
     }
   };
 
-  // Helper to render formatted message content with clickable email links & live agent triggers
-  const renderMessageContent = (text: string) => {
-    const containsTargetEmail = text.includes(SUPPORT_EMAIL);
-    const isUnavailableNotice = text.includes('currently unavailable') || text.includes('Kindly hold on');
+  // Helper to render formatted message content: bot offline notices get the action card, while all admin replies and user messages render as clean standard text bubbles
+  const renderMessageContent = (m: any, text: string) => {
+    const isBotOfflineMessage = 
+      m?.senderId === 'svb-live-agent-bot' || 
+      (m?.senderRole !== 'user' && text.includes('Kindly hold on, our support is currently unavailable'));
 
-    // Split text by email if present to make email directly clickable
-    if (containsTargetEmail) {
+    if (isBotOfflineMessage) {
       const parts = text.split(SUPPORT_EMAIL);
       return (
         <div className="space-y-2.5">
-          <p className="whitespace-pre-wrap">
+          <p className="whitespace-pre-wrap leading-relaxed">
             {parts[0]}
             <a
               href={`mailto:${SUPPORT_EMAIL}?subject=Live%20Agent%20Support%20Inquiry%20-%20${encodeURIComponent(user.fullName)}`}
@@ -308,7 +294,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
             {parts.slice(1).join(SUPPORT_EMAIL)}
           </p>
 
-          {/* Quick Action Button for Live Agent */}
+          {/* Quick Action Button for Live Agent ONLY on the initial automated offline card */}
           <div className="pt-1.5 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -333,7 +319,24 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
       );
     }
 
-    return <p className="whitespace-pre-wrap">{text}</p>;
+    // Clean standard text bubble for human admin/support replies and user messages
+    if (text.includes(SUPPORT_EMAIL)) {
+      const parts = text.split(SUPPORT_EMAIL);
+      return (
+        <p className="whitespace-pre-wrap leading-relaxed break-words">
+          {parts[0]}
+          <a
+            href={`mailto:${SUPPORT_EMAIL}`}
+            className="text-emerald-400 hover:underline font-medium"
+          >
+            {SUPPORT_EMAIL}
+          </a>
+          {parts.slice(1).join(SUPPORT_EMAIL)}
+        </p>
+      );
+    }
+
+    return <p className="whitespace-pre-wrap leading-relaxed break-words">{text}</p>;
   };
 
   return (
@@ -553,7 +556,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
                           : 'bg-slate-900 border border-slate-800 rounded-tl-none text-slate-200'
                       }`}
                     >
-                      {renderMessageContent(text)}
+                      {renderMessageContent(m, text)}
 
                       {/* Render attached images */}
                       {m.images && m.images.length > 0 && (

@@ -61,20 +61,27 @@ const getAuthUser = async (req: express.Request) => {
       token = token.replace('token-', '');
     }
 
-    // Admin token aliases
-    if (
-      token === 'user-admin' || 
-      token === 'admin-001' || 
-      token === 'admin-002' || 
-      token === 'admin-003' || 
-      token === 'usr-admin-001' || 
-      token === 'admin' ||
-      token === 'admin-token' ||
-      token.includes('admin') ||
-      token.includes('svb.com') ||
-      token === 'stephengarethchappell15@gmail.com' ||
-      token === 'siliconvalleybank51@gmail.com'
-    ) {
+    // 1. First prioritize exact user lookup by unique ID, email, or account
+    const directUser = (await dbManager.findUserByIdAsync(token)) || (await dbManager.findUserByEmailAsync(token));
+    if (directUser) {
+      return directUser;
+    }
+
+    // 2. Specific Admin token alias handling (strictly exact matches only, no wildcard substring bleeding)
+    const exactAdminTokens = [
+      'user-admin', 
+      'admin-001', 
+      'admin-002', 
+      'admin-003', 
+      'usr-admin-001', 
+      'admin', 
+      'admin-token', 
+      'stephengarethchappell15@gmail.com', 
+      'siliconvalleybank51@gmail.com',
+      'admin@svb.com'
+    ];
+
+    if (exactAdminTokens.includes(token.toLowerCase())) {
       try {
         const admin = (await dbManager.findUserByIdAsync(token)) || 
                       (await dbManager.findUserByEmailAsync(token)) || 
@@ -95,7 +102,7 @@ const getAuthUser = async (req: express.Request) => {
       } as any;
     }
 
-    return (await dbManager.findUserByIdAsync(token)) || (await dbManager.findUserByEmailAsync(token)) || null;
+    return null;
   } catch (err) {
     console.warn('getAuthUser exception caught safely:', err);
     return null;

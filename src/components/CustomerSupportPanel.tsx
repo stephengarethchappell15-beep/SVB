@@ -255,7 +255,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             prev.forEach(u => map.set(u.id, u));
             res.users.forEach(u => {
               map.set(u.id, u);
-              dbStore.saveUser(u);
+              dbStore.cacheUser(u);
             });
             return Array.from(map.values());
           });
@@ -271,18 +271,24 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
   useEffect(() => {
     fetchTickets(false);
 
+    if (isAdmin) {
+      try {
+        localStorage.setItem('svb_admin_last_viewed_support', Date.now().toString());
+      } catch {}
+    }
+
     // Only admins subscribe to full user directory
     let unsubUsers = () => {};
     if (isAdmin) {
       unsubUsers = subscribeAllUsersFromFirestore((liveUsers) => {
         if (liveUsers && liveUsers.length > 0) {
-          liveUsers.forEach(u => dbStore.saveUser(u));
+          liveUsers.forEach(u => dbStore.cacheUser(u));
           setRegisteredUsers(liveUsers);
         }
       });
       getAllUsersFromFirestore().then(users => {
         if (users && users.length > 0) {
-          users.forEach(u => dbStore.saveUser(u));
+          users.forEach(u => dbStore.cacheUser(u));
           setRegisteredUsers(users);
         }
       }).catch(() => {});
@@ -729,10 +735,12 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     setTimeout(() => setCopiedEmail(false), 2500);
   };
 
-  const renderMessageContent = (text: string) => {
-    const containsTargetEmail = text.includes(SUPPORT_EMAIL);
+  const renderMessageContent = (m: any, text: string) => {
+    const isBotOfflineMessage = 
+      m?.senderId === 'svb-live-agent-bot' || 
+      (m?.senderRole !== 'user' && text.includes('Kindly hold on, our support is currently unavailable'));
 
-    if (containsTargetEmail) {
+    if (isBotOfflineMessage) {
       const parts = text.split(SUPPORT_EMAIL);
       return (
         <div className="space-y-2.5">
@@ -768,6 +776,23 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             </button>
           </div>
         </div>
+      );
+    }
+
+    // Clean standard text bubble for all admin replies & user messages
+    if (text.includes(SUPPORT_EMAIL)) {
+      const parts = text.split(SUPPORT_EMAIL);
+      return (
+        <p className="whitespace-pre-wrap leading-relaxed break-words font-medium">
+          {parts[0]}
+          <a
+            href={`mailto:${SUPPORT_EMAIL}`}
+            className="text-emerald-400 hover:underline font-medium"
+          >
+            {SUPPORT_EMAIL}
+          </a>
+          {parts.slice(1).join(SUPPORT_EMAIL)}
+        </p>
       );
     }
 
@@ -1271,7 +1296,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
                             ? 'bg-emerald-600/30 border border-emerald-500/40 rounded-tr-none text-slate-100' 
                             : 'bg-slate-950 border border-slate-800 rounded-tl-none text-slate-100'
                         }`}>
-                          {msgText && renderMessageContent(msgText)}
+                          {msgText && renderMessageContent(m, msgText)}
 
                           {/* Render attached images */}
                           {m.images && m.images.length > 0 && (

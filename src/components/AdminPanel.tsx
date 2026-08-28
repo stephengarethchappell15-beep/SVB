@@ -33,6 +33,24 @@ interface AdminPanelProps {
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSuccess, onBack }) => {
   const [subTab, setSubTab] = useState<'pending' | 'users' | 'funding' | 'crypto' | 'withdraw' | 'audit' | 'support' | 'verifications' | 'email'>('pending');
+  const [lastViewedSupportAt, setLastViewedSupportAt] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('svb_admin_last_viewed_support');
+      return saved ? parseInt(saved, 10) : Date.now();
+    } catch {
+      return Date.now();
+    }
+  });
+
+  useEffect(() => {
+    if (subTab === 'support') {
+      const now = Date.now();
+      setLastViewedSupportAt(now);
+      try {
+        localStorage.setItem('svb_admin_last_viewed_support', now.toString());
+      } catch {}
+    }
+  }, [subTab]);
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [userSearchFilter, setUserSearchFilter] = useState<'all' | 'account' | 'email'>('all');
@@ -1069,11 +1087,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <Headphones className="w-3.5 h-3.5" />
               <span>Support Helpdesk</span>
               {(() => {
+                if (subTab === 'support') return null;
                 const pendingTickets = supportTickets.filter(t => {
                   if (t.status === 'Resolved' || t.status === 'Closed') return false;
-                  if (t.status === 'Open') return true;
                   const lastMsg = t.messages && t.messages.length > 0 ? t.messages[t.messages.length - 1] : null;
-                  return lastMsg ? lastMsg.senderRole === 'user' : true;
+                  const lastMsgTime = lastMsg ? new Date(lastMsg.createdAt).getTime() : new Date(t.updatedAt || t.createdAt).getTime();
+                  if (lastMsg) {
+                    return lastMsg.senderRole === 'user' && lastMsgTime > lastViewedSupportAt;
+                  }
+                  return t.status === 'Open' && lastMsgTime > lastViewedSupportAt;
                 });
                 if (pendingTickets.length === 0) return null;
                 return (
