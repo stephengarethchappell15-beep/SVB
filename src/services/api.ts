@@ -1820,7 +1820,12 @@ export const api = {
     return { ticket };
   },
 
-  async replySupportTicket(ticketId: string, message: string, images?: string[]): Promise<{ ticket: SupportTicket }> {
+  async replySupportTicket(
+    ticketId: string, 
+    message: string, 
+    images?: string[], 
+    targetTicketContext?: Partial<SupportTicket>
+  ): Promise<{ ticket: SupportTicket }> {
     const current = dbStore.getCurrentUser();
     if (!current) throw new Error('Not authenticated');
 
@@ -1836,30 +1841,42 @@ export const api = {
       } catch (e) {}
     }
     
+    const isSenderAdmin = current.role === 'admin';
+    const nowStr = new Date().toISOString();
+
     if (!ticket) {
       // If still not found, construct a graceful fallback ticket preserving user information
-      const nowStr = new Date().toISOString();
-      const isSenderAdmin = current.role === 'admin';
       ticket = {
         id: canonicalId,
         chatId: canonicalId,
         threadId: canonicalId,
         roomId: canonicalId,
-        userId: isSenderAdmin ? '' : current.id,
-        userEmail: isSenderAdmin ? '' : current.email,
-        userName: isSenderAdmin ? 'Client' : current.fullName,
-        accountNumber: isSenderAdmin ? '' : current.accountNumber,
-        subject: 'Support Consultation',
-        category: 'General',
+        userId: targetTicketContext?.userId || (isSenderAdmin ? '' : current.id),
+        userEmail: targetTicketContext?.userEmail || (isSenderAdmin ? '' : current.email),
+        userName: targetTicketContext?.userName || (isSenderAdmin ? 'Client' : current.fullName),
+        accountNumber: targetTicketContext?.accountNumber || (isSenderAdmin ? '' : current.accountNumber),
+        subject: targetTicketContext?.subject || 'Customer Support Consultation',
+        category: targetTicketContext?.category || 'General',
         status: 'Open',
-        priority: 'Medium',
+        priority: targetTicketContext?.priority || 'Medium',
         messages: [],
         createdAt: nowStr,
         updatedAt: nowStr
       };
+    } else if (targetTicketContext) {
+      // Enrich any missing profile fields from context
+      ticket = {
+        ...ticket,
+        userId: ticket.userId || targetTicketContext.userId || '',
+        userEmail: ticket.userEmail || targetTicketContext.userEmail || '',
+        userName: ticket.userName || targetTicketContext.userName || 'Client',
+        accountNumber: ticket.accountNumber || targetTicketContext.accountNumber || '',
+        subject: ticket.subject || targetTicketContext.subject || 'Customer Support Consultation',
+        category: ticket.category || targetTicketContext.category || 'General',
+        priority: ticket.priority || targetTicketContext.priority || 'Medium'
+      };
     }
 
-    const now = new Date().toISOString();
     const newMsg: SupportMessage = {
       id: `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       ticketId: ticket.id,
@@ -1867,31 +1884,31 @@ export const api = {
       threadId: ticket.id,
       roomId: ticket.id,
       senderId: current.id,
-      senderName: current.role === 'admin' ? 'SVB Client Support' : current.fullName,
-      senderRole: current.role,
+      senderName: isSenderAdmin ? 'SVB Client Support' : current.fullName,
+      senderRole: isSenderAdmin ? 'admin' : 'user',
       message,
       images,
-      createdAt: now
+      createdAt: nowStr
     };
 
     const newMessages: SupportMessage[] = [newMsg];
-
     const updatedMessages = [...(ticket.messages || []), ...newMessages];
 
     const updatedTicket: SupportTicket = {
       ...ticket,
-      chatId: ticket.id,
-      threadId: ticket.id,
-      roomId: ticket.id,
+      id: canonicalId,
+      chatId: canonicalId,
+      threadId: canonicalId,
+      roomId: canonicalId,
       messages: updatedMessages,
-      status: current.role === 'admin' ? 'In Progress' : 'Open',
-      updatedAt: newMessages[newMessages.length - 1].createdAt || now
+      status: isSenderAdmin ? 'In Progress' : 'Open',
+      updatedAt: nowStr
     };
 
     dbStore.updateSupportTicket(updatedTicket);
     await syncSupportTicketToFirestore(updatedTicket);
     for (const msg of newMessages) {
-      await sendSupportMessageToFirestore(ticket.id, msg, updatedTicket);
+      await sendSupportMessageToFirestore(updatedTicket.id, msg, updatedTicket);
     }
 
     broadcastRealtimeUpdate({
@@ -1901,7 +1918,14 @@ export const api = {
       timestamp: Date.now()
     });
 
-    if (current.role !== 'admin') {
+    broadcastRealtimeUpdate({
+      type: 'SUPPORT_TICKET_UPDATED',
+      ticketId: updatedTicket.id,
+      userId: current.id,
+      timestamp: Date.now()
+    });
+
+    if (!isSenderAdmin) {
       dispatchAdminAlert({
         type: 'LIVE_SUPPORT_MESSAGE',
         title: 'New Live Support Message',
@@ -1914,17 +1938,17 @@ export const api = {
     }
 
     // If admin replied, send notification to user
-    if (current.role === 'admin' && ticket.userId) {
+    if (isSenderAdmin && updatedTicket.userId) {
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
-        userId: ticket.userId,
+        userId: updatedTicket.userId,
         title: 'New Reply from Support Desk',
-        message: `You have a new message from SVB Client Support regarding "${ticket.subject}".`,
+        message: `You have a new message from SVB Client Support regarding "${updatedTicket.subject}".`,
         amount: 0,
         currency: 'USD',
-        reference: ticket.id,
+        reference: updatedTicket.id,
         read: false,
-        createdAt: now
+        createdAt: nowStr
       });
     }
 

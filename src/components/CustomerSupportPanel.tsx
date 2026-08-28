@@ -565,7 +565,8 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
       const res = await api.replySupportTicket(
         targetTicketId, 
         replyMsg, 
-        replyImg
+        replyImg,
+        selectedTicket
       );
       setSelectedTicket(prev => prev ? mergeSupportTickets(prev, res.ticket) : res.ticket);
       setTickets(prev => prev.map(t => isSameTicketId(t.id, res.ticket.id) ? mergeSupportTickets(t, res.ticket) : t));

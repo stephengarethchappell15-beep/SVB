@@ -833,7 +833,7 @@ export function getTicketIdVariants(ticketId?: string): string[] {
 export function normalizeSupportMessage(rawMsg: any, parentTicket?: Partial<SupportTicket>): SupportMessage {
   if (!rawMsg) {
     return {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: `msg-${Date.now()}`,
       senderId: 'system',
       senderName: 'System',
       senderRole: 'system',
@@ -845,21 +845,21 @@ export function normalizeSupportMessage(rawMsg: any, parentTicket?: Partial<Supp
   let messageStr = '';
   if (typeof rawMsg === 'string') {
     messageStr = rawMsg;
-  } else if (rawMsg.message) {
+  } else if (rawMsg.message !== undefined && rawMsg.message !== null) {
     messageStr = typeof rawMsg.message === 'string' ? rawMsg.message : JSON.stringify(rawMsg.message);
-  } else if (rawMsg.text) {
+  } else if (rawMsg.text !== undefined && rawMsg.text !== null) {
     messageStr = typeof rawMsg.text === 'string' ? rawMsg.text : JSON.stringify(rawMsg.text);
-  } else if (rawMsg.content) {
+  } else if (rawMsg.content !== undefined && rawMsg.content !== null) {
     messageStr = typeof rawMsg.content === 'string' ? rawMsg.content : JSON.stringify(rawMsg.content);
-  } else if (rawMsg.body) {
+  } else if (rawMsg.body !== undefined && rawMsg.body !== null) {
     messageStr = typeof rawMsg.body === 'string' ? rawMsg.body : JSON.stringify(rawMsg.body);
-  } else if (rawMsg.msg) {
+  } else if (rawMsg.msg !== undefined && rawMsg.msg !== null) {
     messageStr = typeof rawMsg.msg === 'string' ? rawMsg.msg : JSON.stringify(rawMsg.msg);
-  } else if (rawMsg.description) {
+  } else if (rawMsg.description !== undefined && rawMsg.description !== null) {
     messageStr = typeof rawMsg.description === 'string' ? rawMsg.description : JSON.stringify(rawMsg.description);
-  } else if (rawMsg.inquiry) {
+  } else if (rawMsg.inquiry !== undefined && rawMsg.inquiry !== null) {
     messageStr = typeof rawMsg.inquiry === 'string' ? rawMsg.inquiry : JSON.stringify(rawMsg.inquiry);
-  } else if (rawMsg.notes) {
+  } else if (rawMsg.notes !== undefined && rawMsg.notes !== null) {
     messageStr = typeof rawMsg.notes === 'string' ? rawMsg.notes : JSON.stringify(rawMsg.notes);
   }
 
@@ -892,20 +892,27 @@ export function normalizeSupportMessage(rawMsg: any, parentTicket?: Partial<Supp
     images = [rawMsg.receipt];
   }
 
-  const roleStr = String(rawMsg.senderRole || rawMsg.role || rawMsg.type || '').toLowerCase();
-  const isSenderAdmin = 
-    roleStr === 'admin' || 
-    roleStr === 'support' || 
-    roleStr === 'agent' || 
-    roleStr === 'staff' || 
-    roleStr === 'representative' ||
+  const roleStr = String(rawMsg.senderRole || rawMsg.role || rawMsg.type || '').toLowerCase().trim();
+  let role: 'admin' | 'user' | 'system' = 'user';
+
+  if (roleStr === 'admin' || roleStr === 'support' || roleStr === 'agent' || roleStr === 'staff' || roleStr === 'representative') {
+    role = 'admin';
+  } else if (roleStr === 'user' || roleStr === 'client' || roleStr === 'customer') {
+    role = 'user';
+  } else if (roleStr === 'system') {
+    role = 'system';
+  } else if (
     rawMsg.isAdmin === true || 
     rawMsg.fromAdmin === true ||
+    rawMsg.senderId === 'svb-live-agent-bot' ||
     (rawMsg.senderName && rawMsg.senderName.toLowerCase().includes('support')) ||
     (rawMsg.senderName && rawMsg.senderName.toLowerCase().includes('desk')) ||
-    (rawMsg.senderName && rawMsg.senderName.toLowerCase().includes('admin'));
-
-  const role: 'admin' | 'user' | 'system' = isSenderAdmin ? 'admin' : (roleStr === 'system' ? 'system' : 'user');
+    (rawMsg.senderName && rawMsg.senderName.toLowerCase().includes('admin'))
+  ) {
+    role = 'admin';
+  } else {
+    role = 'user';
+  }
 
   const senderName = 
     rawMsg.senderName || 
@@ -935,7 +942,8 @@ export function normalizeSupportMessage(rawMsg: any, parentTicket?: Partial<Supp
 
   let messageId = rawMsg.id || rawMsg._id;
   if (!messageId) {
-    messageId = `msg-${senderId}-${new Date(createdAt).getTime()}-${Math.random().toString(36).slice(2, 6)}`;
+    const cleanMsgSlice = messageStr.slice(0, 16).replace(/[^a-zA-Z0-9]/g, '');
+    messageId = `msg-${senderId}-${new Date(createdAt).getTime()}-${cleanMsgSlice || 'body'}`;
   }
 
   return {
@@ -1113,7 +1121,7 @@ export function mergeSupportTickets(existing: SupportTicket, incoming: SupportTi
     if (isTemp) {
       const existingMatch = Array.from(msgMap.values()).find(ex => {
         if (ex.id && (ex.id.startsWith('msg-opt-') || ex.id.startsWith('msg-temp-'))) return false;
-        if (ex.senderId !== m.senderId) return false;
+        if (ex.senderRole !== m.senderRole && ex.senderId !== m.senderId) return false;
         if ((ex.message || '').trim() !== msgText) return false;
         const exTime = new Date(ex.createdAt || 0).getTime();
         return Math.abs(exTime - msgTime) < 120000;
@@ -1124,7 +1132,7 @@ export function mergeSupportTickets(existing: SupportTicket, incoming: SupportTi
     } else {
       for (const [k, v] of msgMap.entries()) {
         if (v.id && (v.id.startsWith('msg-opt-') || v.id.startsWith('msg-temp-'))) {
-          if (v.senderId === m.senderId && (v.message || '').trim() === msgText) {
+          if ((v.senderRole === m.senderRole || v.senderId === m.senderId) && (v.message || '').trim() === msgText) {
             const vTime = new Date(v.createdAt || 0).getTime();
             if (Math.abs(vTime - msgTime) < 120000) {
               msgMap.delete(k);
@@ -1132,7 +1140,7 @@ export function mergeSupportTickets(existing: SupportTicket, incoming: SupportTi
           }
         }
       }
-      const key = m.id || `${m.senderId || 'user'}_${msgText}_${m.createdAt || msgTime}`;
+      const key = m.id || `${m.senderRole}_${m.senderId || 'user'}_${msgText}_${m.createdAt || msgTime}`;
       msgMap.set(key, m);
     }
   };
@@ -1160,7 +1168,7 @@ export function mergeSupportTickets(existing: SupportTicket, incoming: SupportTi
     userName: incoming.userName || existing.userName || 'Client',
     accountNumber: incoming.accountNumber || existing.accountNumber || '',
     messages: mergedMessages,
-    updatedAt: isIncomingNewer ? (incoming.updatedAt || new Date().toISOString()) : existing.updatedAt
+    updatedAt: isIncomingNewer ? (incoming.updatedAt || new Date().toISOString()) : (existing.updatedAt || new Date().toISOString())
   };
 }
 
@@ -1247,7 +1255,24 @@ export async function sendSupportMessageToFirestore(
   try {
     const canonicalId = getCanonicalTicketId(ticketId);
     const idVariants = getTicketIdVariants(canonicalId);
-    const normalizedMsg = normalizeSupportMessage(message, { id: canonicalId, ...parentTicket });
+    const localTicket = dbStore.getSupportTickets(undefined, true).find(t => isSameTicketId(t.id, canonicalId));
+
+    const finalUserId = parentTicket?.userId || localTicket?.userId || '';
+    const finalUserEmail = parentTicket?.userEmail || localTicket?.userEmail || '';
+    const finalUserName = parentTicket?.userName || localTicket?.userName || 'Client';
+    const finalAccountNumber = parentTicket?.accountNumber || localTicket?.accountNumber || '';
+    const finalSubject = parentTicket?.subject || localTicket?.subject || 'Customer Support Consultation';
+    const finalCategory = parentTicket?.category || localTicket?.category || 'General';
+    const finalPriority = parentTicket?.priority || localTicket?.priority || 'Medium';
+
+    const normalizedMsg = normalizeSupportMessage(message, { 
+      id: canonicalId, 
+      userId: finalUserId,
+      userEmail: finalUserEmail,
+      userName: finalUserName,
+      accountNumber: finalAccountNumber,
+      ...parentTicket 
+    });
     const msgId = normalizedMsg.id;
     const nowIso = new Date().toISOString();
 
@@ -1271,7 +1296,9 @@ export async function sendSupportMessageToFirestore(
       setDoc(doc(db, 'messages', msgId), msgPayload, { merge: true })
     ]);
 
-    const existingMsgs = Array.isArray(parentTicket?.messages) ? parentTicket.messages : [];
+    const existingMsgs = (parentTicket?.messages && parentTicket.messages.length > 0) 
+      ? parentTicket.messages 
+      : (localTicket?.messages || []);
     const allMsgs = [...existingMsgs.filter(m => m && m.id !== msgId), normalizedMsg].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
@@ -1286,7 +1313,7 @@ export async function sendSupportMessageToFirestore(
         nextStatus = 'In Progress';
       }
     } else {
-      nextStatus = parentTicket?.status || 'Open';
+      nextStatus = parentTicket?.status || localTicket?.status || 'Open';
     }
 
     const updatePayload: any = {
@@ -1299,16 +1326,15 @@ export async function sendSupportMessageToFirestore(
       lastSenderRole: normalizedMsg.senderRole,
       lastSenderName: normalizedMsg.senderName,
       status: nextStatus,
+      userId: finalUserId,
+      userEmail: finalUserEmail,
+      userName: finalUserName,
+      accountNumber: finalAccountNumber,
+      subject: finalSubject,
+      category: finalCategory,
+      priority: finalPriority,
       messages: allMsgs.map(cleanUndefined)
     };
-
-    if (parentTicket?.userId) updatePayload.userId = parentTicket.userId;
-    if (parentTicket?.userEmail) updatePayload.userEmail = parentTicket.userEmail;
-    if (parentTicket?.userName) updatePayload.userName = parentTicket.userName;
-    if (parentTicket?.accountNumber) updatePayload.accountNumber = parentTicket.accountNumber;
-    if (parentTicket?.subject) updatePayload.subject = parentTicket.subject;
-    if (parentTicket?.category) updatePayload.category = parentTicket.category;
-    if (parentTicket?.priority) updatePayload.priority = parentTicket.priority;
 
     const parentUpdates = idVariants.flatMap(variant => [
       setDoc(doc(db, 'support_tickets', variant), cleanUndefined(updatePayload), { merge: true }),
@@ -1473,7 +1499,9 @@ export function subscribeSupportTicketFromFirestore(
   const rawId = getRawTicketId(ticketId);
   const listenedVariants = Array.from(new Set([canonicalId, rawId])).filter(Boolean);
 
-  let currentTicket: SupportTicket = {
+  const localTicket = dbStore.getSupportTickets(undefined, true).find(t => isSameTicketId(t.id, canonicalId));
+
+  let currentTicket: SupportTicket = localTicket ? { ...localTicket } : {
     id: canonicalId,
     chatId: canonicalId,
     threadId: canonicalId,
@@ -1492,6 +1520,12 @@ export function subscribeSupportTicketFromFirestore(
   };
 
   const msgMap = new Map<string, SupportMessage>();
+
+  if (localTicket && Array.isArray(localTicket.messages)) {
+    localTicket.messages.forEach(m => {
+      if (m && m.id) msgMap.set(m.id, m);
+    });
+  }
 
   const emit = () => {
     const sorted = Array.from(msgMap.values()).sort(
@@ -1513,7 +1547,7 @@ export function subscribeSupportTicketFromFirestore(
 
     for (const [k, v] of msgMap.entries()) {
       if (v.id && (v.id.startsWith('msg-opt-') || v.id.startsWith('msg-temp-'))) {
-        if (v.senderId === norm.senderId && (v.message || '').trim() === msgText) {
+        if ((v.senderRole === norm.senderRole || v.senderId === norm.senderId) && (v.message || '').trim() === msgText) {
           const vTime = new Date(v.createdAt || 0).getTime();
           if (Math.abs(vTime - msgTime) < 120000) {
             msgMap.delete(k);
@@ -1662,17 +1696,18 @@ export function subscribeAllSupportTicketsFromFirestore(callback: (tickets: Supp
         });
         ticketMap.set(canonical, merged);
       } else {
+        const localMatch = dbStore.getSupportTickets(undefined, true).find(t => isSameTicketId(t.id, canonical));
         const synthTicket = normalizeSupportTicket({
           id: canonical,
           chatId: canonical,
-          userId: raw.userId || (normMsg.senderRole !== 'admin' ? normMsg.senderId : ''),
-          userEmail: raw.userEmail || (normMsg.senderRole !== 'admin' && normMsg.senderId?.includes('@') ? normMsg.senderId : ''),
-          userName: raw.userName || (normMsg.senderRole !== 'admin' ? normMsg.senderName : 'Client'),
-          accountNumber: raw.accountNumber,
-          subject: raw.subject || 'Customer Support Consultation',
-          category: raw.category || 'General',
-          status: raw.status || 'Open',
-          priority: raw.priority || 'Medium',
+          userId: raw.userId || localMatch?.userId || (normMsg.senderRole !== 'admin' ? normMsg.senderId : ''),
+          userEmail: raw.userEmail || localMatch?.userEmail || (normMsg.senderRole !== 'admin' && normMsg.senderId?.includes('@') ? normMsg.senderId : ''),
+          userName: raw.userName || localMatch?.userName || (normMsg.senderRole !== 'admin' ? normMsg.senderName : 'Client'),
+          accountNumber: raw.accountNumber || localMatch?.accountNumber,
+          subject: raw.subject || localMatch?.subject || 'Customer Support Consultation',
+          category: raw.category || localMatch?.category || 'General',
+          status: raw.status || localMatch?.status || 'Open',
+          priority: raw.priority || localMatch?.priority || 'Medium',
           messages: [normMsg],
           createdAt: normMsg.createdAt || new Date().toISOString(),
           updatedAt: normMsg.createdAt || new Date().toISOString()

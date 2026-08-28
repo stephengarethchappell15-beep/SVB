@@ -269,7 +269,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
         } : prev);
         scrollToBottom(false);
 
-        const res = await api.replySupportTicket(activeTicket.id, msgToSend, images);
+        const res = await api.replySupportTicket(activeTicket.id, msgToSend, images, activeTicket);
         setActiveTicket(prev => prev ? mergeSupportTickets(prev, res.ticket) : res.ticket);
       } else {
         const res = await api.createSupportTicket({
