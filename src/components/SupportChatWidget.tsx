@@ -5,7 +5,8 @@ import {
   subscribeSupportTicketsFromFirestore, 
   subscribeTicketMessagesFromFirestore,
   getTicketMessagesFromFirestore,
-  mergeSupportTickets 
+  mergeSupportTickets,
+  isSameTicketId
 } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
 import { subscribeRealtimeUpdates } from '../services/realtimeBus';
@@ -103,10 +104,18 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
       setTickets(userTickets);
 
       if (userTickets.length > 0) {
-        const latest = userTickets[0];
-        setActiveTicket(prev => prev ? mergeSupportTickets(prev, latest) : latest);
+        setActiveTicket(prev => {
+          if (prev) {
+            const matched = userTickets.find(t => isSameTicketId(t.id, prev.id) || isSameTicketId(t.chatId, prev.id));
+            if (matched) {
+              return mergeSupportTickets(prev, matched);
+            }
+          }
+          return userTickets[0];
+        });
 
-        const lastMsg = latest.messages[latest.messages.length - 1];
+        const activeT = userTickets[0];
+        const lastMsg = activeT.messages[activeT.messages.length - 1];
         if (lastMsg && lastMsg.senderRole === 'admin' && !isOpen) {
           setHasUnread(true);
         }
@@ -130,9 +139,18 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
         );
         setTickets(userTickets);
         if (userTickets.length > 0) {
-          const latest = userTickets[0];
-          setActiveTicket(prev => prev ? mergeSupportTickets(prev, latest) : latest);
-          const lastMsg = latest.messages[latest.messages.length - 1];
+          setActiveTicket(prev => {
+            if (prev) {
+              const matched = userTickets.find(t => isSameTicketId(t.id, prev.id) || isSameTicketId(t.chatId, prev.id));
+              if (matched) {
+                return mergeSupportTickets(prev, matched);
+              }
+            }
+            return userTickets[0];
+          });
+
+          const activeT = userTickets[0];
+          const lastMsg = activeT.messages[activeT.messages.length - 1];
           if (lastMsg && lastMsg.senderRole === 'admin' && !isOpen) {
             setHasUnread(true);
           }

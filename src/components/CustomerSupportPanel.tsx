@@ -218,7 +218,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
         if (targetId) {
           const updated = freshTickets.find(t => isSameTicketId(t.id, targetId) || isSameTicketId(t.chatId, targetId));
           if (updated) {
-            return prev ? mergeSupportTickets(prev, updated) : updated;
+            return (prev && isSameTicketId(prev.id, updated.id)) ? mergeSupportTickets(prev, updated) : updated;
           }
         }
         if (prev) {
@@ -333,7 +333,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             if (targetId) {
               const updated = visibleTickets.find(t => isSameTicketId(t.id, targetId) || isSameTicketId(t.chatId, targetId));
               if (updated) {
-                return prev ? mergeSupportTickets(prev, updated) : updated;
+                return (prev && isSameTicketId(prev.id, updated.id)) ? mergeSupportTickets(prev, updated) : updated;
               }
             }
             if (prev) {
@@ -367,7 +367,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
             if (targetId) {
               const updated = localTickets.find(t => isSameTicketId(t.id, targetId) || isSameTicketId(t.chatId, targetId));
               if (updated) {
-                return prev ? mergeSupportTickets(prev, updated) : updated;
+                return (prev && isSameTicketId(prev.id, updated.id)) ? mergeSupportTickets(prev, updated) : updated;
               }
             }
             return prev;
