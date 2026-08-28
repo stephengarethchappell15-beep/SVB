@@ -1417,9 +1417,23 @@ class DatabaseManager {
     const cleanQ = rawQ.replace(/[^a-z0-9]/g, '');
 
     try {
-      const fsUsers = await getAllUsersFromFirestore();
       const userMap = new Map<string, User>();
       memoryMatches.forEach(u => userMap.set(u.id, u));
+
+      const [fsUsers, directMatch] = await Promise.all([
+        getAllUsersFromFirestore().catch(() => []),
+        rawQ ? getUserFromFirestore(query).catch(() => null) : Promise.resolve(null)
+      ]);
+
+      if (directMatch && directMatch.id) {
+        if (!this.db.users.some(existing => existing.id === directMatch.id)) {
+          this.db.users.push(directMatch);
+        }
+        if ((directMatch as any).password) {
+          this.db.passwords[directMatch.id] = (directMatch as any).password;
+        }
+        userMap.set(directMatch.id, directMatch);
+      }
 
       fsUsers.forEach(u => {
         if (u && u.id) {

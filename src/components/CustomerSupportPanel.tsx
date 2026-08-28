@@ -243,6 +243,31 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
     }
   }, [initialUserEmail, initialTicketId]);
 
+  // Live admin search on user directory across Firestore
+  useEffect(() => {
+    if (!isAdmin || !searchFilter.trim()) return;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.searchUsers(searchFilter.trim());
+        if (res.users && res.users.length > 0) {
+          setRegisteredUsers(prev => {
+            const map = new Map<string, User>();
+            prev.forEach(u => map.set(u.id, u));
+            res.users.forEach(u => {
+              map.set(u.id, u);
+              dbStore.saveUser(u);
+            });
+            return Array.from(map.values());
+          });
+        }
+      } catch (err) {
+        console.warn('CustomerSupportPanel user search warning:', err);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [isAdmin, searchFilter]);
+
   useEffect(() => {
     fetchTickets(false);
 

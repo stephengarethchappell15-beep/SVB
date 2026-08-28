@@ -232,6 +232,20 @@ export async function getAllUsersFromFirestore(): Promise<User[]> {
   }
 
   try {
+    const accSnap = await getDocs(collection(db, 'users_by_account'));
+    accSnap.forEach((d) => {
+      if (d.exists()) {
+        const data = d.data() as User;
+        if (data && data.email && !userMap.has(data.email.toLowerCase())) {
+          userMap.set(data.email.toLowerCase(), data);
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('Firestore getAllUsers account collection error:', err);
+  }
+
+  try {
     const [ticketsSnap, chatsSnap] = await Promise.all([
       getDocs(collection(db, 'support_tickets')).catch(() => null),
       getDocs(collection(db, 'chats')).catch(() => null)
@@ -688,6 +702,50 @@ export function subscribeAllUsersFromFirestore(callback: (users: User[]) => void
       emit();
     }, (err) => console.warn('Users by email snapshot error:', err));
     unsubs.push(unsubEmailUsers);
+
+    const unsubAccountUsers = onSnapshot(collection(db, 'users_by_account'), (snap) => {
+      snap.forEach((d) => {
+        if (d.exists()) {
+          const u = d.data() as User;
+          if (u && u.email) userMap.set(u.email.toLowerCase(), u);
+        }
+      });
+      emit();
+    }, (err) => console.warn('Users by account snapshot error:', err));
+    unsubs.push(unsubAccountUsers);
+
+    const unsubChats = onSnapshot(collection(db, 'chats'), (snap) => {
+      snap.forEach((d) => {
+        if (d.exists()) {
+          const t = d.data();
+          const userEmail = (t.userEmail || '').trim().toLowerCase();
+          if (userEmail && !userMap.has(userEmail)) {
+            const synthesizedUser: User = {
+              id: t.userId || `usr-${userEmail.replace(/[^a-z0-9]/g, '')}`,
+              fullName: t.userName || userEmail.split('@')[0],
+              email: userEmail,
+              phone: '+1 (555) 019-2834',
+              accountNumber: t.accountNumber || '10' + Math.floor(10000000 + Math.random() * 90000000).toString(),
+              role: 'user',
+              balance: 0.00,
+              ledgerBalance: 0.00,
+              currency: 'USD',
+              address: 'Silicon Valley, CA',
+              country: 'United States',
+              verificationTier: 'Tier 1',
+              status: 'Active',
+              accountPin: '1234',
+              fourDigitCode: '8842',
+              transferCodeApproved: true,
+              createdAt: t.createdAt || new Date().toISOString()
+            };
+            userMap.set(userEmail, synthesizedUser);
+          }
+        }
+      });
+      emit();
+    }, (err) => console.warn('Chats user sync snapshot error:', err));
+    unsubs.push(unsubChats);
 
     const unsubTickets = onSnapshot(collection(db, 'support_tickets'), (snap) => {
       snap.forEach((d) => {

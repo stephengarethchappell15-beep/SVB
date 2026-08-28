@@ -12,7 +12,8 @@ import {
   subscribeTransactionsFromFirestore,
   subscribeSupportTicketsFromFirestore,
   subscribeEmailLogsFromFirestore,
-  mergeSupportTickets
+  mergeSupportTickets,
+  getCanonicalTicketId
 } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
 import { subscribeRealtimeUpdates } from '../services/realtimeBus';
@@ -376,9 +377,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         liveTickets.forEach(t => dbStore.addSupportTicket(t));
         setSupportTickets(prev => {
           const map = new Map<string, SupportTicket>();
-          dbStore.getSupportTickets(undefined, true).forEach(t => map.set(t.id, t));
-          prev.forEach(t => map.set(t.id, map.get(t.id) ? mergeSupportTickets(map.get(t.id)!, t) : t));
-          liveTickets.forEach(t => map.set(t.id, map.get(t.id) ? mergeSupportTickets(map.get(t.id)!, t) : t));
+          dbStore.getSupportTickets(undefined, true).forEach(t => map.set(getCanonicalTicketId(t.id), t));
+          prev.forEach(t => {
+            const cid = getCanonicalTicketId(t.id);
+            const ex = map.get(cid);
+            map.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+          });
+          liveTickets.forEach(t => {
+            const cid = getCanonicalTicketId(t.id);
+            const ex = map.get(cid);
+            map.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+          });
           return Array.from(map.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
         });
       }
@@ -390,8 +399,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         const localTickets = dbStore.getSupportTickets(undefined, true);
         setSupportTickets(prev => {
           const map = new Map<string, SupportTicket>();
-          localTickets.forEach(t => map.set(t.id, t));
-          prev.forEach(t => map.set(t.id, map.get(t.id) ? mergeSupportTickets(map.get(t.id)!, t) : t));
+          localTickets.forEach(t => map.set(getCanonicalTicketId(t.id), t));
+          prev.forEach(t => {
+            const cid = getCanonicalTicketId(t.id);
+            const ex = map.get(cid);
+            map.set(cid, ex ? mergeSupportTickets(ex, t) : t);
+          });
           return Array.from(map.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
         });
       }
