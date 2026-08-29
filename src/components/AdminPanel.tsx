@@ -35,11 +35,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   const [subTab, setSubTab] = useState<'pending' | 'users' | 'funding' | 'crypto' | 'withdraw' | 'audit' | 'support' | 'verifications' | 'email'>('pending');
   const [lastViewedSupportAt, setLastViewedSupportAt] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('svb_admin_last_viewed_support');
-      return saved ? parseInt(saved, 10) : Date.now();
-    } catch {
-      return Date.now();
-    }
+      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem('svb_admin_last_viewed_support');
+        return saved ? parseInt(saved, 10) : Date.now();
+      }
+    } catch {}
+    return Date.now();
   });
 
   useEffect(() => {
@@ -47,7 +48,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       const now = Date.now();
       setLastViewedSupportAt(now);
       try {
-        localStorage.setItem('svb_admin_last_viewed_support', now.toString());
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+          localStorage.setItem('svb_admin_last_viewed_support', now.toString());
+        }
       } catch {}
     }
   }, [subTab]);

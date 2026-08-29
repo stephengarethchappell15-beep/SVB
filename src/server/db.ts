@@ -1550,6 +1550,7 @@ class DatabaseManager {
       : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     targetUser.balance += Number(deposit.amount);
+    targetUser.ledgerBalance = (targetUser.ledgerBalance || 0) + Number(deposit.amount);
 
     // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
     let isNewCodeGenerated = false;
@@ -1606,7 +1607,7 @@ class DatabaseManager {
       action: 'DEPOSIT_CREATED',
       targetEmail: targetUser.email,
       targetAccountNumber: targetUser.accountNumber,
-      description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
+      description: `Admin ${adminUser.email} credited ${deposit.currency || 'USD'} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
       details: {
         amount: deposit.amount,
         currency: deposit.currency,
@@ -1617,6 +1618,8 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
+    syncUserToFirestore(targetUser).catch(err => console.warn('Firestore user sync warning in createDeposit:', err));
+    syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore txn sync warning in createDeposit:', err));
 
     // Real transactional email notification (non-blocking)
     if (newTxn.status === 'Completed') {
@@ -1633,8 +1636,109 @@ class DatabaseManager {
         currentBalance: targetUser.balance,
         activationCode: isNewCodeGenerated ? targetUser.fourDigitCode : undefined
       }).catch(err => console.warn('Deposit email delivery warning:', err));
-    } else {
-      emailService.sendDepositSubmittedEmail({
+    }
+
+    return { user: targetUser, transaction: newTxn };
+  }
+
+  public async createDepositAsync(deposit: DepositPayload, adminUser: User): Promise<{ user: User; transaction: Transaction }> {
+    if (adminUser.role !== 'admin') {
+      throw new Error('Unauthorized: Only SVB Review team can create deposit entries.');
+    }
+
+    const emailQuery = deposit.userEmail ? deposit.userEmail.trim() : '';
+    const accQuery = deposit.accountNumber ? deposit.accountNumber.trim() : '';
+
+    let targetUser = (emailQuery ? await this.findUserByEmailOrAccountAsync(emailQuery) : undefined) ||
+                     (accQuery ? await this.findUserByEmailOrAccountAsync(accQuery) : undefined);
+
+    if (!targetUser) {
+      throw new Error(`Target user account not found for '${emailQuery || accQuery}'. Please verify the email or account number.`);
+    }
+
+    if (deposit.amount <= 0) {
+      throw new Error('Deposit amount must be greater than 0.');
+    }
+
+    const ref = deposit.reference && deposit.reference.trim() !== ''
+      ? deposit.reference.trim()
+      : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    targetUser.balance += Number(deposit.amount);
+    targetUser.ledgerBalance = (targetUser.ledgerBalance || 0) + Number(deposit.amount);
+
+    // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
+    let isNewCodeGenerated = false;
+    if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
+      const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+      targetUser.fourDigitCode = generatedCode;
+      targetUser.transferCodeApproved = true;
+      isNewCodeGenerated = true;
+    }
+
+    const now = new Date().toISOString();
+    const newTxn: Transaction = {
+      id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userId: targetUser.id,
+      userEmail: targetUser.email,
+      accountNumber: targetUser.accountNumber,
+      senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
+      amount: Number(deposit.amount),
+      currency: deposit.currency || 'USD',
+      type: 'Deposit',
+      status: 'Completed',
+      reference: ref,
+      description: isNewCodeGenerated 
+        ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
+        : (deposit.description || 'Admin Balance Deposit'),
+      createdByAdminEmail: adminUser.email,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    this.db.transactions.unshift(newTxn);
+
+    const notifMsg = isNewCodeGenerated
+      ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
+      : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
+
+    const notif: UserNotification = {
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userId: targetUser.id,
+      title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
+      message: notifMsg,
+      amount: Number(deposit.amount),
+      currency: deposit.currency || 'USD',
+      reference: ref,
+      read: false,
+      createdAt: now
+    };
+
+    this.db.notifications.unshift(notif);
+
+    this.addAuditLog({
+      adminId: adminUser.id,
+      adminEmail: adminUser.email,
+      action: 'DEPOSIT_CREATED',
+      targetEmail: targetUser.email,
+      targetAccountNumber: targetUser.accountNumber,
+      description: `Admin ${adminUser.email} credited ${deposit.currency || 'USD'} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
+      details: {
+        amount: deposit.amount,
+        currency: deposit.currency,
+        reference: ref,
+        description: deposit.description,
+        newBalance: targetUser.balance
+      }
+    });
+
+    this.saveDB(this.db);
+    await syncUserToFirestore(targetUser).catch(err => console.warn('Firestore user sync warning in createDepositAsync:', err));
+    await syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore txn sync warning in createDepositAsync:', err));
+
+    // Real transactional email notification (non-blocking)
+    if (newTxn.status === 'Completed') {
+      emailService.sendDepositApprovedEmail({
         userEmail: targetUser.email,
         fullName: targetUser.fullName,
         accountNumber: targetUser.accountNumber,
@@ -1642,10 +1746,11 @@ class DatabaseManager {
         currency: deposit.currency || 'USD',
         reference: ref,
         type: 'Deposit',
-        status: newTxn.status,
+        status: 'Completed',
         description: deposit.description,
-        currentBalance: targetUser.balance
-      }).catch(err => console.warn('Deposit submission email delivery warning:', err));
+        currentBalance: targetUser.balance,
+        activationCode: isNewCodeGenerated ? targetUser.fourDigitCode : undefined
+      }).catch(err => console.warn('Deposit email delivery warning:', err));
     }
 
     return { user: targetUser, transaction: newTxn };

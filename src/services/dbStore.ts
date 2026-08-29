@@ -5,6 +5,35 @@ const STORAGE_KEY = 'svb_core_ledger_v2';
 const TOKEN_KEY = 'svb_auth_token_v2';
 const ACTIVE_USER_KEY = 'svb_active_user_v2';
 
+const memoryStore = new Map<string, string>();
+
+const safeStorage = {
+  getItem(key: string): string | null {
+    try {
+      if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+        return window.localStorage.getItem(key);
+      }
+    } catch {}
+    return memoryStore.get(key) || null;
+  },
+  setItem(key: string, value: string): void {
+    try {
+      if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+        window.localStorage.setItem(key, value);
+      }
+    } catch {}
+    memoryStore.set(key, value);
+  },
+  removeItem(key: string): void {
+    try {
+      if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+        window.localStorage.removeItem(key);
+      }
+    } catch {}
+    memoryStore.delete(key);
+  }
+};
+
 
 interface DBStructure {
   users: User[];
@@ -501,7 +530,7 @@ const EXTRA_USERS_KEY = 'svb_registered_users_v2';
 function getInitialDB(): DBStructure {
   let loadedUsers: User[] = [];
   try {
-    const rawExtra = localStorage.getItem(EXTRA_USERS_KEY);
+    const rawExtra = safeStorage.getItem(EXTRA_USERS_KEY);
     if (rawExtra) {
       const parsedExtra = JSON.parse(rawExtra);
       if (Array.isArray(parsedExtra)) {
@@ -513,7 +542,7 @@ function getInitialDB(): DBStructure {
   }
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.users)) {
@@ -679,9 +708,9 @@ function getInitialDB(): DBStructure {
 
 function saveDB(db: DBStructure): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    safeStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     if (db && Array.isArray(db.users)) {
-      localStorage.setItem(EXTRA_USERS_KEY, JSON.stringify(db.users));
+      safeStorage.setItem(EXTRA_USERS_KEY, JSON.stringify(db.users));
     }
   } catch (e) {
     console.error('Error saving local DB', e);
@@ -706,7 +735,7 @@ class LocalDBStore {
   // Token Management
   getStoredToken(): string | null {
     try {
-      return localStorage.getItem(TOKEN_KEY);
+      return safeStorage.getItem(TOKEN_KEY);
     } catch {
       return null;
     }
@@ -714,7 +743,7 @@ class LocalDBStore {
 
   setStoredToken(token: string): void {
     try {
-      localStorage.setItem(TOKEN_KEY, token);
+      safeStorage.setItem(TOKEN_KEY, token);
     } catch (e) {
       console.warn('Failed to set stored token:', e);
     }
@@ -722,8 +751,8 @@ class LocalDBStore {
 
   removeStoredToken(): void {
     try {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(ACTIVE_USER_KEY);
+      safeStorage.removeItem(TOKEN_KEY);
+      safeStorage.removeItem(ACTIVE_USER_KEY);
     } catch (e) {
       console.warn('Failed to remove stored token:', e);
     }
@@ -757,7 +786,7 @@ class LocalDBStore {
 
     if (found && !found.profilePicture) {
       try {
-        const cached = localStorage.getItem(`svb_avatar_${found.id}`);
+        const cached = safeStorage.getItem(`svb_avatar_${found.id}`);
         if (cached) found.profilePicture = cached;
       } catch (e) {}
     }
@@ -803,7 +832,7 @@ class LocalDBStore {
 
     if (found && !found.profilePicture) {
       try {
-        const cached = localStorage.getItem(`svb_avatar_${found.id}`);
+        const cached = safeStorage.getItem(`svb_avatar_${found.id}`);
         if (cached) found.profilePicture = cached;
       } catch (e) {}
     }
@@ -822,9 +851,9 @@ class LocalDBStore {
       return user;
     }
 
-    // Try reading cached active user from localStorage ONLY if it matches the active token
+    // Try reading cached active user from safeStorage ONLY if it matches the active token
     try {
-      const cached = localStorage.getItem(ACTIVE_USER_KEY);
+      const cached = safeStorage.getItem(ACTIVE_USER_KEY);
       if (cached) {
         const parsed = JSON.parse(cached) as User;
         if (parsed && (parsed.id === cleanToken || parsed.email?.toLowerCase() === cleanToken.toLowerCase() || parsed.accountNumber === cleanToken)) {
@@ -854,9 +883,9 @@ class LocalDBStore {
       this.db.users.push(user);
     }
     if (user.profilePicture) {
-      try { localStorage.setItem(`svb_avatar_${user.id}`, user.profilePicture); } catch (e) {}
+      try { safeStorage.setItem(`svb_avatar_${user.id}`, user.profilePicture); } catch (e) {}
     } else if (user.profilePicture === '') {
-      try { localStorage.removeItem(`svb_avatar_${user.id}`); } catch (e) {}
+      try { safeStorage.removeItem(`svb_avatar_${user.id}`); } catch (e) {}
     }
 
     // Strict isolation: only update ACTIVE_USER_KEY if this user is explicitly the authenticated user
@@ -864,7 +893,7 @@ class LocalDBStore {
     const cleanToken = currentToken ? currentToken.replace(/^token-/, '').trim() : null;
     if (isCurrentUser || (cleanToken && (cleanToken === user.id || cleanToken.toLowerCase() === user.email?.toLowerCase() || cleanToken === user.accountNumber))) {
       try {
-        localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
+        safeStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
       } catch (e) {}
     }
     this.persist();
@@ -881,7 +910,7 @@ class LocalDBStore {
       this.db.users.push(user);
     }
     if (user.profilePicture) {
-      try { localStorage.setItem(`svb_avatar_${user.id}`, user.profilePicture); } catch (e) {}
+      try { safeStorage.setItem(`svb_avatar_${user.id}`, user.profilePicture); } catch (e) {}
     }
     this.persist();
     return user;
@@ -889,7 +918,7 @@ class LocalDBStore {
 
   setActiveUser(user: User): void {
     try {
-      localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
+      safeStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(user));
       if (user.id) {
         this.setStoredToken(user.id);
       }

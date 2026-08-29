@@ -273,7 +273,9 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({
 
     if (isAdmin) {
       try {
-        localStorage.setItem('svb_admin_last_viewed_support', Date.now().toString());
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+          localStorage.setItem('svb_admin_last_viewed_support', Date.now().toString());
+        }
       } catch {}
     }
 

@@ -80,8 +80,8 @@ export default function App() {
       const localUser = dbStore.getCurrentUser();
       if (localUser) {
         setUser(localUser);
-        if (localUser.role === 'admin' && activeTab === 'home') {
-          setActiveTab('admin');
+        if (activeTab === 'home') {
+          setActiveTab(localUser.role === 'admin' ? 'admin' : 'dashboard');
         }
       }
 
@@ -91,8 +91,8 @@ export default function App() {
           const res = await api.getMe();
           if (res?.user) {
             setUser(res.user);
-            if (res.user.role === 'admin' && activeTab === 'home') {
-              setActiveTab('admin');
+            if (activeTab === 'home') {
+              setActiveTab(res.user.role === 'admin' ? 'admin' : 'dashboard');
             }
           }
         } catch (apiErr) {
@@ -100,6 +100,9 @@ export default function App() {
           const fallbackUser = dbStore.getCurrentUser();
           if (fallbackUser) {
             setUser(fallbackUser);
+            if (activeTab === 'home') {
+              setActiveTab(fallbackUser.role === 'admin' ? 'admin' : 'dashboard');
+            }
           }
         }
       }
@@ -108,6 +111,9 @@ export default function App() {
       const fallbackUser = dbStore.getCurrentUser();
       if (fallbackUser) {
         setUser(fallbackUser);
+        if (activeTab === 'home') {
+          setActiveTab(fallbackUser.role === 'admin' ? 'admin' : 'dashboard');
+        }
       }
     } finally {
       setLoading(false);
@@ -170,7 +176,7 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 10000); // Stable 10s background sync
+    const interval = setInterval(fetchData, 6000); // Stable 6s background sync
     
     // Instant cross-tab / same-tab realtime event bus listener
     const unsubRealtimeBus = subscribeRealtimeUpdates(() => {
@@ -178,9 +184,39 @@ export default function App() {
       refreshUser();
     });
 
+    // Instant local custom events listener
+    const handleUserUpdatedEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<User>;
+      if (customEvent.detail) {
+        const updated = customEvent.detail;
+        setUser(prev => {
+          if (!prev) return updated;
+          if (prev.id === updated.id || prev.email.toLowerCase() === updated.email.toLowerCase()) {
+            return { ...prev, ...updated };
+          }
+          return prev;
+        });
+        fetchData();
+      }
+    };
+
+    const handleTxnCreatedEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<Transaction>;
+      if (customEvent.detail) {
+        dbStore.addTransaction(customEvent.detail);
+        fetchData();
+        refreshUser();
+      }
+    };
+
+    window.addEventListener('svb:user_updated', handleUserUpdatedEvent);
+    window.addEventListener('svb:transaction_created', handleTxnCreatedEvent);
+
     return () => {
       clearInterval(interval);
       unsubRealtimeBus();
+      window.removeEventListener('svb:user_updated', handleUserUpdatedEvent);
+      window.removeEventListener('svb:transaction_created', handleTxnCreatedEvent);
     };
   }, [user?.id, activeTab]);
 
@@ -196,8 +232,8 @@ export default function App() {
         const merged = { 
           ...prev, 
           ...updatedUser,
-          balance: Math.max(prev.balance || 0, updatedUser.balance || 0, availableBalance),
-          ledgerBalance: Math.max(prev.ledgerBalance || 0, updatedUser.ledgerBalance || 0, ledgerBalance)
+          balance: typeof updatedUser.balance === 'number' ? updatedUser.balance : availableBalance,
+          ledgerBalance: typeof updatedUser.ledgerBalance === 'number' ? updatedUser.ledgerBalance : ledgerBalance
         };
         dbStore.saveUser(merged, true);
         return merged;
@@ -217,8 +253,8 @@ export default function App() {
           const { availableBalance, ledgerBalance } = calculateUserBalance(prevUser, mergedTxns);
           const reconciled = { 
             ...prevUser, 
-            balance: Math.max(prevUser.balance || 0, availableBalance), 
-            ledgerBalance: Math.max(prevUser.ledgerBalance || 0, ledgerBalance) 
+            balance: typeof prevUser.balance === 'number' ? prevUser.balance : availableBalance, 
+            ledgerBalance: typeof prevUser.ledgerBalance === 'number' ? prevUser.ledgerBalance : ledgerBalance 
           };
           dbStore.saveUser(reconciled, true);
           return reconciled;

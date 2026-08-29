@@ -2,6 +2,7 @@
 
 export type RealtimeEventType = 
   | 'TRANSACTION_UPDATED'
+  | 'TRANSACTION_CREATED'
   | 'USER_UPDATED'
   | 'NOTIFICATIONS_UPDATED'
   | 'DEPOSIT_UPDATED'
@@ -17,6 +18,8 @@ export interface RealtimeEventPayload {
   transactionId?: string;
   ticketId?: string;
   messageId?: string;
+  user?: any;
+  transaction?: any;
   data?: any;
   timestamp: number;
 }
@@ -37,7 +40,7 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
  * Broadcast a real-time event across all open tabs and components immediately
  */
 export function broadcastRealtimeUpdate(
-  typeOrObj: RealtimeEventType | { type: RealtimeEventType; data?: any; userId?: string; transactionId?: string; ticketId?: string; messageId?: string; timestamp?: number }, 
+  typeOrObj: RealtimeEventType | { type: RealtimeEventType; data?: any; user?: any; transaction?: any; userId?: string; transactionId?: string; ticketId?: string; messageId?: string; timestamp?: number }, 
   data?: any, 
   userId?: string, 
   transactionId?: string
@@ -49,6 +52,8 @@ export function broadcastRealtimeUpdate(
         transactionId: typeOrObj.transactionId,
         ticketId: typeOrObj.ticketId,
         messageId: typeOrObj.messageId,
+        user: (typeOrObj as any).user,
+        transaction: (typeOrObj as any).transaction,
         data: typeOrObj.data,
         timestamp: typeOrObj.timestamp || Date.now()
       }

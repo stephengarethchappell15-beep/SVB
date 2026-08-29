@@ -305,11 +305,17 @@ export const api = {
         }
         if (!u.profilePicture) {
           try {
-            const cachedAvatar = localStorage.getItem(`svb_avatar_${u.id}`);
-            if (cachedAvatar) u.profilePicture = cachedAvatar;
+            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+              const cachedAvatar = localStorage.getItem(`svb_avatar_${u.id}`);
+              if (cachedAvatar) u.profilePicture = cachedAvatar;
+            }
           } catch (e) {}
         } else {
-          try { localStorage.setItem(`svb_avatar_${u.id}`, u.profilePicture); } catch (e) {}
+          try {
+            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+              localStorage.setItem(`svb_avatar_${u.id}`, u.profilePicture);
+            }
+          } catch (e) {}
         }
         dbStore.saveUser(u);
         syncUserToFirestore(u);
@@ -349,8 +355,10 @@ export const api = {
 
     if (!user.profilePicture) {
       try {
-        const cachedAvatar = localStorage.getItem(`svb_avatar_${user.id}`);
-        if (cachedAvatar) user.profilePicture = cachedAvatar;
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+          const cachedAvatar = localStorage.getItem(`svb_avatar_${user.id}`);
+          if (cachedAvatar) user.profilePicture = cachedAvatar;
+        }
       } catch (e) {}
     }
 
@@ -365,9 +373,17 @@ export const api = {
 
     if (backendRes && backendRes.user) {
       if (backendRes.user.profilePicture) {
-        try { localStorage.setItem(`svb_avatar_${backendRes.user.id}`, backendRes.user.profilePicture); } catch (e) {}
+        try {
+          if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+            localStorage.setItem(`svb_avatar_${backendRes.user.id}`, backendRes.user.profilePicture);
+          }
+        } catch (e) {}
       } else if (data.profilePicture === '') {
-        try { localStorage.removeItem(`svb_avatar_${backendRes.user.id}`); } catch (e) {}
+        try {
+          if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+            localStorage.removeItem(`svb_avatar_${backendRes.user.id}`);
+          }
+        } catch (e) {}
       }
       dbStore.saveUser(backendRes.user);
       syncUserToFirestore(backendRes.user);
@@ -387,9 +403,17 @@ export const api = {
     });
 
     if (updated.profilePicture) {
-      try { localStorage.setItem(`svb_avatar_${updated.id}`, updated.profilePicture); } catch (e) {}
+      try {
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+          localStorage.setItem(`svb_avatar_${updated.id}`, updated.profilePicture);
+        }
+      } catch (e) {}
     } else if (data.profilePicture === '') {
-      try { localStorage.removeItem(`svb_avatar_${updated.id}`); } catch (e) {}
+      try {
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+          localStorage.removeItem(`svb_avatar_${updated.id}`);
+        }
+      } catch (e) {}
     }
 
     syncUserToFirestore(updated);
@@ -999,6 +1023,24 @@ export const api = {
       createdAt: new Date().toISOString()
     });
 
+    broadcastRealtimeUpdate({
+      type: 'USER_UPDATED',
+      user: updatedUser,
+      userId: updatedUser.id,
+      timestamp: Date.now()
+    });
+    broadcastRealtimeUpdate({
+      type: 'TRANSACTION_CREATED',
+      transaction: txn,
+      userId: updatedUser.id,
+      timestamp: Date.now()
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: updatedUser }));
+      window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: txn }));
+    }
+
     return { user: updatedUser, updatedUser, transaction: txn };
   },
 
@@ -1040,6 +1082,26 @@ export const api = {
         dbStore.saveUser(backendRes.updatedUser);
         dbStore.addTransaction(backendRes.transaction);
         syncUserToFirestore(backendRes.updatedUser);
+        syncTransactionToFirestore(backendRes.transaction);
+
+        broadcastRealtimeUpdate({
+          type: 'USER_UPDATED',
+          user: backendRes.updatedUser,
+          userId: backendRes.updatedUser.id,
+          timestamp: Date.now()
+        });
+        broadcastRealtimeUpdate({
+          type: 'TRANSACTION_CREATED',
+          transaction: backendRes.transaction,
+          userId: backendRes.updatedUser.id,
+          timestamp: Date.now()
+        });
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: backendRes.updatedUser }));
+          window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: backendRes.transaction }));
+        }
+
         return { updatedUser: backendRes.updatedUser, transaction: backendRes.transaction };
       }
     } catch (err) {
@@ -1099,6 +1161,25 @@ export const api = {
     };
 
     dbStore.addTransaction(txn);
+    syncTransactionToFirestore(txn);
+
+    broadcastRealtimeUpdate({
+      type: 'USER_UPDATED',
+      user: updatedUser,
+      userId: updatedUser.id,
+      timestamp: Date.now()
+    });
+    broadcastRealtimeUpdate({
+      type: 'TRANSACTION_CREATED',
+      transaction: txn,
+      userId: updatedUser.id,
+      timestamp: Date.now()
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: updatedUser }));
+      window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: txn }));
+    }
     return { user: updatedUser, updatedUser, transaction: txn };
   },
 
