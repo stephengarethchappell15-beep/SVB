@@ -2,7 +2,20 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, EmailConfig, EmailDeliveryLog } from '../types.js';
-import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, syncCryptoDepositToFirestore, syncEmailConfigToFirestore, getEmailConfigFromFirestore, getEmailLogsFromFirestore } from '../lib/firebase.js';
+import { 
+  syncUserToFirestore, 
+  getUserFromFirestore, 
+  getAllUsersFromFirestore, 
+  syncTransactionToFirestore, 
+  syncCryptoDepositToFirestore, 
+  syncEmailConfigToFirestore, 
+  getEmailConfigFromFirestore, 
+  getEmailLogsFromFirestore,
+  syncSupportTicketToFirestore,
+  sendSupportMessageToFirestore,
+  isSameTicketId,
+  getCanonicalTicketId
+} from '../lib/firebase.js';
 import { emailService } from './emailService.js';
 
 interface DatabaseSchema {
@@ -1909,22 +1922,46 @@ class DatabaseManager {
 
     this.db.supportTickets.unshift(newTicket);
     this.saveDB(this.db);
+
+    syncSupportTicketToFirestore(newTicket).catch(e => console.warn('Firestore ticket sync failed:', e));
+    sendSupportMessageToFirestore(ticketId, newTicket.messages[0], newTicket).catch(e => console.warn('Firestore message sync failed:', e));
+
     return newTicket;
   }
 
   public replySupportTicket(ticketId: string, sender: User, message: string): SupportTicket {
-    const ticket = this.db.supportTickets.find(t => t.id === ticketId);
+    let ticket = this.db.supportTickets.find(t => t.id === ticketId || isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
     if (!ticket) {
-      throw new Error('Support ticket not found.');
+      // Create fallback ticket structure if not in memory
+      const canonicalId = getCanonicalTicketId(ticketId);
+      const isSenderAdmin = sender.role === 'admin';
+      ticket = {
+        id: canonicalId,
+        chatId: canonicalId,
+        threadId: canonicalId,
+        roomId: canonicalId,
+        userId: isSenderAdmin ? '' : sender.id,
+        userEmail: isSenderAdmin ? '' : sender.email,
+        userName: isSenderAdmin ? 'Client' : sender.fullName,
+        accountNumber: isSenderAdmin ? '' : sender.accountNumber,
+        subject: 'Customer Support Consultation',
+        category: 'General',
+        status: isSenderAdmin ? 'In Progress' : 'Open',
+        priority: 'Medium',
+        messages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      this.db.supportTickets.unshift(ticket);
     }
 
-    if (sender.role !== 'admin' && ticket.userId !== sender.id) {
+    if (sender.role !== 'admin' && ticket.userId && ticket.userId !== sender.id) {
       throw new Error('Unauthorized to reply to this support ticket.');
     }
 
     const now = new Date().toISOString();
     const newMsg: SupportMessage = {
-      id: `msg-${Date.now()}`,
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       ticketId: ticket.id,
       chatId: ticket.id,
       threadId: ticket.id,
@@ -1943,6 +1980,10 @@ class DatabaseManager {
     }
 
     this.saveDB(this.db);
+
+    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket sync failed:', e));
+    sendSupportMessageToFirestore(ticket.id, newMsg, ticket).catch(e => console.warn('Firestore message sync failed:', e));
+
     return ticket;
   }
 
@@ -1961,13 +2002,14 @@ class DatabaseManager {
     if (adminUser.role !== 'admin') {
       throw new Error('Unauthorized');
     }
-    const ticket = this.db.supportTickets.find(t => t.id === ticketId);
+    const ticket = this.db.supportTickets.find(t => t.id === ticketId || isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
     if (!ticket) {
       throw new Error('Ticket not found');
     }
     ticket.status = status;
     ticket.updatedAt = new Date().toISOString();
     this.saveDB(this.db);
+    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket status sync failed:', e));
     return ticket;
   }
 
