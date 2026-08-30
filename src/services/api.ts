@@ -21,6 +21,8 @@ import {
   syncUserToFirestore, 
   getUserFromFirestore, 
   getAllUsersFromFirestore,
+  searchUsersDirectory,
+  executeAdminDeposit,
   mergeUserRecords,
   syncVirtualCardToFirestore,
   getVirtualCardsFromFirestore,
@@ -1090,6 +1092,9 @@ export const api = {
   },
 
   async createDeposit(payload: DepositPayload): Promise<{ updatedUser: User; transaction: Transaction }> {
+    const accIdentifier = payload.accountNumber || payload.userEmail || '';
+    const numAmount = Number(payload.amount);
+
     try {
       const backendRes = await requestApi<{ message: string; updatedUser: User; transaction: Transaction }>('/admin/deposit', {
         method: 'POST',
@@ -1126,9 +1131,41 @@ export const api = {
       console.warn('Backend deposit endpoint call fallback:', err);
     }
 
+    // Direct Firestore executeAdminDeposit
+    try {
+      const execRes = await executeAdminDeposit(accIdentifier, numAmount, {
+        senderName: payload.senderName || 'Federal Wire Transfer / SVB Treasury',
+        description: payload.description,
+        reference: payload.reference
+      });
+      if (execRes && execRes.user && execRes.transaction) {
+        broadcastRealtimeUpdate({
+          type: 'USER_UPDATED',
+          user: execRes.user,
+          userId: execRes.user.id,
+          timestamp: Date.now()
+        });
+        broadcastRealtimeUpdate({
+          type: 'TRANSACTION_CREATED',
+          transaction: execRes.transaction,
+          userId: execRes.user.id,
+          timestamp: Date.now()
+        });
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: execRes.user }));
+          window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: execRes.transaction }));
+        }
+
+        return { updatedUser: execRes.user, transaction: execRes.transaction };
+      }
+    } catch (execErr) {
+      console.warn('executeAdminDeposit direct fallback warning:', execErr);
+    }
+
     const res = await this.creditUserAccount({
-      accountNumber: payload.accountNumber || payload.userEmail,
-      amount: payload.amount,
+      accountNumber: accIdentifier,
+      amount: numAmount,
       reference: payload.reference,
       description: payload.description
     });
@@ -2241,9 +2278,14 @@ export const api = {
     const localUsers = dbStore.getUsers();
     let fsUsers: User[] = [];
     try {
-      fsUsers = await getAllUsersFromFirestore();
+      fsUsers = await searchUsersDirectory(term);
     } catch (e) {
-      console.warn('Firestore getAllUsers in search error:', e);
+      console.warn('Firestore searchUsersDirectory in search error:', e);
+      try {
+        fsUsers = await getAllUsersFromFirestore();
+      } catch (e2) {
+        console.warn('Firestore getAllUsers fallback error:', e2);
+      }
     }
 
     if (term) {

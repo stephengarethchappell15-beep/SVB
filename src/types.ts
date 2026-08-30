@@ -88,6 +88,7 @@ export interface Tier3VerificationRequest {
 
 export interface User {
   id: string;
+  uid?: string;
   fullName: string;
   email: string;
   phone: string;
@@ -107,6 +108,8 @@ export interface User {
   smsNotifications?: boolean;
   accounts?: BankAccount[];
   createdAt: string;
+  updatedAt?: string;
+  lastUpdated?: string;
 
   // 4-Digit Security Code & Activation Deposit fields
   accountPin?: string; // 4-digit Account Security PIN set during registration
@@ -115,7 +118,7 @@ export interface User {
   pendingCryptoDeposit?: CryptoActivationDeposit | null;
 }
 
-export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee';
+export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee' | 'ADMIN_DEPOSIT';
 export type TransactionStatus = 'Completed' | 'Pending' | 'Cancelled' | 'Rejected' | 'Refunded';
 
 export interface Transaction {
@@ -133,12 +136,14 @@ export interface Transaction {
   destinationBank?: string;
   transferType?: 'Domestic' | 'International';
   amount: number;
+  balanceAfter?: number;
   currency: string;
   type: TransactionType;
   status: TransactionStatus;
   reference: string;
   description: string;
   createdByAdminEmail?: string;
+  timestamp?: string;
   createdAt: string;
   updatedAt: string;
 }

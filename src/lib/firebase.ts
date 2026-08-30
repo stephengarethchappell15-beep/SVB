@@ -154,30 +154,278 @@ export async function syncUserToFirestore(user: User, password?: string): Promis
   if (!user || !user.email) return;
   try {
     const cleanEmail = user.email.trim().toLowerCase();
-    const payload = cleanUndefined({
+    const uid = user.id || (user as any).uid || (user as any)._id || `usr-${Date.now()}`;
+    const cleanAcc = (user.accountNumber || '').trim();
+    const cleanAccNum = cleanAcc.replace(/[^0-9]/g, '');
+
+    const userProfile = cleanUndefined({
       ...user,
+      uid: uid,
+      id: uid,
+      fullName: user.fullName || '',
       email: cleanEmail,
+      accountNumber: cleanAcc,
+      balance: Number(user.balance) || 0.00, // Explicitly numeric
+      ledgerBalance: Number(user.ledgerBalance) || Number(user.balance) || 0.00,
+      createdAt: user.createdAt || new Date().toISOString(),
       updatedAt: user.updatedAt || new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
       ...(password ? { password } : {})
     });
 
     const ops: Promise<any>[] = [];
-    if (user.id) {
-      ops.push(setDoc(doc(db, 'users', user.id), payload, { merge: true }));
+    if (uid) {
+      ops.push(setDoc(doc(db, 'users', uid), userProfile, { merge: true }));
     }
-    ops.push(setDoc(doc(db, 'users_by_email', cleanEmail), payload, { merge: true }));
+    ops.push(setDoc(doc(db, 'users_by_email', cleanEmail), userProfile, { merge: true }));
 
-    if (user.accountNumber) {
-      const cleanAcc = user.accountNumber.replace(/[^0-9]/g, '');
-      ops.push(setDoc(doc(db, 'users_by_account', user.accountNumber), payload, { merge: true }));
-      if (cleanAcc && cleanAcc !== user.accountNumber) {
-        ops.push(setDoc(doc(db, 'users_by_account', cleanAcc), payload, { merge: true }));
+    if (cleanAcc) {
+      ops.push(setDoc(doc(db, 'users_by_account', cleanAcc), userProfile, { merge: true }));
+      if (cleanAccNum && cleanAccNum !== cleanAcc) {
+        ops.push(setDoc(doc(db, 'users_by_account', cleanAccNum), userProfile, { merge: true }));
       }
     }
     await withTimeout(Promise.all(ops), 3500, null);
   } catch (err) {
     console.warn('Firestore user sync warning:', err);
   }
+}
+
+/**
+ * Perform direct normalized search on 'users' collection by email and account number
+ */
+export async function searchUsersDirectory(searchTerm: string): Promise<User[]> {
+  const queryStr = (searchTerm || '').trim().toLowerCase();
+  const cleanNum = queryStr.replace(/[^0-9]/g, '');
+  const usersRef = collection(db, 'users');
+
+  const results: User[] = [];
+  const addedIds = new Set<string>();
+
+  const addResult = (u: any) => {
+    if (!u) return;
+    const id = u.id || u.uid;
+    const key = (u.email || id || u.accountNumber || '').toLowerCase();
+    if (key && !addedIds.has(key)) {
+      addedIds.add(key);
+      results.push({
+        ...u,
+        id: id || `usr-${Date.now()}`,
+        email: (u.email || '').trim().toLowerCase(),
+        balance: Number(u.balance) || 0.00,
+        ledgerBalance: Number(u.ledgerBalance) || Number(u.balance) || 0.00
+      });
+    }
+  };
+
+  try {
+    if (!queryStr) {
+      return await getAllUsersFromFirestore();
+    }
+
+    // 1. Direct document ID lookups
+    const [snapId, snapEmailDoc, snapAccDoc] = await Promise.all([
+      getDoc(doc(db, 'users', searchTerm.trim())).catch(() => null),
+      getDoc(doc(db, 'users_by_email', queryStr)).catch(() => null),
+      getDoc(doc(db, 'users_by_account', searchTerm.trim())).catch(() => null)
+    ]);
+
+    if (snapId && snapId.exists()) addResult({ id: snapId.id, ...snapId.data() });
+    if (snapEmailDoc && snapEmailDoc.exists()) addResult({ id: snapEmailDoc.id, ...snapEmailDoc.data() });
+    if (snapAccDoc && snapAccDoc.exists()) addResult({ id: snapAccDoc.id, ...snapAccDoc.data() });
+
+    if (cleanNum && cleanNum !== searchTerm.trim()) {
+      const snapCleanAcc = await getDoc(doc(db, 'users_by_account', cleanNum)).catch(() => null);
+      if (snapCleanAcc && snapCleanAcc.exists()) addResult({ id: snapCleanAcc.id, ...snapCleanAcc.data() });
+    }
+
+    // 2. Query against 'users' collection by email and accountNumber
+    const [snapshotByAcc, snapshotByEmail] = await Promise.all([
+      getDocs(query(usersRef, where('accountNumber', '==', searchTerm.trim()))).catch(() => null),
+      getDocs(query(usersRef, where('email', '==', queryStr))).catch(() => null)
+    ]);
+
+    if (snapshotByAcc) {
+      snapshotByAcc.forEach(docSnap => {
+        if (docSnap.exists()) addResult({ id: docSnap.id, ...docSnap.data() });
+      });
+    }
+
+    if (snapshotByEmail) {
+      snapshotByEmail.forEach(docSnap => {
+        if (docSnap.exists()) addResult({ id: docSnap.id, ...docSnap.data() });
+      });
+    }
+
+    if (cleanNum && cleanNum !== searchTerm.trim()) {
+      const snapNum = await getDocs(query(usersRef, where('accountNumber', '==', cleanNum))).catch(() => null);
+      if (snapNum) {
+        snapNum.forEach(docSnap => {
+          if (docSnap.exists()) addResult({ id: docSnap.id, ...docSnap.data() });
+        });
+      }
+    }
+
+    // 3. Fallback search across all users for partial substring matches
+    const allUsers = await getAllUsersFromFirestore();
+    allUsers.forEach(u => {
+      if (!u) return;
+      const uEmail = (u.email || '').toLowerCase();
+      const uName = (u.fullName || '').toLowerCase();
+      const uAcc = (u.accountNumber || '').toLowerCase();
+      const uAccClean = uAcc.replace(/[^0-9]/g, '');
+      const uId = (u.id || '').toLowerCase();
+
+      if (
+        uEmail.includes(queryStr) ||
+        uAcc.includes(queryStr) ||
+        (cleanNum.length > 0 && uAccClean.includes(cleanNum)) ||
+        uName.includes(queryStr) ||
+        uId.includes(queryStr)
+      ) {
+        addResult(u);
+      }
+    });
+  } catch (err) {
+    console.warn('searchUsersDirectory error:', err);
+  }
+
+  return results;
+}
+
+/**
+ * Execute administrative deposit with strict numeric casting and Firestore write alignment
+ */
+export async function executeAdminDeposit(
+  accountIdentifier: string, 
+  depositAmount: number,
+  options?: { senderName?: string; description?: string; reference?: string; adminEmail?: string }
+): Promise<{ success: boolean; newBalance: number; user: User; transaction: Transaction }> {
+  const usersRef = collection(db, 'users');
+  const queryStr = accountIdentifier.trim();
+  const cleanEmail = queryStr.toLowerCase();
+  const cleanAcc = queryStr.replace(/[^0-9]/g, '');
+
+  let targetUid = '';
+  let userData: any = null;
+
+  // 1. Find user by accountNumber or email or ID
+  const [snapAcc, snapEmail, snapId] = await Promise.all([
+    getDocs(query(usersRef, where('accountNumber', '==', queryStr))).catch(() => null),
+    getDocs(query(usersRef, where('email', '==', cleanEmail))).catch(() => null),
+    getDoc(doc(db, 'users', queryStr)).catch(() => null)
+  ]);
+
+  if (snapAcc && !snapAcc.empty) {
+    const docSnap = snapAcc.docs[0];
+    targetUid = docSnap.id;
+    userData = docSnap.data();
+  } else if (snapEmail && !snapEmail.empty) {
+    const docSnap = snapEmail.docs[0];
+    targetUid = docSnap.id;
+    userData = docSnap.data();
+  } else if (snapId && snapId.exists()) {
+    targetUid = snapId.id;
+    userData = snapId.data();
+  } else if (cleanAcc) {
+    const snapCleanAcc = await getDocs(query(usersRef, where('accountNumber', '==', cleanAcc))).catch(() => null);
+    if (snapCleanAcc && !snapCleanAcc.empty) {
+      const docSnap = snapCleanAcc.docs[0];
+      targetUid = docSnap.id;
+      userData = docSnap.data();
+    }
+  }
+
+  // Fallback to users_by_email or users_by_account
+  if (!userData) {
+    const [byEmailDoc, byAccDoc] = await Promise.all([
+      getDoc(doc(db, 'users_by_email', cleanEmail)).catch(() => null),
+      getDoc(doc(db, 'users_by_account', queryStr)).catch(() => null)
+    ]);
+    if (byEmailDoc && byEmailDoc.exists()) {
+      userData = byEmailDoc.data();
+      targetUid = userData.id || userData.uid || byEmailDoc.id;
+    } else if (byAccDoc && byAccDoc.exists()) {
+      userData = byAccDoc.data();
+      targetUid = userData.id || userData.uid || byAccDoc.id;
+    }
+  }
+
+  // Final fallback to memory DB
+  if (!userData) {
+    const memoryUser = dbStore.getUsers().find(u => 
+      u.accountNumber === queryStr || 
+      u.email.toLowerCase() === cleanEmail ||
+      (cleanAcc.length > 0 && u.accountNumber.replace(/[^0-9]/g, '') === cleanAcc)
+    );
+    if (memoryUser) {
+      userData = memoryUser;
+      targetUid = memoryUser.id;
+    }
+  }
+
+  if (!userData) {
+    throw new Error(`User account not found in database for '${accountIdentifier}'.`);
+  }
+
+  // Force numeric addition to prevent string concatenation or NaN bugs
+  const currentBalance = Number(userData.balance) || 0;
+  const amountToAdd = Number(depositAmount) || 0;
+  const newBalance = currentBalance + amountToAdd;
+  const now = new Date().toISOString();
+  const refCode = options?.reference || `TXN-DEP-${now.slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  let fourDigitCode = userData.fourDigitCode;
+  let transferCodeApproved = userData.transferCodeApproved;
+  let isNewCodeGenerated = false;
+  if (!fourDigitCode || !transferCodeApproved) {
+    fourDigitCode = Math.floor(1000 + Math.random() * 9000).toString();
+    transferCodeApproved = true;
+    isNewCodeGenerated = true;
+  }
+
+  const updatedUserData: User = {
+    ...userData,
+    id: targetUid || userData.id,
+    balance: newBalance,
+    ledgerBalance: newBalance,
+    fourDigitCode,
+    transferCodeApproved,
+    lastUpdated: now,
+    updatedAt: now
+  };
+
+  // Update user document balance in main users collection and index collections
+  await syncUserToFirestore(updatedUserData);
+  dbStore.saveUser(updatedUserData);
+
+  // Create audit transaction log
+  const txnId = `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const newTxn: Transaction = {
+    id: txnId,
+    userId: targetUid || userData.id,
+    userEmail: userData.email,
+    accountNumber: userData.accountNumber || queryStr,
+    type: 'ADMIN_DEPOSIT',
+    amount: amountToAdd,
+    balanceAfter: newBalance,
+    currency: userData.currency || 'USD',
+    status: 'Completed',
+    senderName: options?.senderName || 'Federal Wire Transfer / SVB Treasury',
+    reference: refCode,
+    description: isNewCodeGenerated
+      ? `${options?.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${fourDigitCode})`
+      : (options?.description || 'Admin Balance Deposit'),
+    createdByAdminEmail: options?.adminEmail || 'admin@svb.com',
+    timestamp: now,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await syncTransactionToFirestore(newTxn);
+  dbStore.addTransaction(newTxn);
+
+  return { success: true, newBalance, user: updatedUserData, transaction: newTxn };
 }
 
 /**

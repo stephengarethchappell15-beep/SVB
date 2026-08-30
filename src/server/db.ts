@@ -6,6 +6,7 @@ import {
   syncUserToFirestore, 
   getUserFromFirestore, 
   getAllUsersFromFirestore, 
+  searchUsersDirectory,
   syncTransactionToFirestore, 
   getTransactionsFromFirestore,
   mergeUserRecords,
@@ -1493,7 +1494,7 @@ class DatabaseManager {
       memoryMatches.forEach(addToMap);
 
       const [fsUsers, directMatch] = await Promise.all([
-        getAllUsersFromFirestore().catch(() => []),
+        searchUsersDirectory(query).catch(() => getAllUsersFromFirestore().catch(() => [])),
         rawQ ? getUserFromFirestore(query).catch(() => null) : Promise.resolve(null)
       ]);
 
