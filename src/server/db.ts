@@ -1605,8 +1605,12 @@ class DatabaseManager {
       ? deposit.reference.trim()
       : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    targetUser.balance += Number(deposit.amount);
-    targetUser.ledgerBalance = (targetUser.ledgerBalance || 0) + Number(deposit.amount);
+    const currentBal = Number(targetUser.balance) || 0;
+    const currentLedger = Number(targetUser.ledgerBalance) || currentBal;
+    const amountToAdd = Number(deposit.amount) || 0;
+
+    targetUser.balance = currentBal + amountToAdd;
+    targetUser.ledgerBalance = currentLedger + amountToAdd;
 
     // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
     let isNewCodeGenerated = false;
@@ -1720,8 +1724,12 @@ class DatabaseManager {
       ? deposit.reference.trim()
       : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    targetUser.balance += Number(deposit.amount);
-    targetUser.ledgerBalance = (targetUser.ledgerBalance || 0) + Number(deposit.amount);
+    const currentBalAsync = Number(targetUser.balance) || 0;
+    const currentLedgerAsync = Number(targetUser.ledgerBalance) || currentBalAsync;
+    const amountToAddAsync = Number(deposit.amount) || 0;
+
+    targetUser.balance = currentBalAsync + amountToAddAsync;
+    targetUser.ledgerBalance = currentLedgerAsync + amountToAddAsync;
 
     // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
     let isNewCodeGenerated = false;
