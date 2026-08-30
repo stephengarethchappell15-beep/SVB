@@ -198,12 +198,18 @@ export const api = {
     dbStore.saveUser(finalUser);
     dbStore.setStoredToken(tokenStr || finalUser.id);
 
-    // Sync user asynchronously to Firebase Firestore SDK so accounts NEVER vanish
+    // Sync user to Firebase Firestore SDK so accounts NEVER vanish
     try {
       await syncUserToFirestore(finalUser, data.password || 'password123');
     } catch (fsErr) {
       console.warn('Firestore sync warning during user registration:', fsErr);
     }
+
+    broadcastRealtimeUpdate({
+      type: 'USER_UPDATED',
+      userId: finalUser.id,
+      user: finalUser
+    });
 
     return { user: finalUser, token: tokenStr || finalUser.id };
   },

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { User, Transaction, UserNotification, VirtualCard } from '../types';
 import { api } from '../services/api';
+import { dbStore } from '../services/dbStore';
+import { subscribeUserFromFirestore } from '../lib/firebase';
+import { subscribeRealtimeUpdates } from '../services/realtimeBus';
 import { maskAccountNumber, maskRoutingNumber, maskBalance } from '../utils/masking';
 import { calculateUserBalance } from '../utils/balance';
 import { 
@@ -81,6 +84,50 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       onUserUpdated({ ...user, balance: availableBalance, ledgerBalance: Math.max(ledgerBalance, availableBalance) });
     }
   }, [user?.balance, availableBalance, ledgerBalance, onUserUpdated]);
+
+  // Real-time Firestore snapshot listeners for instant balance updates on admin deposit
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const unsubUser = subscribeUserFromFirestore(
+      user.id,
+      user.email,
+      (updatedFsUser) => {
+        if (!updatedFsUser) return;
+        const currentTxns = dbStore.getTransactions(updatedFsUser.id);
+        const { availableBalance: ab, ledgerBalance: lb } = calculateUserBalance(updatedFsUser, currentTxns);
+        const newBal = typeof updatedFsUser.balance === 'number' ? updatedFsUser.balance : ab;
+        const newLedger = typeof updatedFsUser.ledgerBalance === 'number' ? updatedFsUser.ledgerBalance : lb;
+        
+        if (newBal !== user.balance || newLedger !== user.ledgerBalance || updatedFsUser.transferCodeApproved !== user.transferCodeApproved || updatedFsUser.fourDigitCode !== user.fourDigitCode) {
+          const merged = {
+            ...user,
+            ...updatedFsUser,
+            balance: newBal,
+            ledgerBalance: newLedger
+          };
+          dbStore.saveUser(merged, true);
+          if (onUserUpdated) {
+            onUserUpdated(merged);
+          }
+        }
+      },
+      user.accountNumber
+    );
+
+    const unsubRealtime = subscribeRealtimeUpdates((event) => {
+      if (event && (event.userId === user.id || event.user?.id === user.id || event.user?.email?.toLowerCase() === user.email?.toLowerCase())) {
+        if (event.user && onUserUpdated) {
+          onUserUpdated(event.user);
+        }
+      }
+    });
+
+    return () => {
+      unsubUser();
+      unsubRealtime();
+    };
+  }, [user?.id, user?.email, user?.accountNumber, onUserUpdated]);
 
   // Load Virtual Cards for main dashboard view
   useEffect(() => {

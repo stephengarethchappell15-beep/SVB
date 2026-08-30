@@ -32,7 +32,13 @@ type NavTabType = 'home' | 'dashboard' | 'cards' | 'bills' | 'deposit' | 'withdr
 
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      return dbStore.getCurrentUser();
+    } catch {
+      return null;
+    }
+  });
   const [activeTab, setActiveTab] = useState<NavTabType>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const hashTab = window.location.hash.replace('#', '') as NavTabType;
@@ -45,8 +51,22 @@ export default function App() {
 
   
   // Data states
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    try {
+      const u = dbStore.getCurrentUser();
+      return u ? dbStore.getTransactions(u.role === 'admin' ? undefined : u.id) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [notifications, setNotifications] = useState<UserNotification[]>(() => {
+    try {
+      const u = dbStore.getCurrentUser();
+      return u ? dbStore.getNotifications(u.id) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Modals & Drawers
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -70,7 +90,7 @@ export default function App() {
     setShowLegalModal(true);
   };
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // Initialize session or default demo user
   const initSession = async () => {
@@ -82,15 +102,14 @@ export default function App() {
         if (activeTab === 'home') {
           setActiveTab(localUser.role === 'admin' ? 'admin' : 'dashboard');
         }
-        setLoading(false);
       }
 
       const token = getStoredToken();
       if (token) {
-        // Quick background check for fresh server state with 1.5s timeout safety
+        // Quick non-blocking background check for fresh server state with 1.2s timeout safety
         const getMePromise = api.getMe();
         const timeoutPromise = new Promise<{ user: User | null }>((resolve) => 
-          setTimeout(() => resolve({ user: null }), 1500)
+          setTimeout(() => resolve({ user: null }), 1200)
         );
 
         try {
@@ -103,24 +122,10 @@ export default function App() {
           }
         } catch (apiErr) {
           console.warn('api.getMe error, preserving local session:', apiErr);
-          const fallbackUser = dbStore.getCurrentUser();
-          if (fallbackUser) {
-            setUser(fallbackUser);
-            if (activeTab === 'home') {
-              setActiveTab(fallbackUser.role === 'admin' ? 'admin' : 'dashboard');
-            }
-          }
         }
       }
     } catch (err) {
       console.warn('Session restoration error:', err);
-      const fallbackUser = dbStore.getCurrentUser();
-      if (fallbackUser) {
-        setUser(fallbackUser);
-        if (activeTab === 'home') {
-          setActiveTab(fallbackUser.role === 'admin' ? 'admin' : 'dashboard');
-        }
-      }
     } finally {
       setLoading(false);
     }
