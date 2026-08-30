@@ -56,6 +56,9 @@ async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T
     const token = getStoredToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       ...(options.headers as Record<string, string> || {}),
     };
     if (token) {
@@ -63,7 +66,15 @@ async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T
       headers['Authorization'] = `Bearer ${cleanToken}`;
     }
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    const url = cleanPath.startsWith('/api/') ? cleanPath : `${API_BASE}${cleanPath}`;
+    let url = cleanPath.startsWith('/api/') ? cleanPath : `${API_BASE}${cleanPath}`;
+    
+    // Add cache buster for GET requests to bypass CDN/Vercel edge caching
+    const method = (options.method || 'GET').toUpperCase();
+    if (method === 'GET') {
+      const separator = url.includes('?') ? '&' : '?';
+      url = `${url}${separator}_t=${Date.now()}`;
+    }
+
     const res = await fetch(url, { ...options, headers });
     if (res.ok) {
       return await res.json();

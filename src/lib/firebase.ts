@@ -577,7 +577,12 @@ export async function getTransactionsFromFirestore(userOrId?: string | User | nu
 /**
  * Subscribe to real-time User snapshot updates from Firestore
  */
-export function subscribeUserFromFirestore(userId: string | undefined, email: string | undefined, callback: (user: User) => void): () => void {
+export function subscribeUserFromFirestore(
+  userId: string | undefined, 
+  email: string | undefined, 
+  callback: (user: User) => void,
+  accountNumber?: string | undefined
+): () => void {
   const unsubs: (() => void)[] = [];
 
   try {
@@ -600,6 +605,27 @@ export function subscribeUserFromFirestore(userId: string | undefined, email: st
         }
       }, (err) => console.warn('User by email snapshot error:', err));
       unsubs.push(u2);
+    }
+
+    if (accountNumber) {
+      const cleanAcc = accountNumber.replace(/[^0-9]/g, '');
+      const u3 = onSnapshot(doc(db, 'users_by_account', accountNumber), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as User;
+          if (data && data.email) callback(data);
+        }
+      }, (err) => console.warn('User by account snapshot error:', err));
+      unsubs.push(u3);
+
+      if (cleanAcc && cleanAcc !== accountNumber) {
+        const u4 = onSnapshot(doc(db, 'users_by_account', cleanAcc), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as User;
+            if (data && data.email) callback(data);
+          }
+        }, (err) => console.warn('User by clean account snapshot error:', err));
+        unsubs.push(u4);
+      }
     }
   } catch (err) {
     console.warn('subscribeUserFromFirestore error:', err);

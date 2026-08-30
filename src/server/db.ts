@@ -1130,18 +1130,27 @@ class DatabaseManager {
   }
 
   public async findUserByEmailOrAccountAsync(queryStr: string): Promise<User | undefined> {
-    const memoryUser = this.findUserByEmailOrAccount(queryStr);
+    let memoryUser = this.findUserByEmailOrAccount(queryStr);
 
     try {
       const fsUser = await getUserFromFirestore(queryStr);
       if (fsUser) {
         if (memoryUser) {
-          if (fsUser.profilePicture !== undefined) {
-            memoryUser.profilePicture = fsUser.profilePicture;
+          // Merge latest Firestore fields into memoryUser while keeping freshest values
+          Object.assign(memoryUser, fsUser, {
+            balance: typeof fsUser.balance === 'number' ? fsUser.balance : memoryUser.balance,
+            ledgerBalance: typeof fsUser.ledgerBalance === 'number' ? fsUser.ledgerBalance : (memoryUser.ledgerBalance || memoryUser.balance)
+          });
+          if ((fsUser as any).password) {
+            this.db.passwords[memoryUser.id] = (fsUser as any).password;
           }
+          this.saveDB(this.db);
           return memoryUser;
         }
-        if (!this.db.users.some(u => u.id === fsUser.id || u.email.toLowerCase() === fsUser.email.toLowerCase())) {
+        const existingIdx = this.db.users.findIndex(u => u.id === fsUser.id || u.email.toLowerCase() === fsUser.email.toLowerCase());
+        if (existingIdx >= 0) {
+          this.db.users[existingIdx] = fsUser;
+        } else {
           this.db.users.push(fsUser);
         }
         if ((fsUser as any).password) {
@@ -1173,7 +1182,21 @@ class DatabaseManager {
       });
 
       if (matched) {
-        if (!this.db.users.some(u => u.id === matched.id || u.email.toLowerCase() === matched.email.toLowerCase())) {
+        if (memoryUser) {
+          Object.assign(memoryUser, matched, {
+            balance: typeof matched.balance === 'number' ? matched.balance : memoryUser.balance,
+            ledgerBalance: typeof matched.ledgerBalance === 'number' ? matched.ledgerBalance : (memoryUser.ledgerBalance || memoryUser.balance)
+          });
+          if ((matched as any).password) {
+            this.db.passwords[memoryUser.id] = (matched as any).password;
+          }
+          this.saveDB(this.db);
+          return memoryUser;
+        }
+        const existingIdx = this.db.users.findIndex(u => u.id === matched.id || u.email.toLowerCase() === matched.email.toLowerCase());
+        if (existingIdx >= 0) {
+          this.db.users[existingIdx] = matched;
+        } else {
           this.db.users.push(matched);
         }
         if ((matched as any).password) {
@@ -1209,8 +1232,6 @@ class DatabaseManager {
   }
 
   public async findUserByIdAsync(id: string): Promise<User | undefined> {
-    const memoryUser = this.findUserById(id);
-    if (memoryUser) return memoryUser;
     return this.findUserByEmailOrAccountAsync(id);
   }
 

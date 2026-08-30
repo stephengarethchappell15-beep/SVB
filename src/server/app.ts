@@ -28,6 +28,15 @@ app.use((req, res, next) => {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  
+  // Bypass Aggressive Caching on Vercel / Edge Proxies for dynamic API routes
+  if (req.path.startsWith('/api') || req.url.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/user') || req.path.startsWith('/admin')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+  }
+  
   next();
 });
 

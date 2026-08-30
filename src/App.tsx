@@ -74,7 +74,6 @@ export default function App() {
 
   // Initialize session or default demo user
   const initSession = async () => {
-    setLoading(true);
     try {
       // Seed user immediately from dbStore to prevent landing page flashes
       const localUser = dbStore.getCurrentUser();
@@ -83,12 +82,19 @@ export default function App() {
         if (activeTab === 'home') {
           setActiveTab(localUser.role === 'admin' ? 'admin' : 'dashboard');
         }
+        setLoading(false);
       }
 
       const token = getStoredToken();
       if (token) {
+        // Quick background check for fresh server state with 1.5s timeout safety
+        const getMePromise = api.getMe();
+        const timeoutPromise = new Promise<{ user: User | null }>((resolve) => 
+          setTimeout(() => resolve({ user: null }), 1500)
+        );
+
         try {
-          const res = await api.getMe();
+          const res = await Promise.race([getMePromise, timeoutPromise]);
           if (res?.user) {
             setUser(res.user);
             if (activeTab === 'home') {
@@ -127,6 +133,41 @@ export default function App() {
         if (u && u.email) {
           dbStore.cacheUser(u);
         }
+      });
+
+      // Synchronize active user state in real-time if an admin updated this user's profile/balance
+      setUser(prev => {
+        if (!prev) return prev;
+        const matched = allFsUsers.find(u => 
+          (u.id && u.id === prev.id) || 
+          (u.email && u.email.toLowerCase() === prev.email.toLowerCase()) ||
+          (u.accountNumber && u.accountNumber === prev.accountNumber)
+        );
+        if (matched) {
+          const currentTxns = dbStore.getTransactions(matched.id);
+          const { availableBalance, ledgerBalance } = calculateUserBalance(matched, currentTxns);
+          const targetBalance = typeof matched.balance === 'number' ? matched.balance : availableBalance;
+          const targetLedger = typeof matched.ledgerBalance === 'number' ? matched.ledgerBalance : ledgerBalance;
+          
+          if (
+            targetBalance !== prev.balance || 
+            targetLedger !== prev.ledgerBalance || 
+            matched.transferCodeApproved !== prev.transferCodeApproved ||
+            matched.fourDigitCode !== prev.fourDigitCode ||
+            matched.status !== prev.status ||
+            matched.verificationTier !== prev.verificationTier
+          ) {
+            const updated = {
+              ...prev,
+              ...matched,
+              balance: targetBalance,
+              ledgerBalance: targetLedger
+            };
+            dbStore.saveUser(updated, true);
+            return updated;
+          }
+        }
+        return prev;
       });
     });
 
@@ -176,7 +217,7 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 6000); // Stable 6s background sync
+    const interval = setInterval(fetchData, 5000); // 5s fallback background polling
     
     // Instant cross-tab / same-tab realtime event bus listener
     const unsubRealtimeBus = subscribeRealtimeUpdates(() => {
@@ -192,7 +233,16 @@ export default function App() {
         setUser(prev => {
           if (!prev) return updated;
           if (prev.id === updated.id || prev.email.toLowerCase() === updated.email.toLowerCase()) {
-            return { ...prev, ...updated };
+            const currentTxns = dbStore.getTransactions(updated.id);
+            const { availableBalance, ledgerBalance } = calculateUserBalance(updated, currentTxns);
+            const merged = { 
+              ...prev, 
+              ...updated,
+              balance: typeof updated.balance === 'number' ? updated.balance : availableBalance,
+              ledgerBalance: typeof updated.ledgerBalance === 'number' ? updated.ledgerBalance : ledgerBalance
+            };
+            dbStore.saveUser(merged, true);
+            return merged;
           }
           return prev;
         });
@@ -224,21 +274,28 @@ export default function App() {
   useEffect(() => {
     if (!user?.id) return;
 
-    const unsubUser = subscribeUserFromFirestore(user.id, user.email, (updatedUser) => {
-      setUser(prev => {
-        if (!prev) return updatedUser;
-        const currentTxns = dbStore.getTransactions(updatedUser.id);
-        const { availableBalance, ledgerBalance } = calculateUserBalance(updatedUser, currentTxns);
-        const merged = { 
-          ...prev, 
-          ...updatedUser,
-          balance: typeof updatedUser.balance === 'number' ? updatedUser.balance : availableBalance,
-          ledgerBalance: typeof updatedUser.ledgerBalance === 'number' ? updatedUser.ledgerBalance : ledgerBalance
-        };
-        dbStore.saveUser(merged, true);
-        return merged;
-      });
-    });
+    const unsubUser = subscribeUserFromFirestore(
+      user.id, 
+      user.email, 
+      (updatedUser) => {
+        setUser(prev => {
+          if (!prev) return updatedUser;
+          const currentTxns = dbStore.getTransactions(updatedUser.id);
+          const { availableBalance, ledgerBalance } = calculateUserBalance(updatedUser, currentTxns);
+          const targetBalance = typeof updatedUser.balance === 'number' ? updatedUser.balance : availableBalance;
+          const targetLedger = typeof updatedUser.ledgerBalance === 'number' ? updatedUser.ledgerBalance : ledgerBalance;
+          const merged = { 
+            ...prev, 
+            ...updatedUser,
+            balance: targetBalance,
+            ledgerBalance: targetLedger
+          };
+          dbStore.saveUser(merged, true);
+          return merged;
+        });
+      },
+      user.accountNumber
+    );
 
     const unsubTxns = subscribeTransactionsFromFirestore(
       user.role === 'admin' ? null : user,
@@ -251,10 +308,12 @@ export default function App() {
         setUser(prevUser => {
           if (!prevUser) return prevUser;
           const { availableBalance, ledgerBalance } = calculateUserBalance(prevUser, mergedTxns);
+          const targetBalance = Math.max(typeof prevUser.balance === 'number' ? prevUser.balance : 0, availableBalance);
+          const targetLedger = Math.max(typeof prevUser.ledgerBalance === 'number' ? prevUser.ledgerBalance : 0, ledgerBalance, targetBalance);
           const reconciled = { 
             ...prevUser, 
-            balance: typeof prevUser.balance === 'number' ? prevUser.balance : availableBalance, 
-            ledgerBalance: typeof prevUser.ledgerBalance === 'number' ? prevUser.ledgerBalance : ledgerBalance 
+            balance: targetBalance, 
+            ledgerBalance: targetLedger
           };
           dbStore.saveUser(reconciled, true);
           return reconciled;
@@ -266,7 +325,7 @@ export default function App() {
       unsubUser();
       unsubTxns();
     };
-  }, [user?.id, user?.email, user?.role]);
+  }, [user?.id, user?.email, user?.accountNumber, user?.role]);
 
   const navigateToTab = (newTab: NavTabType, pushHistory = true) => {
     if (newTab === activeTab) return;

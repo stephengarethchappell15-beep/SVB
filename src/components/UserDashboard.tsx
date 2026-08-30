@@ -75,10 +75,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   // Reconcile user balance with approved transactions
   const { availableBalance, ledgerBalance } = calculateUserBalance(user, transactions);
 
-  // Self-heal and sync user balance if out of sync
+  // Self-heal and sync user balance if ledger calculation exceeds base balance
   useEffect(() => {
-    if (user && user.balance !== availableBalance && availableBalance > 0 && onUserUpdated) {
-      onUserUpdated({ ...user, balance: availableBalance, ledgerBalance: ledgerBalance });
+    if (user && availableBalance > (user.balance || 0) && onUserUpdated) {
+      onUserUpdated({ ...user, balance: availableBalance, ledgerBalance: Math.max(ledgerBalance, availableBalance) });
     }
   }, [user?.balance, availableBalance, ledgerBalance, onUserUpdated]);
 
