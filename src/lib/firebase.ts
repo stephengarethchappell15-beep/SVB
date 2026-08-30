@@ -8,6 +8,7 @@ import {
   collection, 
   query, 
   where,
+  limit,
   deleteDoc,
   onSnapshot,
   arrayUnion
@@ -255,105 +256,99 @@ export async function handleUserRegistration(userData: {
 }
 
 /**
- * Perform direct normalized search on 'users' collection by email and account number
+ * Robust Admin Search function that handles string/number type mismatches for accountNumber and email
  */
 export async function searchUsersDirectory(searchTerm: string): Promise<User[]> {
-  const queryStr = (searchTerm || '').trim().toLowerCase();
-  const cleanNum = queryStr.replace(/[^0-9]/g, '');
+  if (!searchTerm) return [];
+
+  const queryTerm = searchTerm.trim();
+  const numericQuery = Number(queryTerm);
   const usersRef = collection(db, 'users');
+  const resultsMap = new Map<string, User>();
 
-  const results: User[] = [];
-  const addedIds = new Set<string>();
-
-  const addResult = (u: any) => {
-    if (!u) return;
-    const id = u.id || u.uid;
-    const key = (u.email || id || u.accountNumber || '').toLowerCase();
-    if (key && !addedIds.has(key)) {
-      addedIds.add(key);
-      results.push({
-        ...u,
-        id: id || `usr-${Date.now()}`,
-        email: (u.email || '').trim().toLowerCase(),
-        balance: Number(u.balance) || 0.00,
-        ledgerBalance: Number(u.ledgerBalance) || Number(u.balance) || 0.00
-      });
-    }
+  const addDocData = (id: string, data: any) => {
+    if (!data) return;
+    const docId = data.id || data.uid || id;
+    resultsMap.set(docId, {
+      ...data,
+      id: docId,
+      uid: docId,
+      email: (data.email || '').trim().toLowerCase(),
+      accountNumber: String(data.accountNumber || ''),
+      balance: Number(data.balance) || 0.00,
+      ledgerBalance: Number(data.ledgerBalance) || Number(data.balance) || 0.00
+    });
   };
 
   try {
-    if (!queryStr) {
-      return await getAllUsersFromFirestore();
+    // 1. Try matching account number as a string
+    const snapStr = await getDocs(query(usersRef, where('accountNumber', '==', queryTerm))).catch(() => null);
+    if (snapStr) {
+      snapStr.forEach(docSnap => addDocData(docSnap.id, docSnap.data()));
     }
 
-    // 1. Direct document ID lookups
-    const [snapId, snapEmailDoc, snapAccDoc] = await Promise.all([
-      getDoc(doc(db, 'users', searchTerm.trim())).catch(() => null),
-      getDoc(doc(db, 'users_by_email', queryStr)).catch(() => null),
-      getDoc(doc(db, 'users_by_account', searchTerm.trim())).catch(() => null)
-    ]);
-
-    if (snapId && snapId.exists()) addResult({ id: snapId.id, ...snapId.data() });
-    if (snapEmailDoc && snapEmailDoc.exists()) addResult({ id: snapEmailDoc.id, ...snapEmailDoc.data() });
-    if (snapAccDoc && snapAccDoc.exists()) addResult({ id: snapAccDoc.id, ...snapAccDoc.data() });
-
-    if (cleanNum && cleanNum !== searchTerm.trim()) {
-      const snapCleanAcc = await getDoc(doc(db, 'users_by_account', cleanNum)).catch(() => null);
-      if (snapCleanAcc && snapCleanAcc.exists()) addResult({ id: snapCleanAcc.id, ...snapCleanAcc.data() });
-    }
-
-    // 2. Query against 'users' collection by email and accountNumber
-    const [snapshotByAcc, snapshotByEmail] = await Promise.all([
-      getDocs(query(usersRef, where('accountNumber', '==', searchTerm.trim()))).catch(() => null),
-      getDocs(query(usersRef, where('email', '==', queryStr))).catch(() => null)
-    ]);
-
-    if (snapshotByAcc) {
-      snapshotByAcc.forEach(docSnap => {
-        if (docSnap.exists()) addResult({ id: docSnap.id, ...docSnap.data() });
-      });
-    }
-
-    if (snapshotByEmail) {
-      snapshotByEmail.forEach(docSnap => {
-        if (docSnap.exists()) addResult({ id: docSnap.id, ...docSnap.data() });
-      });
-    }
-
-    if (cleanNum && cleanNum !== searchTerm.trim()) {
-      const snapNum = await getDocs(query(usersRef, where('accountNumber', '==', cleanNum))).catch(() => null);
+    // 2. Try matching account number as a number (fixes type mismatch)
+    if (!isNaN(numericQuery)) {
+      const snapNum = await getDocs(query(usersRef, where('accountNumber', '==', numericQuery))).catch(() => null);
       if (snapNum) {
-        snapNum.forEach(docSnap => {
-          if (docSnap.exists()) addResult({ id: docSnap.id, ...docSnap.data() });
+        snapNum.forEach(docSnap => addDocData(docSnap.id, docSnap.data()));
+      }
+    }
+
+    // 3. Try matching lowercase email
+    const snapEmail = await getDocs(query(usersRef, where('email', '==', queryTerm.toLowerCase()))).catch(() => null);
+    if (snapEmail) {
+      snapEmail.forEach(docSnap => addDocData(docSnap.id, docSnap.data()));
+    }
+
+    // 3b. Try direct document ID & auxiliary index lookups
+    const [snapId, snapEmailDoc, snapAccDoc] = await Promise.all([
+      getDoc(doc(db, 'users', queryTerm)).catch(() => null),
+      getDoc(doc(db, 'users_by_email', queryTerm.toLowerCase())).catch(() => null),
+      getDoc(doc(db, 'users_by_account', queryTerm)).catch(() => null)
+    ]);
+    if (snapId && snapId.exists()) addDocData(snapId.id, snapId.data());
+    if (snapEmailDoc && snapEmailDoc.exists()) addDocData(snapEmailDoc.id, snapEmailDoc.data());
+    if (snapAccDoc && snapAccDoc.exists()) addDocData(snapAccDoc.id, snapAccDoc.data());
+
+    // 4. Fallback: If exact matches fail, fetch recent users and filter locally to prevent "Not Found" errors
+    if (resultsMap.size === 0) {
+      const allUsersSnap = await getDocs(query(usersRef, limit(100))).catch(() => null);
+      if (allUsersSnap) {
+        allUsersSnap.forEach(docSnap => {
+          const data = docSnap.data();
+          const accStr = String(data.accountNumber || '');
+          const emailStr = String(data.email || '').toLowerCase();
+          const fullNameStr = String(data.fullName || '').toLowerCase();
+          const qLower = queryTerm.toLowerCase();
+
+          if (accStr.includes(queryTerm) || emailStr.includes(qLower) || fullNameStr.includes(qLower)) {
+            addDocData(docSnap.id, data);
+          }
+        });
+      }
+
+      // Memory DB fallback if still empty
+      if (resultsMap.size === 0) {
+        const memoryUsers = dbStore.getUsers();
+        memoryUsers.forEach(u => {
+          const accStr = String(u.accountNumber || '');
+          const emailStr = String(u.email || '').toLowerCase();
+          const nameStr = String(u.fullName || '').toLowerCase();
+          const qLower = queryTerm.toLowerCase();
+
+          if (accStr.includes(queryTerm) || emailStr.includes(qLower) || nameStr.includes(qLower)) {
+            addDocData(u.id, u);
+          }
         });
       }
     }
 
-    // 3. Fallback search across all users for partial substring matches
-    const allUsers = await getAllUsersFromFirestore();
-    allUsers.forEach(u => {
-      if (!u) return;
-      const uEmail = (u.email || '').toLowerCase();
-      const uName = (u.fullName || '').toLowerCase();
-      const uAcc = (u.accountNumber || '').toLowerCase();
-      const uAccClean = uAcc.replace(/[^0-9]/g, '');
-      const uId = (u.id || '').toLowerCase();
-
-      if (
-        uEmail.includes(queryStr) ||
-        uAcc.includes(queryStr) ||
-        (cleanNum.length > 0 && uAccClean.includes(cleanNum)) ||
-        uName.includes(queryStr) ||
-        uId.includes(queryStr)
-      ) {
-        addResult(u);
-      }
-    });
-  } catch (err) {
-    console.warn('searchUsersDirectory error:', err);
+  } catch (error) {
+    console.error("Search directory error:", error);
   }
 
-  return results;
+  return Array.from(resultsMap.values());
 }
 
 /**
