@@ -21,6 +21,7 @@ import {
   syncUserToFirestore, 
   getUserFromFirestore, 
   getAllUsersFromFirestore,
+  mergeUserRecords,
   syncVirtualCardToFirestore,
   getVirtualCardsFromFirestore,
   syncCryptoDepositToFirestore,
@@ -1092,8 +1093,8 @@ export const api = {
       if (backendRes && backendRes.updatedUser && backendRes.transaction) {
         dbStore.saveUser(backendRes.updatedUser);
         dbStore.addTransaction(backendRes.transaction);
-        syncUserToFirestore(backendRes.updatedUser);
-        syncTransactionToFirestore(backendRes.transaction);
+        await syncUserToFirestore(backendRes.updatedUser);
+        await syncTransactionToFirestore(backendRes.transaction);
 
         broadcastRealtimeUpdate({
           type: 'USER_UPDATED',
@@ -2251,28 +2252,40 @@ export const api = {
     }
 
     const userMap = new Map<string, User>();
-    localUsers.forEach(u => {
-      if (u) {
-        const key = (u.email || u.id).toLowerCase();
-        userMap.set(key, u);
-      }
-    });
-    fsUsers.forEach(u => {
-      if (u) {
-        const key = (u.email || u.id).toLowerCase();
-        userMap.set(key, u);
-        dbStore.saveUser(u);
-      }
-    });
-    serverUsers.forEach(u => {
-      if (u) {
-        const key = (u.email || u.id).toLowerCase();
-        userMap.set(key, u);
-        dbStore.saveUser(u);
+
+    const addToMap = (u: User) => {
+      if (!u) return;
+      const emailKey = (u.email || '').trim().toLowerCase();
+      const idKey = (u.id || '').trim().toLowerCase();
+      const accKey = (u.accountNumber || '').trim().replace(/[^0-9]/g, '');
+      const canonicalKey = emailKey || accKey || idKey;
+      if (!canonicalKey) return;
+
+      let existing: User | undefined = userMap.get(canonicalKey);
+      if (!existing && emailKey && userMap.has(emailKey)) existing = userMap.get(emailKey);
+      if (!existing && accKey && userMap.has(accKey)) existing = userMap.get(accKey);
+      if (!existing && idKey && userMap.has(idKey)) existing = userMap.get(idKey);
+
+      const merged = mergeUserRecords(existing, u);
+      if (emailKey) userMap.set(emailKey, merged);
+      if (accKey) userMap.set(accKey, merged);
+      if (idKey) userMap.set(idKey, merged);
+      dbStore.saveUser(merged);
+    };
+
+    localUsers.forEach(addToMap);
+    fsUsers.forEach(addToMap);
+    serverUsers.forEach(addToMap);
+
+    const combinedMap = new Map<string, User>();
+    userMap.forEach((u) => {
+      const key = (u.email || u.id || u.accountNumber).toLowerCase();
+      if (!combinedMap.has(key)) {
+        combinedMap.set(key, u);
       }
     });
 
-    const combined = Array.from(userMap.values());
+    const combined = Array.from(combinedMap.values());
 
     if (!rawQ) {
       return { users: combined };

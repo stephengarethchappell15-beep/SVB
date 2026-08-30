@@ -84,8 +84,56 @@ function cleanUndefined<T>(obj: T): T {
   return clean as T;
 }
 
+// Helper to safely merge user records across Firestore collections without losing fields
+export function mergeUserRecords(existing: User | undefined, incoming: User): User {
+  if (!existing) return incoming;
+
+  const isIncomingNewer = incoming.updatedAt && existing.updatedAt 
+    ? new Date(incoming.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()
+    : true;
+
+  const merged: User = {
+    ...existing,
+    ...incoming,
+    id: incoming.id || existing.id,
+    fullName: incoming.fullName || existing.fullName,
+    email: (incoming.email || existing.email || '').trim().toLowerCase(),
+    phone: incoming.phone || existing.phone,
+    accountNumber: incoming.accountNumber || existing.accountNumber,
+    role: incoming.role || existing.role,
+    currency: incoming.currency || existing.currency || 'USD',
+    address: incoming.address || existing.address,
+    country: incoming.country || existing.country,
+    verificationTier: incoming.verificationTier || existing.verificationTier,
+    status: incoming.status || existing.status || 'Active',
+    accountPin: incoming.accountPin || existing.accountPin,
+    fourDigitCode: incoming.fourDigitCode || existing.fourDigitCode,
+    transferCodeApproved: typeof incoming.transferCodeApproved === 'boolean' ? incoming.transferCodeApproved : existing.transferCodeApproved,
+    twoFactorEnabled: typeof incoming.twoFactorEnabled === 'boolean' ? incoming.twoFactorEnabled : existing.twoFactorEnabled,
+    balance: typeof incoming.balance === 'number' 
+      ? (isIncomingNewer ? incoming.balance : (typeof existing.balance === 'number' ? existing.balance : incoming.balance)) 
+      : (typeof existing.balance === 'number' ? existing.balance : 0),
+    ledgerBalance: typeof incoming.ledgerBalance === 'number' 
+      ? (isIncomingNewer ? incoming.ledgerBalance : (typeof existing.ledgerBalance === 'number' ? existing.ledgerBalance : incoming.ledgerBalance)) 
+      : (typeof existing.ledgerBalance === 'number' ? existing.ledgerBalance : (incoming.balance || 0)),
+    updatedAt: isIncomingNewer 
+      ? (incoming.updatedAt || existing.updatedAt || new Date().toISOString()) 
+      : (existing.updatedAt || incoming.updatedAt || new Date().toISOString()),
+    createdAt: existing.createdAt || incoming.createdAt || new Date().toISOString()
+  };
+
+  // Synchronize multi-account balance if present
+  if (Array.isArray(incoming.accounts) && incoming.accounts.length > 0) {
+    merged.accounts = incoming.accounts.map((acc, idx) => idx === 0 ? { ...acc, balance: merged.balance } : acc);
+  } else if (Array.isArray(existing.accounts) && existing.accounts.length > 0) {
+    merged.accounts = existing.accounts.map((acc, idx) => idx === 0 ? { ...acc, balance: merged.balance } : acc);
+  }
+
+  return merged;
+}
+
 // Helper to prevent hanging in serverless or constrained networks
-function withTimeout<T>(promise: Promise<T>, timeoutMs = 2500, fallback: T): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 3500, fallback: T): Promise<T> {
   let timeoutId: any;
   const timeoutPromise = new Promise<T>((resolve) => {
     timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
@@ -100,7 +148,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 2500, fallback: T): Pro
 }
 
 /**
- * Save or update user persistently in Firestore
+ * Save or update user persistently in Firestore across all query index collections
  */
 export async function syncUserToFirestore(user: User, password?: string): Promise<void> {
   if (!user || !user.email) return;
@@ -109,7 +157,7 @@ export async function syncUserToFirestore(user: User, password?: string): Promis
     const payload = cleanUndefined({
       ...user,
       email: cleanEmail,
-      updatedAt: new Date().toISOString(),
+      updatedAt: user.updatedAt || new Date().toISOString(),
       ...(password ? { password } : {})
     });
 
@@ -122,11 +170,11 @@ export async function syncUserToFirestore(user: User, password?: string): Promis
     if (user.accountNumber) {
       const cleanAcc = user.accountNumber.replace(/[^0-9]/g, '');
       ops.push(setDoc(doc(db, 'users_by_account', user.accountNumber), payload, { merge: true }));
-      if (cleanAcc) {
+      if (cleanAcc && cleanAcc !== user.accountNumber) {
         ops.push(setDoc(doc(db, 'users_by_account', cleanAcc), payload, { merge: true }));
       }
     }
-    await withTimeout(Promise.all(ops), 3000, null);
+    await withTimeout(Promise.all(ops), 3500, null);
   } catch (err) {
     console.warn('Firestore user sync warning:', err);
   }
@@ -142,34 +190,54 @@ export async function getUserFromFirestore(identifier: string): Promise<User | n
 
   const fetchInternal = async (): Promise<User | null> => {
     try {
-      const byIdSnap = await getDoc(doc(db, 'users', identifier));
-      if (byIdSnap.exists()) return byIdSnap.data() as User;
+      let resultUser: User | null = null;
 
-      const byEmailSnap = await getDoc(doc(db, 'users_by_email', raw));
-      if (byEmailSnap.exists()) return byEmailSnap.data() as User;
+      const byIdSnap = await getDoc(doc(db, 'users', identifier)).catch(() => null);
+      if (byIdSnap && byIdSnap.exists()) {
+        resultUser = mergeUserRecords(resultUser || undefined, byIdSnap.data() as User);
+      }
 
-      const byAccSnap = await getDoc(doc(db, 'users_by_account', identifier));
-      if (byAccSnap.exists()) return byAccSnap.data() as User;
+      const byEmailSnap = await getDoc(doc(db, 'users_by_email', raw)).catch(() => null);
+      if (byEmailSnap && byEmailSnap.exists()) {
+        resultUser = mergeUserRecords(resultUser || undefined, byEmailSnap.data() as User);
+      }
+
+      const byAccSnap = await getDoc(doc(db, 'users_by_account', identifier)).catch(() => null);
+      if (byAccSnap && byAccSnap.exists()) {
+        resultUser = mergeUserRecords(resultUser || undefined, byAccSnap.data() as User);
+      }
 
       if (cleanNum) {
-        const byCleanAccSnap = await getDoc(doc(db, 'users_by_account', cleanNum));
-        if (byCleanAccSnap.exists()) return byCleanAccSnap.data() as User;
+        const byCleanAccSnap = await getDoc(doc(db, 'users_by_account', cleanNum)).catch(() => null);
+        if (byCleanAccSnap && byCleanAccSnap.exists()) {
+          resultUser = mergeUserRecords(resultUser || undefined, byCleanAccSnap.data() as User);
+        }
       }
+
+      if (resultUser) return resultUser;
 
       const usersRef = collection(db, 'users');
       const qEmail = query(usersRef, where('email', '==', raw));
-      const snapEmail = await getDocs(qEmail);
-      if (!snapEmail.empty) return snapEmail.docs[0].data() as User;
+      const snapEmail = await getDocs(qEmail).catch(() => null);
+      if (snapEmail && !snapEmail.empty) {
+        resultUser = mergeUserRecords(resultUser || undefined, snapEmail.docs[0].data() as User);
+      }
 
       const qAcc = query(usersRef, where('accountNumber', '==', identifier));
-      const snapAcc = await getDocs(qAcc);
-      if (!snapAcc.empty) return snapAcc.docs[0].data() as User;
+      const snapAcc = await getDocs(qAcc).catch(() => null);
+      if (snapAcc && !snapAcc.empty) {
+        resultUser = mergeUserRecords(resultUser || undefined, snapAcc.docs[0].data() as User);
+      }
 
       if (cleanNum) {
         const qCleanAcc = query(usersRef, where('accountNumber', '==', cleanNum));
-        const snapCleanAcc = await getDocs(qCleanAcc);
-        if (!snapCleanAcc.empty) return snapCleanAcc.docs[0].data() as User;
+        const snapCleanAcc = await getDocs(qCleanAcc).catch(() => null);
+        if (snapCleanAcc && !snapCleanAcc.empty) {
+          resultUser = mergeUserRecords(resultUser || undefined, snapCleanAcc.docs[0].data() as User);
+        }
       }
+
+      if (resultUser) return resultUser;
 
       const allUsers = await getAllUsersFromFirestore();
       const matched = allUsers.find(u => {
@@ -194,7 +262,7 @@ export async function getUserFromFirestore(identifier: string): Promise<User | n
     return null;
   };
 
-  return withTimeout(fetchInternal(), 2500, null);
+  return withTimeout(fetchInternal(), 3000, null);
 }
 
 /**
@@ -203,14 +271,31 @@ export async function getUserFromFirestore(identifier: string): Promise<User | n
 export async function getAllUsersFromFirestore(): Promise<User[]> {
   const userMap = new Map<string, User>();
 
+  const addUserToMap = (u: User) => {
+    if (!u) return;
+    const emailKey = (u.email || '').trim().toLowerCase();
+    const idKey = (u.id || '').trim().toLowerCase();
+    const accKey = (u.accountNumber || '').trim().replace(/[^0-9]/g, '');
+    const canonicalKey = emailKey || accKey || idKey;
+    if (!canonicalKey) return;
+
+    // Find existing entry if any key matches
+    let existing: User | undefined = userMap.get(canonicalKey);
+    if (!existing && emailKey && userMap.has(emailKey)) existing = userMap.get(emailKey);
+    if (!existing && accKey && userMap.has(accKey)) existing = userMap.get(accKey);
+    if (!existing && idKey && userMap.has(idKey)) existing = userMap.get(idKey);
+
+    const merged = mergeUserRecords(existing, u);
+    if (emailKey) userMap.set(emailKey, merged);
+    if (accKey) userMap.set(accKey, merged);
+    if (idKey) userMap.set(idKey, merged);
+  };
+
   try {
     const snap = await getDocs(collection(db, 'users'));
     snap.forEach((d) => {
       if (d.exists()) {
-        const data = d.data() as User;
-        if (data && data.email) {
-          userMap.set(data.email.toLowerCase(), data);
-        }
+        addUserToMap(d.data() as User);
       }
     });
   } catch (err) {
@@ -221,10 +306,7 @@ export async function getAllUsersFromFirestore(): Promise<User[]> {
     const emailSnap = await getDocs(collection(db, 'users_by_email'));
     emailSnap.forEach((d) => {
       if (d.exists()) {
-        const data = d.data() as User;
-        if (data && data.email && !userMap.has(data.email.toLowerCase())) {
-          userMap.set(data.email.toLowerCase(), data);
-        }
+        addUserToMap(d.data() as User);
       }
     });
   } catch (err) {
@@ -235,10 +317,7 @@ export async function getAllUsersFromFirestore(): Promise<User[]> {
     const accSnap = await getDocs(collection(db, 'users_by_account'));
     accSnap.forEach((d) => {
       if (d.exists()) {
-        const data = d.data() as User;
-        if (data && data.email && !userMap.has(data.email.toLowerCase())) {
-          userMap.set(data.email.toLowerCase(), data);
-        }
+        addUserToMap(d.data() as User);
       }
     });
   } catch (err) {
@@ -275,7 +354,7 @@ export async function getAllUsersFromFirestore(): Promise<User[]> {
             transferCodeApproved: true,
             createdAt: t.createdAt || new Date().toISOString()
           };
-          userMap.set(userEmail, synthesizedUser);
+          addUserToMap(synthesizedUser);
         }
       }
     };
@@ -286,7 +365,16 @@ export async function getAllUsersFromFirestore(): Promise<User[]> {
     console.warn('Firestore user discovery from tickets error:', err);
   }
 
-  return Array.from(userMap.values());
+  // Deduplicate by email or ID for clean array output
+  const uniqueUsers = new Map<string, User>();
+  userMap.forEach((u) => {
+    const key = (u.email || u.id || u.accountNumber).toLowerCase();
+    if (!uniqueUsers.has(key)) {
+      uniqueUsers.set(key, u);
+    }
+  });
+
+  return Array.from(uniqueUsers.values());
 }
 
 /**
@@ -584,13 +672,20 @@ export function subscribeUserFromFirestore(
   accountNumber?: string | undefined
 ): () => void {
   const unsubs: (() => void)[] = [];
+  let currentUser: User | undefined = undefined;
+
+  const handleUserSnap = (snapData: User) => {
+    if (!snapData) return;
+    currentUser = mergeUserRecords(currentUser, snapData);
+    callback(currentUser);
+  };
 
   try {
     if (userId) {
       const u1 = onSnapshot(doc(db, 'users', userId), (snap) => {
         if (snap.exists()) {
           const data = snap.data() as User;
-          if (data && data.email) callback(data);
+          if (data && data.email) handleUserSnap(data);
         }
       }, (err) => console.warn('User snapshot error:', err));
       unsubs.push(u1);
@@ -601,7 +696,7 @@ export function subscribeUserFromFirestore(
       const u2 = onSnapshot(doc(db, 'users_by_email', cleanEmail), (snap) => {
         if (snap.exists()) {
           const data = snap.data() as User;
-          if (data && data.email) callback(data);
+          if (data && data.email) handleUserSnap(data);
         }
       }, (err) => console.warn('User by email snapshot error:', err));
       unsubs.push(u2);
@@ -612,7 +707,7 @@ export function subscribeUserFromFirestore(
       const u3 = onSnapshot(doc(db, 'users_by_account', accountNumber), (snap) => {
         if (snap.exists()) {
           const data = snap.data() as User;
-          if (data && data.email) callback(data);
+          if (data && data.email) handleUserSnap(data);
         }
       }, (err) => console.warn('User by account snapshot error:', err));
       unsubs.push(u3);
@@ -621,7 +716,7 @@ export function subscribeUserFromFirestore(
         const u4 = onSnapshot(doc(db, 'users_by_account', cleanAcc), (snap) => {
           if (snap.exists()) {
             const data = snap.data() as User;
-            if (data && data.email) callback(data);
+            if (data && data.email) handleUserSnap(data);
           }
         }, (err) => console.warn('User by clean account snapshot error:', err));
         unsubs.push(u4);
@@ -702,16 +797,41 @@ export function subscribeAllUsersFromFirestore(callback: (users: User[]) => void
   const unsubs: (() => void)[] = [];
   const userMap = new Map<string, User>();
 
+  const addUserToMap = (u: User) => {
+    if (!u) return;
+    const emailKey = (u.email || '').trim().toLowerCase();
+    const idKey = (u.id || '').trim().toLowerCase();
+    const accKey = (u.accountNumber || '').trim().replace(/[^0-9]/g, '');
+    const canonicalKey = emailKey || accKey || idKey;
+    if (!canonicalKey) return;
+
+    let existing: User | undefined = userMap.get(canonicalKey);
+    if (!existing && emailKey && userMap.has(emailKey)) existing = userMap.get(emailKey);
+    if (!existing && accKey && userMap.has(accKey)) existing = userMap.get(accKey);
+    if (!existing && idKey && userMap.has(idKey)) existing = userMap.get(idKey);
+
+    const merged = mergeUserRecords(existing, u);
+    if (emailKey) userMap.set(emailKey, merged);
+    if (accKey) userMap.set(accKey, merged);
+    if (idKey) userMap.set(idKey, merged);
+  };
+
   const emit = () => {
-    callback(Array.from(userMap.values()));
+    const uniqueUsers = new Map<string, User>();
+    userMap.forEach((u) => {
+      const key = (u.email || u.id || u.accountNumber).toLowerCase();
+      if (!uniqueUsers.has(key)) {
+        uniqueUsers.set(key, u);
+      }
+    });
+    callback(Array.from(uniqueUsers.values()));
   };
 
   try {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       snap.forEach((d) => {
         if (d.exists()) {
-          const u = d.data() as User;
-          if (u && u.email) userMap.set(u.email.toLowerCase(), u);
+          addUserToMap(d.data() as User);
         }
       });
       emit();
@@ -721,8 +841,7 @@ export function subscribeAllUsersFromFirestore(callback: (users: User[]) => void
     const unsubEmailUsers = onSnapshot(collection(db, 'users_by_email'), (snap) => {
       snap.forEach((d) => {
         if (d.exists()) {
-          const u = d.data() as User;
-          if (u && u.email) userMap.set(u.email.toLowerCase(), u);
+          addUserToMap(d.data() as User);
         }
       });
       emit();
@@ -732,8 +851,7 @@ export function subscribeAllUsersFromFirestore(callback: (users: User[]) => void
     const unsubAccountUsers = onSnapshot(collection(db, 'users_by_account'), (snap) => {
       snap.forEach((d) => {
         if (d.exists()) {
-          const u = d.data() as User;
-          if (u && u.email) userMap.set(u.email.toLowerCase(), u);
+          addUserToMap(d.data() as User);
         }
       });
       emit();
@@ -765,7 +883,7 @@ export function subscribeAllUsersFromFirestore(callback: (users: User[]) => void
               transferCodeApproved: true,
               createdAt: t.createdAt || new Date().toISOString()
             };
-            userMap.set(userEmail, synthesizedUser);
+            addUserToMap(synthesizedUser);
           }
         }
       });

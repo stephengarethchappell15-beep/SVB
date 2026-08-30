@@ -7,6 +7,8 @@ import {
   getUserFromFirestore, 
   getAllUsersFromFirestore, 
   syncTransactionToFirestore, 
+  getTransactionsFromFirestore,
+  mergeUserRecords,
   syncCryptoDepositToFirestore, 
   syncEmailConfigToFirestore, 
   getEmailConfigFromFirestore, 
@@ -1452,32 +1454,55 @@ class DatabaseManager {
 
     try {
       const userMap = new Map<string, User>();
-      memoryMatches.forEach(u => userMap.set(u.id, u));
+
+      const addToMap = (u: User) => {
+        if (!u) return;
+        const emailKey = (u.email || '').trim().toLowerCase();
+        const idKey = (u.id || '').trim().toLowerCase();
+        const accKey = (u.accountNumber || '').trim().replace(/[^0-9]/g, '');
+        const canonicalKey = emailKey || accKey || idKey;
+        if (!canonicalKey) return;
+
+        let existing: User | undefined = userMap.get(canonicalKey);
+        if (!existing && emailKey && userMap.has(emailKey)) existing = userMap.get(emailKey);
+        if (!existing && accKey && userMap.has(accKey)) existing = userMap.get(accKey);
+        if (!existing && idKey && userMap.has(idKey)) existing = userMap.get(idKey);
+
+        const merged = mergeUserRecords(existing, u);
+        if (emailKey) userMap.set(emailKey, merged);
+        if (accKey) userMap.set(accKey, merged);
+        if (idKey) userMap.set(idKey, merged);
+
+        // Keep internal memory DB updated with complete merged records
+        const memIdx = this.db.users.findIndex(m => 
+          (m.id && m.id === merged.id) || 
+          (m.email && m.email.toLowerCase() === merged.email.toLowerCase()) ||
+          (m.accountNumber && m.accountNumber === merged.accountNumber)
+        );
+        if (memIdx >= 0) {
+          this.db.users[memIdx] = merged;
+        } else {
+          this.db.users.push(merged);
+        }
+
+        if ((u as any).password && merged.id) {
+          this.db.passwords[merged.id] = (u as any).password;
+        }
+      };
+
+      memoryMatches.forEach(addToMap);
 
       const [fsUsers, directMatch] = await Promise.all([
         getAllUsersFromFirestore().catch(() => []),
         rawQ ? getUserFromFirestore(query).catch(() => null) : Promise.resolve(null)
       ]);
 
-      if (directMatch && directMatch.id) {
-        if (!this.db.users.some(existing => existing.id === directMatch.id)) {
-          this.db.users.push(directMatch);
-        }
-        if ((directMatch as any).password) {
-          this.db.passwords[directMatch.id] = (directMatch as any).password;
-        }
-        userMap.set(directMatch.id, directMatch);
+      if (directMatch) {
+        addToMap(directMatch);
       }
 
       fsUsers.forEach(u => {
-        if (u && u.id) {
-          if (!this.db.users.some(existing => existing.id === u.id)) {
-            this.db.users.push(u);
-          }
-          if ((u as any).password) {
-            this.db.passwords[u.id] = (u as any).password;
-          }
-
+        if (u) {
           const email = (u.email || '').toLowerCase();
           const name = (u.fullName || '').toLowerCase();
           const rawAcc = (u.accountNumber || '').toLowerCase();
@@ -1492,13 +1517,22 @@ class DatabaseManager {
             (cleanQ.length > 0 && acc.includes(cleanQ)) ||
             (cleanQ.length > 0 && phone.includes(cleanQ))
           ) {
-            userMap.set(u.id, u);
+            addToMap(u);
           }
         }
       });
 
       this.saveDB(this.db);
-      return Array.from(userMap.values());
+
+      const uniqueResults = new Map<string, User>();
+      userMap.forEach((u) => {
+        const key = (u.email || u.id || u.accountNumber).toLowerCase();
+        if (!uniqueResults.has(key)) {
+          uniqueResults.set(key, u);
+        }
+      });
+
+      return Array.from(uniqueResults.values());
     } catch (err) {
       console.warn('searchUsersAsync Firestore query warning:', err);
       return memoryMatches;
@@ -1754,8 +1788,12 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    await syncUserToFirestore(targetUser).catch(err => console.warn('Firestore user sync warning in createDepositAsync:', err));
-    await syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore txn sync warning in createDepositAsync:', err));
+    try {
+      await syncUserToFirestore(targetUser);
+      await syncTransactionToFirestore(newTxn);
+    } catch (err) {
+      console.warn('Firestore sync warning in createDepositAsync:', err);
+    }
 
     // Real transactional email notification (non-blocking)
     if (newTxn.status === 'Completed') {
@@ -2174,7 +2212,42 @@ class DatabaseManager {
     });
   }
 
+  public async getUserTransactionsAsync(userId: string): Promise<Transaction[]> {
+    if (!userId) return [];
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      if (fsTxns && fsTxns.length > 0) {
+        fsTxns.forEach(t => {
+          if (!this.db.transactions.some(m => m.id === t.id || (m.reference && m.reference === t.reference))) {
+            this.db.transactions.unshift(t);
+          }
+        });
+        this.saveDB(this.db);
+      }
+    } catch (err) {
+      console.warn('getUserTransactionsAsync Firestore error:', err);
+    }
+    return this.getUserTransactions(userId);
+  }
+
   public getAllTransactions(): Transaction[] {
+    return this.db.transactions;
+  }
+
+  public async getAllTransactionsAsync(): Promise<Transaction[]> {
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      if (fsTxns && fsTxns.length > 0) {
+        fsTxns.forEach(t => {
+          if (!this.db.transactions.some(m => m.id === t.id || (m.reference && m.reference === t.reference))) {
+            this.db.transactions.unshift(t);
+          }
+        });
+        this.saveDB(this.db);
+      }
+    } catch (err) {
+      console.warn('getAllTransactionsAsync Firestore error:', err);
+    }
     return this.db.transactions;
   }
 

@@ -425,7 +425,7 @@ app.get('/api/user/transactions', async (req, res) => {
   if (!user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const transactions = dbManager.getUserTransactions(user.id);
+  const transactions = await dbManager.getUserTransactionsAsync(user.id);
   res.json({ transactions });
 });
 
@@ -539,7 +539,8 @@ app.get('/api/admin/transactions', async (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
   }
-  res.json({ transactions: dbManager.getAllTransactions() });
+  const transactions = await dbManager.getAllTransactionsAsync();
+  res.json({ transactions });
 });
 
 // User & Admin: Get Crypto Wallet Deposit Addresses
