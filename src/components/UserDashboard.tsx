@@ -1,11 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Transaction, UserNotification, VirtualCard } from '../types';
 import { api } from '../services/api';
-import { dbStore } from '../services/dbStore';
-import { subscribeUserFromFirestore } from '../lib/firebase';
-import { subscribeRealtimeUpdates } from '../services/realtimeBus';
-import { maskAccountNumber, maskRoutingNumber, maskBalance } from '../utils/masking';
-import { calculateUserBalance } from '../utils/balance';
 import { 
   CreditCard, 
   Copy, 
@@ -43,7 +38,7 @@ import {
   ExternalLink,
   Award,
   ListFilter,
-  Lock
+  ShieldAlert
 } from 'lucide-react';
 
 interface UserDashboardProps {
@@ -67,67 +62,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [showCardDetails, setShowCardDetails] = useState(false);
-  const [showAccountDetails, setShowAccountDetails] = useState(false);
-  const [showRoutingDetails, setShowRoutingDetails] = useState(false);
-  const [showBalanceDetails, setShowBalanceDetails] = useState(true);
-  const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [showBulletinsModal, setShowBulletinsModal] = useState(false);
   const [userCards, setUserCards] = useState<VirtualCard[]>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
   const [copiedCardNum, setCopiedCardNum] = useState(false);
-
-  // Reconcile user balance with approved transactions
-  const { availableBalance, ledgerBalance } = calculateUserBalance(user, transactions);
-
-  // Self-heal and sync user balance if ledger calculation exceeds base balance
-  useEffect(() => {
-    if (user && availableBalance > (user.balance || 0) && onUserUpdated) {
-      onUserUpdated({ ...user, balance: availableBalance, ledgerBalance: Math.max(ledgerBalance, availableBalance) });
-    }
-  }, [user?.balance, availableBalance, ledgerBalance, onUserUpdated]);
-
-  // Real-time Firestore snapshot listeners for instant balance updates on admin deposit
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const unsubUser = subscribeUserFromFirestore(
-      user.id,
-      user.email,
-      (updatedFsUser) => {
-        if (!updatedFsUser) return;
-        const currentTxns = dbStore.getTransactions(updatedFsUser.id);
-        const { availableBalance: ab, ledgerBalance: lb } = calculateUserBalance(updatedFsUser, currentTxns);
-        const newBal = typeof updatedFsUser.balance === 'number' ? updatedFsUser.balance : ab;
-        const newLedger = typeof updatedFsUser.ledgerBalance === 'number' ? updatedFsUser.ledgerBalance : lb;
-        
-        if (newBal !== user.balance || newLedger !== user.ledgerBalance || updatedFsUser.transferCodeApproved !== user.transferCodeApproved || updatedFsUser.fourDigitCode !== user.fourDigitCode) {
-          const merged = {
-            ...user,
-            ...updatedFsUser,
-            balance: newBal,
-            ledgerBalance: newLedger
-          };
-          dbStore.saveUser(merged, true);
-          if (onUserUpdated) {
-            onUserUpdated(merged);
-          }
-        }
-      },
-      user.accountNumber
-    );
-
-    const unsubRealtime = subscribeRealtimeUpdates((event) => {
-      if (event && (event.userId === user.id || event.user?.id === user.id || event.user?.email?.toLowerCase() === user.email?.toLowerCase())) {
-        if (event.user && onUserUpdated) {
-          onUserUpdated(event.user);
-        }
-      }
-    });
-
-    return () => {
-      unsubUser();
-      unsubRealtime();
-    };
-  }, [user?.id, user?.email, user?.accountNumber, onUserUpdated]);
 
   // Load Virtual Cards for main dashboard view
   useEffect(() => {
@@ -172,12 +110,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const rawFormattedBalance = new Intl.NumberFormat('en-US', {
+  const formattedBalance = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: user.currency || 'USD'
-  }).format(availableBalance);
-
-  const displayBalance = maskBalance(rawFormattedBalance, showBalanceDetails);
+  }).format(user.balance);
 
   // Pending items count for Task List widget
   const pendingTxns = transactions.filter(t => t.status === 'Pending');
@@ -187,85 +123,62 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     <div className="space-y-5 text-slate-800 font-sans">
 
       {/* Top Welcome Banner */}
-      <div className="bg-[#0f2232] rounded-xl p-4 sm:p-5 text-white shadow-sm border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#0f2232] rounded-lg p-4 sm:p-5 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome to SVB Go</h1>
-            <span className="bg-[#0284c7]/20 text-[#38bdf8] border border-[#0284c7]/30 text-[10px] font-semibold px-2 py-0.5 rounded">
-              Commercial Banking
-            </span>
-          </div>
-          <p className="text-xs text-slate-300 mt-1 font-medium flex items-center gap-2">
-            <span>{currentTimeStr || 'Apr 14, 2025 at 5:54 PM PDT'}</span>
-            <span>•</span>
-            <span className="flex items-center gap-1 text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Secure 256-Bit SSL Session
-            </span>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome to SVB Go</h1>
+          <p className="text-xs text-slate-300 mt-0.5 font-medium">
+            {currentTimeStr || 'Apr 14, 2025 at 5:54 PM PDT'}
           </p>
         </div>
 
-        {/* Institutional Security Center & FDIC Status Pill */}
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowSecurityModal(true)}
-            className="bg-[#153147] hover:bg-[#1c415e] border border-[#234b6c] text-white rounded-lg px-3.5 py-2 flex items-center gap-2 transition-all text-xs font-semibold shadow-sm shrink-0 cursor-pointer"
-          >
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="flex items-center gap-2">
-              <span>Security Center</span>
-              <span className="text-slate-500">|</span>
-              <span className="text-slate-300 font-medium">FDIC Insured</span>
-            </div>
-          </button>
-        </div>
+        {/* Bulletin Alert Banner */}
+        <button
+          onClick={() => setShowBulletinsModal(true)}
+          className="bg-[#153147] hover:bg-[#1b3c57] border border-[#234b6c] text-white rounded-lg px-3.5 py-2 flex items-center gap-2.5 transition-all text-xs font-semibold shadow-sm shrink-0 text-left"
+        >
+          <Bell className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="flex items-center gap-2">
+            <span>Increased Risk of Phishing and Hacking</span>
+            <span className="text-slate-400">|</span>
+            <span className="text-slate-200 underline font-semibold hover:text-white">View Bulletins</span>
+          </div>
+        </button>
       </div>
 
-      {/* Institutional Security Center Modal */}
-      {showSecurityModal && (
+      {/* Bulletins Security Modal */}
+      {showBulletinsModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-lg w-full space-y-4 shadow-2xl relative text-slate-800">
             <button
-              onClick={() => setShowSecurityModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1.5 rounded-lg bg-slate-100 transition-colors"
+              onClick={() => setShowBulletinsModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg bg-slate-100"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
-            
             <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-700">
-                <ShieldCheck className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <ShieldAlert className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-[#002b49]">Security & Fraud Protection</h3>
-                <p className="text-xs text-slate-500">Silicon Valley Bank Institutional Standards</p>
+                <h3 className="text-base font-bold text-[#002b49]">Security & Fraud Bulletins</h3>
+                <p className="text-xs text-slate-500">Silicon Valley Bank Cybersecurity Advisory</p>
               </div>
             </div>
-
-            <div className="space-y-2.5 text-xs text-slate-600">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[#002b49]">
-                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Account Privacy & Multi-Layer Authorization</span>
-                </div>
-                <p className="text-slate-600 leading-relaxed">All electronic transfers and wire authorizations utilize multi-factor confirmation tokens and automated fraud monitoring protocols.</p>
+            <div className="space-y-3 text-xs text-slate-600">
+              <div className="p-3 bg-amber-50/60 border border-amber-200/80 rounded-xl space-y-1">
+                <p className="font-bold text-amber-900">Critical Phishing & BEC Warning</p>
+                <p>Silicon Valley Bank will never ask for your 2FA security codes, online credentials, or wire approvals over phone calls or unsolicited text messages.</p>
               </div>
-
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[#002b49]">
-                  <Building2 className="w-3.5 h-3.5 text-sky-600" />
-                  <span>FDIC Deposit Insurance Coverage</span>
-                </div>
-                <p className="text-slate-600 leading-relaxed">Your eligible deposits with Silicon Valley Bank, a division of First-Citizens Bank & Trust Company, are insured up to applicable limits by the FDIC.</p>
+                <p className="font-bold text-[#002b49]">Transaction Security Standards</p>
+                <p>All Global ACH and International Wires are processed with multi-layer token authorization and real-time fraud monitoring protocols.</p>
               </div>
             </div>
-
             <button
-              onClick={() => setShowSecurityModal(false)}
-              className="w-full bg-[#002b49] text-white font-bold py-2.5 rounded-xl text-xs hover:bg-[#001f35] transition-colors"
+              onClick={() => setShowBulletinsModal(false)}
+              className="w-full bg-[#002b49] text-white font-bold py-2 rounded-xl text-xs hover:bg-[#001f35]"
             >
-              Close
+              Acknowledge & Close
             </button>
           </div>
         </div>
@@ -283,11 +196,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
-                  Primary Account
+                  Account Name
                 </span>
                 <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Active Commercial Checking
+                  Active Account
                 </span>
               </div>
               <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
@@ -299,29 +212,18 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           {/* Account Number, Routing Number, and Balance Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
             
-            {/* Account Number (Masked by Default) */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">
-                  Account Number
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowAccountDetails(!showAccountDetails)}
-                  className="text-slate-400 hover:text-slate-700 transition-colors p-0.5 cursor-pointer"
-                  title={showAccountDetails ? "Hide full account number" : "Reveal full account number"}
-                >
-                  {showAccountDetails ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between mt-1">
-                <span className="font-mono font-bold text-sm text-slate-900 tracking-wider">
-                  {maskAccountNumber(user.accountNumber, showAccountDetails)}
+            {/* Account Number */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+              <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">
+                Account Number
+              </span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="font-mono font-black text-sm text-slate-900 tracking-wider">
+                  {user.accountNumber}
                 </span>
                 <button
                   onClick={copyAccountNumber}
-                  className="p-1 text-slate-500 hover:text-slate-900 transition-colors rounded hover:bg-slate-200/60"
+                  className="p-1 text-slate-500 hover:text-slate-900 transition-colors"
                   title="Copy Account Number"
                 >
                   {copied ? (
@@ -337,43 +239,23 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
 
             {/* Routing Number */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">
-                  Routing / ABA
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowRoutingDetails(!showRoutingDetails)}
-                  className="text-slate-400 hover:text-slate-700 transition-colors p-0.5 cursor-pointer"
-                  title={showRoutingDetails ? "Hide routing number" : "Reveal routing number"}
-                >
-                  {showRoutingDetails ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+              <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">
+                Routing / Wire ABA
+              </span>
               <span className="font-mono font-bold text-sm text-slate-900 tracking-wider block mt-1">
-                {maskRoutingNumber('121141822', showRoutingDetails)}
+                121141822
               </span>
               <span className="text-[10px] text-slate-400 block mt-0.5">Silicon Valley Bank</span>
             </div>
 
-            {/* Available Balance (with Privacy Toggle) */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 col-span-2 sm:col-span-1 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">
-                  Available Balance
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowBalanceDetails(!showBalanceDetails)}
-                  className="text-slate-400 hover:text-slate-700 transition-colors p-0.5 cursor-pointer"
-                  title={showBalanceDetails ? "Hide balance for privacy" : "Show balance"}
-                >
-                  {showBalanceDetails ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <span className="font-extrabold text-sm sm:text-base text-slate-900 block mt-1 tracking-tight">
-                {displayBalance}
+            {/* Available Balance */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 col-span-2 sm:col-span-1">
+              <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">
+                Available Balance
+              </span>
+              <span className="font-extrabold text-sm sm:text-base text-slate-900 block mt-1">
+                {formattedBalance}
               </span>
               <span className="text-[10px] text-slate-500 block mt-0.5">Primary Checking</span>
             </div>
@@ -391,7 +273,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </span>
           <span className="text-slate-300 hidden sm:inline">|</span>
           <span className="text-xs text-slate-500 font-medium hidden md:inline">
-            Direct access for outgoing transfers, vendor bill pay, and commercial card management
+            Fast access for outgoing transfers, vendor bill pay, and card management
           </span>
         </div>
 
@@ -425,7 +307,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             className="flex-1 sm:flex-none bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-2"
           >
             <CreditCard className="w-3.5 h-3.5 text-slate-600" />
-            <span>Manage Cards</span>
+            <span>Issue Card</span>
           </button>
         </div>
       </div>
@@ -439,8 +321,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
               <h2 className="text-sm font-bold text-slate-800">Card Program</h2>
               <div className="flex items-center gap-2 text-slate-400">
-                <button onClick={() => onNavigateTab('cards')} className="hover:text-slate-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
-                <button onClick={() => onNavigateTab('cards')} className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
               </div>
             </div>
 
@@ -575,13 +457,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     </svg>
                   </div>
 
-                  {/* Card Number Section with Standard Masking */}
+                  {/* Card Number Section */}
                   <div className="relative z-10 my-0.5">
                     <div className="flex items-center justify-between">
                       <span className={`font-mono font-black text-sm sm:text-base tracking-[0.16em] ${activeCard.status === 'Frozen' ? 'text-white' : 'text-slate-950'}`}>
                         {showCardDetails 
                           ? activeCard.cardNumber 
-                          : `•••• •••• •••• ${activeCard.cardNumber.replace(/\s+/g, '').slice(-4)}`}
+                          : `${activeCard.cardNumber.slice(0, 4)} •••• •••• ${activeCard.cardNumber.slice(-4)}`}
                       </span>
                       <button
                         onClick={() => {
@@ -663,8 +545,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
               <h2 className="text-sm font-bold text-slate-800">Account Balances</h2>
               <div className="flex items-center gap-2 text-slate-400">
-                <button onClick={() => onNavigateTab('dashboard')} className="hover:text-slate-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
-                <button onClick={() => onNavigateTab('dashboard')} className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
               </div>
             </div>
 
@@ -674,7 +556,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div>
                     <p className="font-extrabold text-slate-900 text-sm">{user.fullName}</p>
                     <p className="text-xs text-slate-600 font-mono mt-0.5">
-                      Account #{maskAccountNumber(user.accountNumber, showAccountDetails)}
+                      Account #{user.accountNumber}
                     </p>
                   </div>
                   <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
@@ -683,11 +565,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-slate-600 mt-2.5">
                   <span>Available Balance</span>
-                  <span className="font-extrabold text-slate-900">{displayBalance}</span>
+                  <span className="font-extrabold text-slate-900">{formattedBalance}</span>
                 </div>
                 <div className="flex items-center justify-between text-slate-500 text-[11px] mt-0.5">
                   <span>Prior Day Balance</span>
-                  <span>{displayBalance}</span>
+                  <span>{formattedBalance}</span>
                 </div>
               </div>
             </div>
@@ -704,15 +586,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-2">
               <h2 className="text-sm font-bold text-slate-800">Cash Balance</h2>
               <div className="flex items-center gap-2 text-slate-400">
-                <button onClick={() => onNavigateTab('dashboard')} className="hover:text-slate-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
-                <button onClick={() => onNavigateTab('dashboard')} className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
               </div>
             </div>
 
             <div>
               <p className="text-[11px] text-slate-500">Total Available Balance</p>
               <div className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-0.5">
-                {displayBalance}
+                {formattedBalance}
               </div>
 
               <div className="grid grid-cols-2 gap-2 my-3 text-xs">
@@ -728,14 +610,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <Plane className="w-4 h-4 text-slate-600 shrink-0" />
                   <div>
                     <p className="text-[9px] text-slate-500 font-semibold">Runway</p>
-                    <p className="font-bold text-slate-900">{availableBalance > 0 ? 'N/A' : '0 Months'}</p>
+                    <p className="font-bold text-slate-900">{user.balance > 0 ? 'N/A' : '0 Months'}</p>
                   </div>
                 </div>
               </div>
 
               {/* Historical Balance Baseline */}
               <div className="relative h-20 w-full mt-2 flex flex-col justify-end">
-                {availableBalance > 0 ? (
+                {user.balance > 0 ? (
                   <svg className="w-full h-16" viewBox="0 0 300 90" preserveAspectRatio="none">
                     <defs>
                       <linearGradient id="softSlateGradient" x1="0" y1="0" x2="0" y2="1">
@@ -766,9 +648,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
               <h2 className="text-sm font-bold text-slate-800">Transactions</h2>
               <div className="flex items-center gap-2 text-slate-400">
-                <button onClick={() => onNavigateTab('history')} className="hover:text-slate-600"><Search className="w-3.5 h-3.5" /></button>
-                <button onClick={() => onNavigateTab('history')} className="hover:text-slate-600"><Filter className="w-3.5 h-3.5" /></button>
-                <button onClick={() => onNavigateTab('history')} className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><Search className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><Filter className="w-3.5 h-3.5" /></button>
+                <button className="hover:text-slate-600"><MoreVertical className="w-3.5 h-3.5" /></button>
               </div>
             </div>
 
@@ -818,7 +700,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* Footer Branding Trademark Notice */}
       <div className="pt-6 border-t border-slate-200 text-center text-[10px] text-slate-500 space-y-1">
-        <p>© 2026 First-Citizens Bank & Trust Company. All rights reserved. SVB, SILICON VALLEY BANK, SVB PRIVATE and the chevron device are trademarks of SVB Financial Group.</p>
+        <p>© 2026 First-Citizens Bank & Trust Company. All rights reserved. SVB, SILICON VALLEY BANK, SVB PRIVATE and the chevron device trademarks of SVB Financial Group.</p>
       </div>
 
     </div>

@@ -309,19 +309,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           {tab === 'login' && (
             <form onSubmit={handleLogin} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Email Address or 10-Digit Account Number
-                </label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
                   <input
-                    type="text"
+                    type="email"
                     required
-                    autoCapitalize="none"
-                    autoCorrect="off"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. ifuu@gmail.com or 103111630671"
+                    placeholder="user@svb.com"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
                   />
                 </div>

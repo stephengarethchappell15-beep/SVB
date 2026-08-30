@@ -2,25 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
-      allow read, write, delete: if true;
-    }
-    match /support_tickets/{ticketId} {
-      allow read, write, delete: if true;
-      match /messages/{msgId} {
-        allow read, write, delete: if true;
-      }
-    }
-    match /chats/{chatId} {
-      allow read, write, delete: if true;
-      match /messages/{msgId} {
-        allow read, write, delete: if true;
-      }
-    }
-    match /support_messages/{msgId} {
-      allow read, write, delete: if true;
-    }
-    match /messages/{msgId} {
-      allow read, write, delete: if true;
+      allow read, write: if true;
     }
   }
 }

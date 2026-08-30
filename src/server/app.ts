@@ -1,6 +1,5 @@
 import express from 'express';
 import { dbManager } from './db.js';
-import { emailService } from './emailService.js';
 
 const app = express();
 
@@ -28,15 +27,6 @@ app.use((req, res, next) => {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  
-  // Bypass Aggressive Caching on Vercel / Edge Proxies for dynamic API routes
-  if (req.path.startsWith('/api') || req.url.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/user') || req.path.startsWith('/admin')) {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Surrogate-Control', 'no-store');
-  }
-  
   next();
 });
 
@@ -62,60 +52,13 @@ app.get('/sitemap.xml', (req, res) => {
 
 // Helper auth middleware extractor
 const getAuthUser = async (req: express.Request) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return null;
-    let token = authHeader.replace('Bearer ', '').trim();
-    if (token.startsWith('token-')) {
-      token = token.replace('token-', '');
-    }
-
-    // 1. First prioritize exact user lookup by unique ID, email, or account
-    const directUser = (await dbManager.findUserByIdAsync(token)) || (await dbManager.findUserByEmailAsync(token));
-    if (directUser) {
-      return directUser;
-    }
-
-    // 2. Specific Admin token alias handling (strictly exact matches only, no wildcard substring bleeding)
-    const exactAdminTokens = [
-      'user-admin', 
-      'admin-001', 
-      'admin-002', 
-      'admin-003', 
-      'usr-admin-001', 
-      'admin', 
-      'admin-token', 
-      'stephengarethchappell15@gmail.com', 
-      'siliconvalleybank51@gmail.com',
-      'admin@svb.com'
-    ];
-
-    if (exactAdminTokens.includes(token.toLowerCase())) {
-      try {
-        const admin = (await dbManager.findUserByIdAsync(token)) || 
-                      (await dbManager.findUserByEmailAsync(token)) || 
-                      (await dbManager.findUserByIdAsync('admin-001')) || 
-                      (await dbManager.findUserByIdAsync('usr-admin-001')) || 
-                      (await dbManager.findUserByEmailAsync('admin@svb.com')) || 
-                      (await dbManager.findUserByEmailAsync('stephengarethchappell15@gmail.com'));
-        if (admin) return { ...admin, role: 'admin' as const };
-      } catch (e) {
-        console.warn('Error querying admin in DB:', e);
-      }
-      return {
-        id: token,
-        fullName: 'SVB Executive Admin',
-        email: token.includes('@') ? token : 'admin@svb.com',
-        role: 'admin' as const,
-        balance: 5000000.00
-      } as any;
-    }
-
-    return null;
-  } catch (err) {
-    console.warn('getAuthUser exception caught safely:', err);
-    return null;
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return null;
+  let token = authHeader.replace('Bearer ', '').trim();
+  if (token.startsWith('token-')) {
+    token = token.replace('token-', '');
   }
+  return (await dbManager.findUserByIdAsync(token)) || (await dbManager.findUserByEmailAsync(token)) || null;
 };
 
 // --- API ROUTES ---
@@ -133,22 +76,16 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
       return res.status(400).json({ error: 'Full name and email address are required.' });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    if (!cleanEmail.includes('@')) {
-      return res.status(400).json({ error: 'Please provide a valid email address.' });
-    }
-
     const result = await dbManager.createUserAsync({
-      fullName: String(fullName).trim(),
-      email: cleanEmail,
-      phone: phone ? String(phone).trim() : '+1 (555) 019-2834',
-      password: password ? String(password) : 'password123',
-      accountPin: accountPin ? String(accountPin).trim() : '1234'
+      fullName,
+      email,
+      phone: phone || '',
+      password: password || 'password123',
+      accountPin
     });
-    return res.status(201).json(result);
+    res.status(201).json(result);
   } catch (err: any) {
-    console.error('Registration processing error in handleRegister:', err);
-    return res.status(400).json({ error: err.message || 'Registration failed. Please try again.' });
+    res.status(400).json({ error: err.message || 'Registration failed.' });
   }
 };
 app.post('/api/auth/register', handleRegister);
@@ -425,7 +362,7 @@ app.get('/api/user/transactions', async (req, res) => {
   if (!user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const transactions = await dbManager.getUserTransactionsAsync(user.id);
+  const transactions = dbManager.getUserTransactions(user.id);
   res.json({ transactions });
 });
 
@@ -502,7 +439,7 @@ app.post('/api/admin/deposit', async (req, res) => {
       return res.status(400).json({ error: 'Deposit amount must be a positive number.' });
     }
 
-    const result = await dbManager.createDepositAsync(
+    const result = dbManager.createDeposit(
       {
         userEmail,
         accountNumber,
@@ -539,8 +476,7 @@ app.get('/api/admin/transactions', async (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
   }
-  const transactions = await dbManager.getAllTransactionsAsync();
-  res.json({ transactions });
+  res.json({ transactions: dbManager.getAllTransactions() });
 });
 
 // User & Admin: Get Crypto Wallet Deposit Addresses
@@ -791,103 +727,5 @@ app.post('/api/admin/users/:userId/notify', async (req, res) => {
     res.status(400).json({ error: err.message || 'Failed to send notification.' });
   }
 });
-
-// Admin: Check Notification Service Status
-app.get('/api/admin/email-status', async (req, res) => {
-  const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied.' });
-  }
-
-  const config = dbManager.getEmailConfig();
-  res.json({
-    activeProvider: 'SVB System Notifications (Active)',
-    senderEmail: config.senderEmail || 'notifications@svb.com',
-    senderName: config.senderName || 'Silicon Valley Bank',
-    selectedProvider: 'system',
-    providersConfigured: {},
-    hasCredentials: true
-  });
-});
-
-// Admin: Get and Save Email Configuration
-const handleGetEmailConfig = async (req: express.Request, res: express.Response) => {
-  const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied.' });
-  }
-
-  const config = dbManager.getEmailConfig();
-  res.json({
-    provider: 'system',
-    senderEmail: config.senderEmail || 'notifications@svb.com',
-    senderName: config.senderName || 'Silicon Valley Bank',
-    updatedAt: config.updatedAt
-  });
-};
-app.get('/api/admin/email-config', handleGetEmailConfig);
-app.get('/admin/email-config', handleGetEmailConfig);
-
-const handlePostEmailConfig = async (req: express.Request, res: express.Response) => {
-  const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied.' });
-  }
-
-  try {
-    const updated = dbManager.saveEmailConfig(user, req.body);
-    res.json({ success: true, message: 'Notification settings updated.', config: updated });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to update notification settings.' });
-  }
-};
-app.post('/api/admin/email-config', handlePostEmailConfig);
-app.post('/admin/email-config', handlePostEmailConfig);
-
-// Admin: Get Delivery Audit Logs
-const handleGetEmailLogs = async (req: express.Request, res: express.Response) => {
-  const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied.' });
-  }
-
-  const logs = await dbManager.getEmailDeliveryLogsAsync();
-  res.json({ logs });
-};
-app.get('/api/admin/email-logs', handleGetEmailLogs);
-app.get('/admin/email-logs', handleGetEmailLogs);
-
-// Admin: Send Real Test Transactional Email
-const handleTestEmail = async (req: express.Request, res: express.Response) => {
-  const user = await getAuthUser(req);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
-  }
-
-  try {
-    const { toEmail, subject } = req.body;
-    const recipient = (toEmail || user.email || '').trim();
-
-    if (!recipient || !recipient.includes('@')) {
-      return res.status(400).json({ error: 'Please specify a valid recipient email address.' });
-    }
-
-    const result = await emailService.sendSecurityAlertEmail(
-      recipient,
-      subject || 'Security Notification - Live Test Alert',
-      'This is a verified test email notification dispatched from Silicon Valley Bank system.'
-    );
-
-    return res.json({
-      success: true,
-      message: `System notification processed for ${recipient}`,
-      deliveryResult: result
-    });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to dispatch test notification.' });
-  }
-};
-app.post('/api/admin/test-email', handleTestEmail);
-app.post('/admin/test-email', handleTestEmail);
 
 export default app;

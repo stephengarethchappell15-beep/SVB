@@ -1,0 +1,959 @@
+{
+  "users": [
+    {
+      "id": "admin-001",
+      "fullName": "Sarah Jenkins (SVB System Admin)",
+      "email": "admin@svb.com",
+      "phone": "+1 (415) 555-0199",
+      "accountNumber": "1099887766",
+      "role": "admin",
+      "balance": 250000,
+      "currency": "USD",
+      "address": "3000 Sand Hill Rd, Building 4, Menlo Park, CA 94025",
+      "twoFactorEnabled": true,
+      "emailNotifications": true,
+      "smsNotifications": true,
+      "fourDigitCode": "9999",
+      "transferCodeApproved": true,
+      "accounts": [
+        {
+          "id": "acc-admin-1",
+          "userId": "admin-001",
+          "accountType": "Business Growth Treasury",
+          "accountNumber": "1099887766",
+          "routingNumber": "121000358",
+          "balance": 250000,
+          "currency": "USD",
+          "isPrimary": true,
+          "createdAt": "2026-01-01T08:00:00.000Z"
+        }
+      ],
+      "createdAt": "2026-01-01T08:00:00.000Z"
+    },
+    {
+      "id": "admin-002",
+      "fullName": "SVB Official Executive Admin",
+      "email": "siliconvalleybank51@gmail.com",
+      "phone": "+1 (800) 555-0199",
+      "accountNumber": "1099887700",
+      "role": "admin",
+      "balance": 1000000,
+      "currency": "USD",
+      "address": "3000 Sand Hill Rd, Building 4, Menlo Park, CA 94025",
+      "twoFactorEnabled": true,
+      "emailNotifications": true,
+      "smsNotifications": true,
+      "fourDigitCode": "9999",
+      "transferCodeApproved": true,
+      "accounts": [
+        {
+          "id": "acc-admin-2",
+          "userId": "admin-002",
+          "accountType": "Business Growth Treasury",
+          "accountNumber": "1099887700",
+          "routingNumber": "121000358",
+          "balance": 1000000,
+          "currency": "USD",
+          "isPrimary": true,
+          "createdAt": "2026-01-01T08:00:00.000Z"
+        }
+      ],
+      "createdAt": "2026-01-01T08:00:00.000Z"
+    },
+    {
+      "id": "user-001",
+      "fullName": "Alexander Wright",
+      "email": "alex.wright@svb.com",
+      "phone": "+1 (650) 432-8901",
+      "accountNumber": "1084920148",
+      "role": "user",
+      "balance": 48500,
+      "currency": "USD",
+      "address": "742 Evergreen Terrace, Palo Alto, CA 94301",
+      "twoFactorEnabled": true,
+      "emailNotifications": true,
+      "smsNotifications": true,
+      "fourDigitCode": "7842",
+      "transferCodeApproved": true,
+      "accounts": [
+        {
+          "id": "acc-usr1-1",
+          "userId": "user-001",
+          "accountType": "Personal Checking",
+          "accountNumber": "1084920148",
+          "routingNumber": "121000358",
+          "balance": 33500,
+          "currency": "USD",
+          "isPrimary": true,
+          "createdAt": "2026-02-15T10:30:00.000Z"
+        },
+        {
+          "id": "acc-usr1-2",
+          "userId": "user-001",
+          "accountType": "Business Venture Checking",
+          "accountNumber": "1084920149",
+          "routingNumber": "121000358",
+          "balance": 15000,
+          "currency": "USD",
+          "isPrimary": false,
+          "createdAt": "2026-02-20T10:30:00.000Z"
+        }
+      ],
+      "createdAt": "2026-02-15T10:30:00.000Z"
+    },
+    {
+      "id": "user-002",
+      "fullName": "Elena Rostova",
+      "email": "elena.rostova@svb.com",
+      "phone": "+1 (408) 789-0123",
+      "accountNumber": "1052381940",
+      "role": "user",
+      "balance": 125000,
+      "currency": "USD",
+      "address": "100 University Ave, Palo Alto, CA 94301",
+      "twoFactorEnabled": true,
+      "emailNotifications": true,
+      "smsNotifications": true,
+      "fourDigitCode": "4921",
+      "transferCodeApproved": true,
+      "accounts": [
+        {
+          "id": "acc-usr2-1",
+          "userId": "user-002",
+          "accountType": "Business Growth Treasury",
+          "accountNumber": "1052381940",
+          "routingNumber": "121000358",
+          "balance": 125000,
+          "currency": "USD",
+          "isPrimary": true,
+          "createdAt": "2026-03-01T14:15:00.000Z"
+        }
+      ],
+      "createdAt": "2026-03-01T14:15:00.000Z"
+    },
+    {
+      "id": "usr-dominic-global",
+      "fullName": "Dominic Global",
+      "email": "dominicglobalenergysolution@gmail.com",
+      "phone": "09064718123",
+      "accountNumber": "102576690868",
+      "role": "user",
+      "balance": 0,
+      "currency": "USD",
+      "address": "Global Energy Solution HQ",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "accountPin": "1234",
+      "fourDigitCode": "8842",
+      "transferCodeApproved": true,
+      "createdAt": "2026-03-01T10:00:00.000Z"
+    },
+    {
+      "id": "usr-1786180505664-405",
+      "fullName": "Alice Johnson",
+      "email": "alice.j@example.com",
+      "phone": "+15551234567",
+      "accountNumber": "1036159734",
+      "accountPin": "1234",
+      "role": "user",
+      "balance": 0,
+      "ledgerBalance": 0,
+      "currency": "USD",
+      "address": "100 Silicon Valley Way, Palo Alto, CA 94301",
+      "country": "United States",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "twoFactorEnabled": false,
+      "emailNotifications": true,
+      "smsNotifications": false,
+      "fourDigitCode": "",
+      "transferCodeApproved": false,
+      "createdAt": "2026-08-08T09:15:05.664Z"
+    },
+    {
+      "id": "usr-1786180507893-489",
+      "fullName": "Bob Smith",
+      "email": "bob.smith@techcorp.io",
+      "phone": "+15559876543",
+      "accountNumber": "1092271822",
+      "accountPin": "1234",
+      "role": "user",
+      "balance": 0,
+      "ledgerBalance": 0,
+      "currency": "USD",
+      "address": "100 Silicon Valley Way, Palo Alto, CA 94301",
+      "country": "United States",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "twoFactorEnabled": false,
+      "emailNotifications": true,
+      "smsNotifications": false,
+      "fourDigitCode": "",
+      "transferCodeApproved": false,
+      "createdAt": "2026-08-08T09:15:07.893Z"
+    },
+    {
+      "id": "usr-1786180527455-793",
+      "fullName": "Charlie Davis",
+      "email": "charlie.davis@venture.com",
+      "phone": "+15553334444",
+      "accountNumber": "1027097566",
+      "accountPin": "1234",
+      "role": "user",
+      "balance": 0,
+      "ledgerBalance": 0,
+      "currency": "USD",
+      "address": "100 Silicon Valley Way, Palo Alto, CA 94301",
+      "country": "United States",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "twoFactorEnabled": false,
+      "emailNotifications": true,
+      "smsNotifications": false,
+      "fourDigitCode": "",
+      "transferCodeApproved": false,
+      "createdAt": "2026-08-08T09:15:27.455Z"
+    },
+    {
+      "id": "usr-1786184017283-267",
+      "fullName": "Test User One",
+      "email": "test1@techcorp.io",
+      "phone": "+15550001111",
+      "accountNumber": "1057290752",
+      "accountPin": "1234",
+      "role": "user",
+      "balance": 0,
+      "ledgerBalance": 0,
+      "currency": "USD",
+      "address": "100 Silicon Valley Way, Palo Alto, CA 94301",
+      "country": "United States",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "twoFactorEnabled": false,
+      "emailNotifications": true,
+      "smsNotifications": false,
+      "fourDigitCode": "",
+      "transferCodeApproved": false,
+      "createdAt": "2026-08-08T10:13:37.283Z"
+    },
+    {
+      "id": "usr-1786184030521-863",
+      "fullName": "Test User Two",
+      "email": "test2@techcorp.io",
+      "phone": "+15550003333",
+      "accountNumber": "1084663282",
+      "accountPin": "1234",
+      "role": "user",
+      "balance": 0,
+      "ledgerBalance": 0,
+      "currency": "USD",
+      "address": "100 Silicon Valley Way, Palo Alto, CA 94301",
+      "country": "United States",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "twoFactorEnabled": false,
+      "emailNotifications": true,
+      "smsNotifications": false,
+      "fourDigitCode": "",
+      "transferCodeApproved": false,
+      "createdAt": "2026-08-08T10:13:50.522Z"
+    },
+    {
+      "id": "usr-1786185380033-788",
+      "fullName": "Search Test Client",
+      "email": "searchclient@techcorp.io",
+      "phone": "+15559998888",
+      "accountNumber": "1076447889",
+      "accountPin": "1234",
+      "role": "user",
+      "balance": 15000,
+      "ledgerBalance": 0,
+      "currency": "USD",
+      "address": "100 Silicon Valley Way, Palo Alto, CA 94301",
+      "country": "United States",
+      "verificationTier": "Tier 1",
+      "status": "Active",
+      "twoFactorEnabled": false,
+      "emailNotifications": true,
+      "smsNotifications": false,
+      "fourDigitCode": "6462",
+      "transferCodeApproved": true,
+      "createdAt": "2026-08-08T10:36:20.034Z"
+    }
+  ],
+  "passwords": {
+    "admin-001": "Mmadu51366414@",
+    "admin-002": "Mmadu51366414@",
+    "user-001": "user123",
+    "user-002": "user123",
+    "usr-dominic-global": "password123",
+    "usr-1786180505664-405": "password123",
+    "usr-1786180507893-489": "password123",
+    "usr-1786180527455-793": "password123",
+    "usr-1786184017283-267": "password123",
+    "usr-1786184030521-863": "password123",
+    "usr-1786185380033-788": "password123"
+  },
+  "virtualCards": [
+    {
+      "id": "card-1786185380034-631",
+      "userId": "usr-1786185380033-788",
+      "cardholderName": "Search Test Client",
+      "cardNumber": "4532 8240 1672 8363",
+      "cvv": "854",
+      "expiryMonth": "12",
+      "expiryYear": "29",
+      "cardType": "Visa Corporate",
+      "category": "Business",
+      "spendingLimit": 5000,
+      "spentAmount": 0,
+      "status": "Active",
+      "createdAt": "2026-08-08T10:36:20.034Z"
+    },
+    {
+      "id": "card-1786184030522-642",
+      "userId": "usr-1786184030521-863",
+      "cardholderName": "Test User Two",
+      "cardNumber": "4532 2071 3149 1627",
+      "cvv": "767",
+      "expiryMonth": "12",
+      "expiryYear": "29",
+      "cardType": "Visa Corporate",
+      "category": "Business",
+      "spendingLimit": 5000,
+      "spentAmount": 0,
+      "status": "Active",
+      "createdAt": "2026-08-08T10:13:50.522Z"
+    },
+    {
+      "id": "card-1786184017283-497",
+      "userId": "usr-1786184017283-267",
+      "cardholderName": "Test User One",
+      "cardNumber": "4532 6295 1798 5754",
+      "cvv": "418",
+      "expiryMonth": "12",
+      "expiryYear": "29",
+      "cardType": "Visa Corporate",
+      "category": "Business",
+      "spendingLimit": 5000,
+      "spentAmount": 0,
+      "status": "Active",
+      "createdAt": "2026-08-08T10:13:37.283Z"
+    },
+    {
+      "id": "card-1786180527455-78",
+      "userId": "usr-1786180527455-793",
+      "cardholderName": "Charlie Davis",
+      "cardNumber": "4532 5736 8365 7481",
+      "cvv": "226",
+      "expiryMonth": "12",
+      "expiryYear": "29",
+      "cardType": "Visa Corporate",
+      "category": "Business",
+      "spendingLimit": 5000,
+      "spentAmount": 0,
+      "status": "Active",
+      "createdAt": "2026-08-08T09:15:27.455Z"
+    },
+    {
+      "id": "card-1786180507893-465",
+      "userId": "usr-1786180507893-489",
+      "cardholderName": "Bob Smith",
+      "cardNumber": "4532 1502 3064 7740",
+      "cvv": "933",
+      "expiryMonth": "12",
+      "expiryYear": "29",
+      "cardType": "Visa Corporate",
+      "category": "Business",
+      "spendingLimit": 5000,
+      "spentAmount": 0,
+      "status": "Active",
+      "createdAt": "2026-08-08T09:15:07.893Z"
+    },
+    {
+      "id": "card-1786180505664-401",
+      "userId": "usr-1786180505664-405",
+      "cardholderName": "Alice Johnson",
+      "cardNumber": "4532 9183 1436 8394",
+      "cvv": "850",
+      "expiryMonth": "12",
+      "expiryYear": "29",
+      "cardType": "Visa Corporate",
+      "category": "Business",
+      "spendingLimit": 5000,
+      "spentAmount": 0,
+      "status": "Active",
+      "createdAt": "2026-08-08T09:15:05.664Z"
+    },
+    {
+      "id": "card-001",
+      "userId": "user-001",
+      "cardholderName": "Alexander Wright",
+      "cardNumber": "4532 9812 3456 7890",
+      "cvv": "842",
+      "expiryMonth": "08",
+      "expiryYear": "28",
+      "cardType": "Visa Corporate",
+      "category": "SaaS Subscriptions",
+      "spendingLimit": 5000,
+      "spentAmount": 1240.5,
+      "status": "Active",
+      "createdAt": "2026-03-01T10:00:00.000Z"
+    },
+    {
+      "id": "card-002",
+      "userId": "user-001",
+      "cardholderName": "Alexander Wright",
+      "cardNumber": "5412 8765 4321 0987",
+      "cvv": "193",
+      "expiryMonth": "11",
+      "expiryYear": "29",
+      "cardType": "Visa Business Debit",
+      "category": "Corporate Travel",
+      "spendingLimit": 10000,
+      "spentAmount": 3450,
+      "status": "Active",
+      "createdAt": "2026-03-05T14:30:00.000Z"
+    }
+  ],
+  "billPayments": [
+    {
+      "id": "bill-001",
+      "userId": "user-001",
+      "billerName": "Amazon Web Services (AWS)",
+      "billerCategory": "Cloud Computing",
+      "accountNumber": "1084920148",
+      "amount": 1420.75,
+      "reference": "INV-AWS-2026-03",
+      "status": "Completed",
+      "paymentDate": "2026-03-10T09:15:00.000Z"
+    },
+    {
+      "id": "bill-002",
+      "userId": "user-001",
+      "billerName": "Google Cloud Platform",
+      "billerCategory": "Cloud Computing",
+      "accountNumber": "1084920148",
+      "amount": 850,
+      "reference": "INV-GCP-88192",
+      "status": "Completed",
+      "paymentDate": "2026-03-15T11:00:00.000Z"
+    }
+  ],
+  "resetTokens": {},
+  "transactions": [
+    {
+      "id": "txn-1786185404289-admwth",
+      "userId": "usr-1786185380033-788",
+      "userEmail": "searchclient@techcorp.io",
+      "accountNumber": "1076447889",
+      "amount": 2500,
+      "currency": "USD",
+      "type": "Withdrawal",
+      "status": "Cancelled",
+      "reference": "TXN-ADM-WTH-20260808-9024",
+      "description": "Audit Balance Adjustment",
+      "createdByAdminEmail": "siliconvalleybank51@gmail.com",
+      "createdAt": "2026-08-08T10:36:44.289Z",
+      "updatedAt": "2026-08-08T10:36:46.747Z"
+    },
+    {
+      "id": "txn-1786185391029-689",
+      "userId": "usr-1786185380033-788",
+      "userEmail": "searchclient@techcorp.io",
+      "accountNumber": "1076447889",
+      "senderName": "Federal Wire Transfer / SVB Treasury",
+      "amount": 15000,
+      "currency": "USD",
+      "type": "Deposit",
+      "status": "Completed",
+      "reference": "TXN-DEP-20260808-1510",
+      "description": "Treasury Funding Grant (4-Digit Code Activated: 5820)",
+      "createdByAdminEmail": "siliconvalleybank51@gmail.com",
+      "createdAt": "2026-08-08T10:36:31.029Z",
+      "updatedAt": "2026-08-08T10:36:31.029Z"
+    },
+    {
+      "id": "txn-001",
+      "userId": "user-001",
+      "userEmail": "alex.wright@svb.com",
+      "accountNumber": "1084920148",
+      "amount": 50000,
+      "currency": "USD",
+      "type": "Deposit",
+      "status": "Completed",
+      "reference": "SVB-WIRE-20260215-1001",
+      "description": "Silicon Valley Bank Venture Capital Investment Deposit",
+      "createdByAdminEmail": "admin@svb.com",
+      "createdAt": "2026-02-15T10:35:00.000Z",
+      "updatedAt": "2026-02-15T10:35:00.000Z"
+    },
+    {
+      "id": "txn-002",
+      "userId": "user-001",
+      "userEmail": "alex.wright@svb.com",
+      "accountNumber": "1084920148",
+      "amount": 1420.75,
+      "currency": "USD",
+      "type": "Bill Pay",
+      "status": "Completed",
+      "reference": "INV-AWS-2026-03",
+      "description": "Bill Payment: Amazon Web Services (AWS)",
+      "createdByAdminEmail": "System (User-Initiated)",
+      "createdAt": "2026-03-10T09:15:00.000Z",
+      "updatedAt": "2026-03-10T09:15:00.000Z"
+    },
+    {
+      "id": "txn-003",
+      "userId": "user-002",
+      "userEmail": "elena.rostova@svb.com",
+      "accountNumber": "1052381940",
+      "amount": 125000,
+      "currency": "USD",
+      "type": "Deposit",
+      "status": "Completed",
+      "reference": "SVB-WIRE-20260301-8821",
+      "description": "Series-A Growth Treasury Funding Deposit",
+      "createdByAdminEmail": "admin@svb.com",
+      "createdAt": "2026-03-01T14:20:00.000Z",
+      "updatedAt": "2026-03-01T14:20:00.000Z"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "audit-1786185409088-689",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "PROFILE_UPDATED",
+      "targetEmail": "searchclient@techcorp.io",
+      "targetAccountNumber": "1076447889",
+      "description": "Admin siliconvalleybank51@gmail.com regenerated 4-Digit Code (6462) for searchclient@techcorp.io",
+      "details": {
+        "targetUserId": "usr-1786185380033-788",
+        "newCode": "6462"
+      },
+      "timestamp": "2026-08-08T10:36:49.088Z"
+    },
+    {
+      "id": "audit-1786185406747-82",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "searchclient@techcorp.io",
+      "targetAccountNumber": "1076447889",
+      "description": "Admin siliconvalleybank51@gmail.com cancelled transaction TXN-ADM-WTH-20260808-9024",
+      "details": {
+        "transactionId": "txn-1786185404289-admwth",
+        "type": "Withdrawal",
+        "amount": 2500
+      },
+      "timestamp": "2026-08-08T10:36:46.747Z"
+    },
+    {
+      "id": "audit-1786185404289-562",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "WITHDRAWAL_EXECUTED",
+      "targetEmail": "searchclient@techcorp.io",
+      "targetAccountNumber": "1076447889",
+      "description": "Admin siliconvalleybank51@gmail.com withdrew $2500 from account 1076447889",
+      "details": {
+        "amount": 2500,
+        "reference": "TXN-ADM-WTH-20260808-9024",
+        "description": "Audit Balance Adjustment"
+      },
+      "timestamp": "2026-08-08T10:36:44.289Z"
+    },
+    {
+      "id": "audit-1786185391029-534",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "DEPOSIT_CREATED",
+      "targetEmail": "searchclient@techcorp.io",
+      "targetAccountNumber": "1076447889",
+      "description": "Admin siliconvalleybank51@gmail.com credited USD 15000 to account 1076447889 (searchclient@techcorp.io)",
+      "details": {
+        "amount": 15000,
+        "currency": "USD",
+        "reference": "TXN-DEP-20260808-1510",
+        "description": "Treasury Funding Grant",
+        "newBalance": 15000
+      },
+      "timestamp": "2026-08-08T10:36:31.029Z"
+    },
+    {
+      "id": "audit-1786185384388-602",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "1076447889",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"1076447889\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T10:36:24.388Z"
+    },
+    {
+      "id": "audit-1786185382296-475",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "searchclient@techcorp.io",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"searchclient@techcorp.io\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T10:36:22.296Z"
+    },
+    {
+      "id": "audit-1786185380034-982",
+      "adminId": "system",
+      "adminEmail": "system@auth",
+      "action": "USER_REGISTERED",
+      "targetEmail": "searchclient@techcorp.io",
+      "targetAccountNumber": "1076447889",
+      "description": "New user registration: Search Test Client (searchclient@techcorp.io) assigned account 1076447889",
+      "details": {
+        "phone": "+15559998888",
+        "accountNumber": "1076447889"
+      },
+      "timestamp": "2026-08-08T10:36:20.034Z"
+    },
+    {
+      "id": "audit-1786184035209-702",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "1084663282",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"1084663282\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T10:13:55.209Z"
+    },
+    {
+      "id": "audit-1786184032711-930",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "test2@techcorp.io",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"test2@techcorp.io\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T10:13:52.711Z"
+    },
+    {
+      "id": "audit-1786184030522-340",
+      "adminId": "system",
+      "adminEmail": "system@auth",
+      "action": "USER_REGISTERED",
+      "targetEmail": "test2@techcorp.io",
+      "targetAccountNumber": "1084663282",
+      "description": "New user registration: Test User Two (test2@techcorp.io) assigned account 1084663282",
+      "details": {
+        "phone": "+15550003333",
+        "accountNumber": "1084663282"
+      },
+      "timestamp": "2026-08-08T10:13:50.522Z"
+    },
+    {
+      "id": "audit-1786184017283-894",
+      "adminId": "system",
+      "adminEmail": "system@auth",
+      "action": "USER_REGISTERED",
+      "targetEmail": "test1@techcorp.io",
+      "targetAccountNumber": "1057290752",
+      "description": "New user registration: Test User One (test1@techcorp.io) assigned account 1057290752",
+      "details": {
+        "phone": "+15550001111",
+        "accountNumber": "1057290752"
+      },
+      "timestamp": "2026-08-08T10:13:37.283Z"
+    },
+    {
+      "id": "audit-1786180529606-10",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "1027097566",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"1027097566\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T09:15:29.606Z"
+    },
+    {
+      "id": "audit-1786180527455-317",
+      "adminId": "system",
+      "adminEmail": "system@auth",
+      "action": "USER_REGISTERED",
+      "targetEmail": "charlie.davis@venture.com",
+      "targetAccountNumber": "1027097566",
+      "description": "New user registration: Charlie Davis (charlie.davis@venture.com) assigned account 1027097566",
+      "details": {
+        "phone": "+15553334444",
+        "accountNumber": "1027097566"
+      },
+      "timestamp": "2026-08-08T09:15:27.455Z"
+    },
+    {
+      "id": "audit-1786180524639-309",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "1092271822",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"1092271822\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T09:15:24.639Z"
+    },
+    {
+      "id": "audit-1786180522178-322",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "bob.smith@techcorp.io",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"bob.smith@techcorp.io\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T09:15:22.178Z"
+    },
+    {
+      "id": "audit-1786180520056-209",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "1036159734",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"1036159734\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T09:15:20.056Z"
+    },
+    {
+      "id": "audit-1786180518095-726",
+      "adminId": "admin-002",
+      "adminEmail": "siliconvalleybank51@gmail.com",
+      "action": "USER_SEARCHED",
+      "targetEmail": "alice.j@example.com",
+      "targetAccountNumber": "N/A",
+      "description": "Admin searched user records with query: \"alice.j@example.com\"",
+      "details": {
+        "resultCount": 1
+      },
+      "timestamp": "2026-08-08T09:15:18.096Z"
+    },
+    {
+      "id": "audit-1786180507893-806",
+      "adminId": "system",
+      "adminEmail": "system@auth",
+      "action": "USER_REGISTERED",
+      "targetEmail": "bob.smith@techcorp.io",
+      "targetAccountNumber": "1092271822",
+      "description": "New user registration: Bob Smith (bob.smith@techcorp.io) assigned account 1092271822",
+      "details": {
+        "phone": "+15559876543",
+        "accountNumber": "1092271822"
+      },
+      "timestamp": "2026-08-08T09:15:07.893Z"
+    },
+    {
+      "id": "audit-1786180505664-243",
+      "adminId": "system",
+      "adminEmail": "system@auth",
+      "action": "USER_REGISTERED",
+      "targetEmail": "alice.j@example.com",
+      "targetAccountNumber": "1036159734",
+      "description": "New user registration: Alice Johnson (alice.j@example.com) assigned account 1036159734",
+      "details": {
+        "phone": "+15551234567",
+        "accountNumber": "1036159734"
+      },
+      "timestamp": "2026-08-08T09:15:05.664Z"
+    },
+    {
+      "id": "audit-001",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "SYSTEM_SEED",
+      "targetEmail": "system",
+      "targetAccountNumber": "N/A",
+      "description": "Silicon Valley Bank Core Platform Initialized",
+      "details": {
+        "environment": "Cloud Run Production"
+      },
+      "timestamp": "2026-01-01T08:00:00.000Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif-1786185409088-regen",
+      "userId": "usr-1786185380033-788",
+      "title": "New 4-Digit Security Code Issued",
+      "message": "A new 4-Digit Outgoing Transfer Code has been issued to your account: [ 6462 ]. Use this code to authorize outgoing transactions.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "CODE-REGEN",
+      "read": false,
+      "createdAt": "2026-08-08T10:36:49.088Z"
+    },
+    {
+      "id": "notif-1786185406747-cancel",
+      "userId": "usr-1786185380033-788",
+      "title": "Transaction Cancelled",
+      "message": "Transaction TXN-ADM-WTH-20260808-9024 of $2500.00 was cancelled by Administrator. Your balance has been updated accordingly.",
+      "amount": 2500,
+      "currency": "USD",
+      "reference": "TXN-ADM-WTH-20260808-9024",
+      "read": false,
+      "createdAt": "2026-08-08T10:36:46.747Z"
+    },
+    {
+      "id": "notif-1786185404289-admwth",
+      "userId": "usr-1786185380033-788",
+      "title": "Account Withdrawal Executed",
+      "message": "An account debit of $2500.00 was processed. Ref: TXN-ADM-WTH-20260808-9024. Audit Balance Adjustment",
+      "amount": 2500,
+      "currency": "USD",
+      "reference": "TXN-ADM-WTH-20260808-9024",
+      "read": false,
+      "createdAt": "2026-08-08T10:36:44.289Z"
+    },
+    {
+      "id": "notif-1786185391029-816",
+      "userId": "usr-1786185380033-788",
+      "title": "Deposit Credited & 4-Digit Code Activated!",
+      "message": "Your account 1076447889 was credited with USD 15000.00. Your official 4-Digit Outgoing Transfer Code is now active: [ 5820 ]. Ref: TXN-DEP-20260808-1510",
+      "amount": 15000,
+      "currency": "USD",
+      "reference": "TXN-DEP-20260808-1510",
+      "read": false,
+      "createdAt": "2026-08-08T10:36:31.029Z"
+    },
+    {
+      "id": "notif-1786185380034",
+      "userId": "usr-1786185380033-788",
+      "title": "New Deposit Notification",
+      "message": "Your account #1076447889 is active. Available balance is $0.00 USD.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "ACC-1076447889",
+      "read": false,
+      "createdAt": "2026-08-08T10:36:20.034Z"
+    },
+    {
+      "id": "notif-1786184030522",
+      "userId": "usr-1786184030521-863",
+      "title": "New Deposit Notification",
+      "message": "Your account #1084663282 is active. Available balance is $0.00 USD.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "ACC-1084663282",
+      "read": false,
+      "createdAt": "2026-08-08T10:13:50.522Z"
+    },
+    {
+      "id": "notif-1786184017283",
+      "userId": "usr-1786184017283-267",
+      "title": "New Deposit Notification",
+      "message": "Your account #1057290752 is active. Available balance is $0.00 USD.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "ACC-1057290752",
+      "read": false,
+      "createdAt": "2026-08-08T10:13:37.283Z"
+    },
+    {
+      "id": "notif-1786180527455",
+      "userId": "usr-1786180527455-793",
+      "title": "New Deposit Notification",
+      "message": "Your account #1027097566 is active. Available balance is $0.00 USD.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "ACC-1027097566",
+      "read": false,
+      "createdAt": "2026-08-08T09:15:27.455Z"
+    },
+    {
+      "id": "notif-1786180507893",
+      "userId": "usr-1786180507893-489",
+      "title": "New Deposit Notification",
+      "message": "Your account #1092271822 is active. Available balance is $0.00 USD.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "ACC-1092271822",
+      "read": false,
+      "createdAt": "2026-08-08T09:15:07.893Z"
+    },
+    {
+      "id": "notif-1786180505664",
+      "userId": "usr-1786180505664-405",
+      "title": "New Deposit Notification",
+      "message": "Your account #1036159734 is active. Available balance is $0.00 USD.",
+      "amount": 0,
+      "currency": "USD",
+      "reference": "ACC-1036159734",
+      "read": false,
+      "createdAt": "2026-08-08T09:15:05.664Z"
+    },
+    {
+      "id": "notif-001",
+      "userId": "user-001",
+      "title": "Silicon Valley Bank Wire Deposit Confirmed",
+      "message": "Your account 1084920148 has been credited with $50,000.00 USD (Ref: SVB-WIRE-20260215-1001).",
+      "amount": 50000,
+      "currency": "USD",
+      "reference": "SVB-WIRE-20260215-1001",
+      "read": false,
+      "createdAt": "2026-02-15T10:35:00.000Z"
+    }
+  ],
+  "supportTickets": [
+    {
+      "id": "ticket-001",
+      "userId": "user-001",
+      "userEmail": "alex.wright@svb.com",
+      "userName": "Alexander Wright",
+      "accountNumber": "1084920148",
+      "subject": "SVB Global Wire & Treasury Desk Limit Request",
+      "category": "Account",
+      "status": "In Progress",
+      "priority": "High",
+      "messages": [
+        {
+          "id": "msg-001",
+          "senderId": "user-001",
+          "senderName": "Alexander Wright",
+          "senderRole": "user",
+          "message": "Hello SVB Team, we are preparing a startup vendor wire batch of $250,000. Could you confirm our daily wire ceiling?",
+          "createdAt": "2026-03-12T09:00:00.000Z"
+        },
+        {
+          "id": "msg-002",
+          "senderId": "admin-001",
+          "senderName": "Sarah Jenkins (SVB System Admin)",
+          "senderRole": "admin",
+          "message": "Hello Alexander! SVB Business Treasury accounts are provisioned with custom daily wire limits up to $1,000,000 USD. Your account is fully enabled.",
+          "createdAt": "2026-03-12T09:45:00.000Z"
+        }
+      ],
+      "createdAt": "2026-03-12T09:00:00.000Z",
+      "updatedAt": "2026-03-12T09:45:00.000Z"
+    }
+  ],
+  "cryptoWalletAddresses": {
+    "BTC": "bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c",
+    "USDT": "TWgMXsoubMTxyK9Zc47ZxcN29bLaCJU4EA"
+  }
+}

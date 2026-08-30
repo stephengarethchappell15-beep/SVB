@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { maskAccountNumber } from '../utils/masking';
 import { 
   Building2, 
   ShieldCheck, 
@@ -150,7 +149,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <div className="px-3 py-2 border-b border-slate-100 mb-1 bg-slate-50 rounded-xl">
                       <p className="font-bold text-[#002b49]">{user.fullName}</p>
                       <p className="text-slate-500 text-[11px] truncate">{user.email}</p>
-                      <p className="text-[#00a3e0] text-[10px] font-mono mt-0.5">Acc #{maskAccountNumber(user.accountNumber)}</p>
+                      <p className="text-[#00a3e0] text-[10px] font-mono mt-0.5">Acc #{user.accountNumber}</p>
                     </div>
 
                     <div className="py-1 space-y-1">

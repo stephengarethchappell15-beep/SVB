@@ -277,21 +277,12 @@ const LanguageContext = createContext<LanguageContextType>({
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
-    try {
-      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-        return (localStorage.getItem('svb_app_lang') as Language) || 'en';
-      }
-    } catch {}
-    return 'en';
+    return (localStorage.getItem('svb_app_lang') as Language) || 'en';
   });
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    try {
-      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-        localStorage.setItem('svb_app_lang', lang);
-      }
-    } catch {}
+    localStorage.setItem('svb_app_lang', lang);
   };
 
   const t = (key: string): string => {

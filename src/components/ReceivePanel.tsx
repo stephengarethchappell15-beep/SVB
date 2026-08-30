@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
 import { subscribeCryptoAddressesFromFirestore } from '../lib/firebase';
-import { maskAccountNumber } from '../utils/masking';
-import { ArrowDownLeft, Copy, Check, QrCode, Building2, ShieldCheck, Share2, Globe2, Wallet, Coins, Eye, EyeOff } from 'lucide-react';
+import { ArrowDownLeft, Copy, Check, QrCode, Building2, ShieldCheck, Share2, Globe2, Wallet, Coins } from 'lucide-react';
 
 interface ReceivePanelProps {
   user: User;
@@ -12,7 +11,6 @@ interface ReceivePanelProps {
 export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
   const [activeTab, setActiveTab] = useState<'wire' | 'crypto'>('wire');
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [showAccountNum, setShowAccountNum] = useState(false);
 
   const [cryptoAddresses, setCryptoAddresses] = useState<{ BTC: string; USDT: string }>({
     BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
@@ -52,7 +50,7 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
   const wireDetails = [
     { label: 'Bank Name', value: 'Silicon Valley Bank (SVB), N.A.', key: 'bank' },
     { label: 'Account Holder Name', value: user.fullName, key: 'name' },
-    { label: 'Account Number', value: showAccountNum ? user.accountNumber : maskAccountNumber(user.accountNumber), rawValue: user.accountNumber, key: 'account' },
+    { label: 'Account Number', value: user.accountNumber, key: 'account' },
     { label: 'Routing / ABA Number', value: '121000358', key: 'routing' },
     { label: 'SWIFT / BIC Code', value: 'SVBUS33XXX', key: 'swift' },
     { label: 'Bank Address', value: '3000 Sand Hill Rd, Building 4, Menlo Park, CA 94025', key: 'address' }
@@ -106,22 +104,10 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
         {activeTab === 'wire' && (
           <div className="mt-4 p-5 rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-emerald-500/30 shadow-inner flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fadeIn">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                  Your Unique Account Number
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowAccountNum(!showAccountNum)}
-                  className="text-slate-400 hover:text-emerald-400 transition-colors p-0.5"
-                  title={showAccountNum ? "Hide account number" : "Reveal account number"}
-                >
-                  {showAccountNum ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <p className="text-2xl font-mono font-bold text-white mt-1 tracking-wider">
-                {showAccountNum ? user.accountNumber : maskAccountNumber(user.accountNumber)}
-              </p>
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                Your Unique Account Number
+              </span>
+              <p className="text-2xl font-mono font-bold text-white mt-1 tracking-wider">{user.accountNumber}</p>
               <p className="text-xs text-slate-400 mt-0.5">Linked directly to {user.email}</p>
             </div>
 
@@ -167,7 +153,7 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
                 </div>
 
                 <button
-                  onClick={() => copyToClipboard((item as any).rawValue || item.value, item.key)}
+                  onClick={() => copyToClipboard(item.value, item.key)}
                   className="p-2 text-slate-400 hover:text-emerald-400 rounded-xl hover:bg-slate-800 transition-colors"
                   title={`Copy ${item.label}`}
                 >
@@ -195,75 +181,88 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
           </div>
 
           <div className="space-y-4">
-            {/* BTC Box */}
-            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
+            {/* Bitcoin BTC Card */}
+            <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-xs">
-                    BTC
+                    ₿
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white">Bitcoin Network</p>
-                    <p className="text-[10px] text-slate-400">Native BTC</p>
+                    <h4 className="text-xs font-bold text-white">Bitcoin (BTC) Treasury Wallet</h4>
+                    <p className="text-[10px] text-slate-400">Network: Bitcoin Native (SegWit / Bech32)</p>
                   </div>
                 </div>
+                <span className="text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full uppercase">
+                  Verified Address
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <span className="font-mono text-xs text-amber-400 font-semibold break-all select-all">
+                  {cryptoAddresses.BTC}
+                </span>
+
                 <button
-                  onClick={() => copyToClipboard(cryptoAddresses.BTC, 'btc')}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                  onClick={() => copyToClipboard(cryptoAddresses.BTC, 'btc_deposit')}
+                  className="w-full sm:w-auto bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shrink-0 transition-all shadow-md shadow-amber-500/10"
                 >
-                  {copiedField === 'btc' ? (
+                  {copiedField === 'btc_deposit' ? (
                     <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Copied</span>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Copied BTC Address</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Address</span>
+                      <span>Copy Wallet Address</span>
                     </>
                   )}
                 </button>
               </div>
-
-              <p className="text-xs font-mono bg-slate-900/80 p-3 rounded-xl text-amber-300 break-all select-all border border-slate-800">
-                {cryptoAddresses.BTC}
-              </p>
             </div>
 
-            {/* USDT Box */}
-            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
+            {/* Tether USDT Card */}
+            <div className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/30 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-xs">
-                    USDT
+                    ₮
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white">Tether USD (ERC-20)</p>
-                    <p className="text-[10px] text-slate-400">Ethereum Mainnet</p>
+                    <h4 className="text-xs font-bold text-white">Tether (USDT) Treasury Wallet</h4>
+                    <p className="text-[10px] text-slate-400">Network: USDT (ERC-20 / TRC-20)</p>
                   </div>
                 </div>
+                <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
+                  Verified Address
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <span className="font-mono text-xs text-emerald-400 font-semibold break-all select-all">
+                  {cryptoAddresses.USDT}
+                </span>
+
                 <button
-                  onClick={() => copyToClipboard(cryptoAddresses.USDT, 'usdt')}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                  onClick={() => copyToClipboard(cryptoAddresses.USDT, 'usdt_deposit')}
+                  className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shrink-0 transition-all shadow-md shadow-emerald-500/10"
                 >
-                  {copiedField === 'usdt' ? (
+                  {copiedField === 'usdt_deposit' ? (
                     <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Copied</span>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Copied USDT Address</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Address</span>
+                      <span>Copy Wallet Address</span>
                     </>
                   )}
                 </button>
               </div>
-
-              <p className="text-xs font-mono bg-slate-900/80 p-3 rounded-xl text-emerald-300 break-all select-all border border-slate-800">
-                {cryptoAddresses.USDT}
-              </p>
             </div>
+
           </div>
         </div>
       )}

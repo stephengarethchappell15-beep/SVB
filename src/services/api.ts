@@ -4,7 +4,6 @@ import {
   AuthResponse, 
   UserNotification, 
   SupportTicket, 
-  SupportMessage,
   VirtualCard, 
   BillPayment, 
   CryptoActivationDeposit, 
@@ -21,9 +20,6 @@ import {
   syncUserToFirestore, 
   getUserFromFirestore, 
   getAllUsersFromFirestore,
-  searchUsersDirectory,
-  executeAdminDeposit,
-  mergeUserRecords,
   syncVirtualCardToFirestore,
   getVirtualCardsFromFirestore,
   syncCryptoDepositToFirestore,
@@ -32,21 +28,10 @@ import {
   syncVerificationToFirestore,
   getAllVerificationsFromFirestore,
   syncTransactionToFirestore,
-  updateTransactionInFirestore,
   getTransactionsFromFirestore,
   syncSupportTicketToFirestore,
-  getSupportTicketsFromFirestore,
-  sendSupportMessageToFirestore,
-  deleteSupportMessageFromFirestore,
-  isSameTicketId,
-  getCanonicalTicketId,
-  syncEmailLogToFirestore,
-  getEmailLogsFromFirestore,
-  syncEmailConfigToFirestore,
-  getEmailConfigFromFirestore
+  getSupportTicketsFromFirestore
 } from '../lib/firebase';
-import { calculateUserBalance } from '../utils/balance';
-import { deduplicateTransactions } from '../utils/transactions';
 
 export const getStoredToken = (): string | null => dbStore.getStoredToken();
 export const setStoredToken = (token: string): void => dbStore.setStoredToken(token);
@@ -59,41 +44,28 @@ async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T
     const token = getStoredToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
       ...(options.headers as Record<string, string> || {}),
     };
     if (token) {
       const cleanToken = token.startsWith('token-') ? token : `token-${token}`;
       headers['Authorization'] = `Bearer ${cleanToken}`;
     }
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    let url = cleanPath.startsWith('/api/') ? cleanPath : `${API_BASE}${cleanPath}`;
-    
-    // Add cache buster for GET requests to bypass CDN/Vercel edge caching
-    const method = (options.method || 'GET').toUpperCase();
-    if (method === 'GET') {
-      const separator = url.includes('?') ? '&' : '?';
-      url = `${url}${separator}_t=${Date.now()}`;
-    }
-
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
     if (res.ok) {
       return await res.json();
     }
     const errData = await res.json().catch(() => null);
-    const errMsg = errData?.error || errData?.message || `HTTP ${res.status}: ${res.statusText || 'Request failed'}`;
-    const err = new Error(errMsg);
-    (err as any).status = res.status;
-    (err as any).data = errData;
-    throw err;
+    if (errData && errData.error) {
+      const err = new Error(errData.error);
+      (err as any).status = res.status;
+      throw err;
+    }
+    return null;
   } catch (e: any) {
     if (e && e.status) {
       throw e;
     }
-    // If network error, rethrow so caller receives exact diagnostics
-    throw e;
+    return null;
   }
 }
 
@@ -132,21 +104,21 @@ export const api = {
 
       if (backendRes && backendRes.user) {
         finalUser = backendRes.user;
-        tokenStr = backendRes.token ? backendRes.token.replace(/^token-/, '') : backendRes.user.id;
+        tokenStr = backendRes.token.replace(/^token-/, '');
       }
     } catch (err: any) {
-      if (err?.message && (err.message.includes('already linked') || err.message.includes('required') || err.message.includes('valid email'))) {
-        // If backend returned a clear user validation/conflict message, re-throw it
+      if (err && err.message) {
+        // If backend returned duplicate error or bad request, re-throw directly
         throw err;
       }
       console.warn('Backend register call fallback:', err);
     }
 
-    // 2. Client-side & Firestore fallback if server was unreachable or in static preview
+    // 2. Local fallback if server unreachable
     if (!finalUser) {
       const isAdmin = emailClean.includes('admin') || emailClean === 'admin@svb.com' || emailClean === 'siliconvalleybank51@gmail.com';
       const accountNumber = `10${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-      const uid = `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const uid = `usr-${Date.now()}`;
 
       finalUser = {
         id: uid,
@@ -165,20 +137,7 @@ export const api = {
         accountPin: data.accountPin || '1234',
         fourDigitCode: isAdmin ? '8842' : '',
         transferCodeApproved: isAdmin ? true : false,
-        createdAt: new Date().toISOString(),
-        accounts: [
-          {
-            id: `acc-${uid}-1`,
-            userId: uid,
-            accountType: 'Personal Checking',
-            accountNumber: accountNumber,
-            routingNumber: '121000358',
-            balance: 0.00,
-            currency: 'USD',
-            isPrimary: true,
-            createdAt: new Date().toISOString()
-          }
-        ]
+        createdAt: new Date().toISOString()
       };
       tokenStr = uid;
 
@@ -200,26 +159,14 @@ export const api = {
     dbStore.saveUser(finalUser);
     dbStore.setStoredToken(tokenStr || finalUser.id);
 
-    // Sync user to Firebase Firestore SDK so accounts NEVER vanish
-    try {
-      await syncUserToFirestore(finalUser, data.password || 'password123');
-    } catch (fsErr) {
-      console.warn('Firestore sync warning during user registration:', fsErr);
-    }
-
-    broadcastRealtimeUpdate({
-      type: 'USER_UPDATED',
-      userId: finalUser.id,
-      user: finalUser
-    });
+    // Sync user asynchronously to Firebase Firestore SDK so accounts NEVER vanish
+    await syncUserToFirestore(finalUser, data.password || 'password123');
 
     return { user: finalUser, token: tokenStr || finalUser.id };
   },
 
   async login(data: { email: string; password?: string }): Promise<AuthResponse> {
-    const rawIdentifier = (data.email || '').trim();
-    const identifier = rawIdentifier.toLowerCase();
-    const cleanNum = identifier.replace(/[^0-9]/g, '');
+    const identifier = data.email.trim().toLowerCase();
     let finalUser: User | null = null;
     let tokenStr = '';
 
@@ -227,7 +174,7 @@ export const api = {
     try {
       const backendRes = await requestApi<{ user: User; token: string }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: rawIdentifier, password: data.password || 'password123' }),
+        body: JSON.stringify({ email: identifier, password: data.password || 'password123' }),
       });
 
       if (backendRes && backendRes.user) {
@@ -238,56 +185,18 @@ export const api = {
       console.warn('Backend login endpoint call fallback:', err);
     }
 
-    // 2. Check Firestore SDK direct lookups
+    // 2. Check Firestore SDK
     if (!finalUser) {
-      const fsUser = await getUserFromFirestore(rawIdentifier);
+      const fsUser = await getUserFromFirestore(identifier);
       if (fsUser) {
         finalUser = fsUser;
         tokenStr = fsUser.id;
       }
     }
 
-    if (!finalUser && cleanNum) {
-      const fsUserNum = await getUserFromFirestore(cleanNum);
-      if (fsUserNum) {
-        finalUser = fsUserNum;
-        tokenStr = fsUserNum.id;
-      }
-    }
-
-    // 3. Check Firestore full collection scan fallback
+    // 3. Check local dbStore fallback
     if (!finalUser) {
-      try {
-        const allFs = await getAllUsersFromFirestore();
-        const matched = allFs.find(u => {
-          if (!u) return false;
-          const uEmail = (u.email || '').toLowerCase().trim();
-          const uAcc = (u.accountNumber || '').trim();
-          const uAccClean = uAcc.replace(/[^0-9]/g, '');
-          const uId = (u.id || '').toLowerCase().trim();
-
-          return (
-            uEmail === identifier ||
-            uAcc.toLowerCase() === identifier ||
-            (cleanNum.length > 0 && uAccClean === cleanNum) ||
-            uId === identifier ||
-            (identifier.length >= 4 && uEmail.includes(identifier)) ||
-            (cleanNum.length >= 6 && uAccClean.includes(cleanNum))
-          );
-        });
-
-        if (matched) {
-          finalUser = matched;
-          tokenStr = matched.id;
-        }
-      } catch (e) {
-        console.warn('Firestore all users scan error in api.login:', e);
-      }
-    }
-
-    // 4. Check local dbStore fallback
-    if (!finalUser) {
-      let localUser = dbStore.findUserByEmailOrAccount(rawIdentifier) || dbStore.getUserByEmail(rawIdentifier) || dbStore.getUserById(rawIdentifier);
+      let localUser = dbStore.getUserByEmail(identifier) || dbStore.getUserById(identifier);
       if (localUser) {
         finalUser = localUser;
         tokenStr = localUser.id;
@@ -301,7 +210,7 @@ export const api = {
     dbStore.saveUser(finalUser);
     dbStore.setStoredToken(tokenStr || finalUser.id);
 
-    // Sync to Firestore SDK asynchronously
+    // Sync to Firestore SDK
     syncUserToFirestore(finalUser, data.password || 'password123');
 
     return { user: finalUser, token: tokenStr || finalUser.id };
@@ -313,36 +222,19 @@ export const api = {
 
   async getMe(): Promise<{ user: User }> {
     // 1. Try Express backend API
-    try {
-      const backendRes = await requestApi<{ user: User }>('/auth/me');
-      if (backendRes && backendRes.user) {
-        const u = backendRes.user;
-        const txns = dbStore.getTransactions(u.id);
-        const { availableBalance, ledgerBalance } = calculateUserBalance(u, txns);
-        if (availableBalance > 0 && (u.balance === 0 || !u.balance)) {
-          u.balance = availableBalance;
-          u.ledgerBalance = ledgerBalance;
-        }
-        if (!u.profilePicture) {
-          try {
-            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-              const cachedAvatar = localStorage.getItem(`svb_avatar_${u.id}`);
-              if (cachedAvatar) u.profilePicture = cachedAvatar;
-            }
-          } catch (e) {}
-        } else {
-          try {
-            if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-              localStorage.setItem(`svb_avatar_${u.id}`, u.profilePicture);
-            }
-          } catch (e) {}
-        }
-        dbStore.saveUser(u);
-        syncUserToFirestore(u);
-        return { user: u };
+    const backendRes = await requestApi<{ user: User }>('/auth/me');
+    if (backendRes && backendRes.user) {
+      if (!backendRes.user.profilePicture) {
+        try {
+          const cachedAvatar = localStorage.getItem(`svb_avatar_${backendRes.user.id}`);
+          if (cachedAvatar) backendRes.user.profilePicture = cachedAvatar;
+        } catch (e) {}
+      } else {
+        try { localStorage.setItem(`svb_avatar_${backendRes.user.id}`, backendRes.user.profilePicture); } catch (e) {}
       }
-    } catch (backendErr) {
-      console.warn('Backend /auth/me fallback activated:', backendErr);
+      dbStore.saveUser(backendRes.user);
+      syncUserToFirestore(backendRes.user);
+      return { user: backendRes.user };
     }
 
     // 2. Local dbStore session restoration
@@ -364,21 +256,10 @@ export const api = {
       throw new Error('Not authenticated');
     }
 
-    // Reconcile user balance
-    const txns = dbStore.getTransactions(user.id);
-    const { availableBalance, ledgerBalance } = calculateUserBalance(user, txns);
-    if (availableBalance > 0 && (user.balance === 0 || !user.balance)) {
-      user.balance = availableBalance;
-      user.ledgerBalance = ledgerBalance;
-      dbStore.saveUser(user);
-    }
-
     if (!user.profilePicture) {
       try {
-        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-          const cachedAvatar = localStorage.getItem(`svb_avatar_${user.id}`);
-          if (cachedAvatar) user.profilePicture = cachedAvatar;
-        }
+        const cachedAvatar = localStorage.getItem(`svb_avatar_${user.id}`);
+        if (cachedAvatar) user.profilePicture = cachedAvatar;
       } catch (e) {}
     }
 
@@ -393,17 +274,9 @@ export const api = {
 
     if (backendRes && backendRes.user) {
       if (backendRes.user.profilePicture) {
-        try {
-          if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-            localStorage.setItem(`svb_avatar_${backendRes.user.id}`, backendRes.user.profilePicture);
-          }
-        } catch (e) {}
+        try { localStorage.setItem(`svb_avatar_${backendRes.user.id}`, backendRes.user.profilePicture); } catch (e) {}
       } else if (data.profilePicture === '') {
-        try {
-          if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-            localStorage.removeItem(`svb_avatar_${backendRes.user.id}`);
-          }
-        } catch (e) {}
+        try { localStorage.removeItem(`svb_avatar_${backendRes.user.id}`); } catch (e) {}
       }
       dbStore.saveUser(backendRes.user);
       syncUserToFirestore(backendRes.user);
@@ -423,17 +296,9 @@ export const api = {
     });
 
     if (updated.profilePicture) {
-      try {
-        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-          localStorage.setItem(`svb_avatar_${updated.id}`, updated.profilePicture);
-        }
-      } catch (e) {}
+      try { localStorage.setItem(`svb_avatar_${updated.id}`, updated.profilePicture); } catch (e) {}
     } else if (data.profilePicture === '') {
-      try {
-        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-          localStorage.removeItem(`svb_avatar_${updated.id}`);
-        }
-      } catch (e) {}
+      try { localStorage.removeItem(`svb_avatar_${updated.id}`); } catch (e) {}
     }
 
     syncUserToFirestore(updated);
@@ -1043,24 +908,6 @@ export const api = {
       createdAt: new Date().toISOString()
     });
 
-    broadcastRealtimeUpdate({
-      type: 'USER_UPDATED',
-      user: updatedUser,
-      userId: updatedUser.id,
-      timestamp: Date.now()
-    });
-    broadcastRealtimeUpdate({
-      type: 'TRANSACTION_CREATED',
-      transaction: txn,
-      userId: updatedUser.id,
-      timestamp: Date.now()
-    });
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: updatedUser }));
-      window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: txn }));
-    }
-
     return { user: updatedUser, updatedUser, transaction: txn };
   },
 
@@ -1092,9 +939,6 @@ export const api = {
   },
 
   async createDeposit(payload: DepositPayload): Promise<{ updatedUser: User; transaction: Transaction }> {
-    const accIdentifier = payload.accountNumber || payload.userEmail || '';
-    const numAmount = Number(payload.amount);
-
     try {
       const backendRes = await requestApi<{ message: string; updatedUser: User; transaction: Transaction }>('/admin/deposit', {
         method: 'POST',
@@ -1104,68 +948,16 @@ export const api = {
       if (backendRes && backendRes.updatedUser && backendRes.transaction) {
         dbStore.saveUser(backendRes.updatedUser);
         dbStore.addTransaction(backendRes.transaction);
-        await syncUserToFirestore(backendRes.updatedUser);
-        await syncTransactionToFirestore(backendRes.transaction);
-
-        broadcastRealtimeUpdate({
-          type: 'USER_UPDATED',
-          user: backendRes.updatedUser,
-          userId: backendRes.updatedUser.id,
-          timestamp: Date.now()
-        });
-        broadcastRealtimeUpdate({
-          type: 'TRANSACTION_CREATED',
-          transaction: backendRes.transaction,
-          userId: backendRes.updatedUser.id,
-          timestamp: Date.now()
-        });
-
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: backendRes.updatedUser }));
-          window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: backendRes.transaction }));
-        }
-
+        syncUserToFirestore(backendRes.updatedUser);
         return { updatedUser: backendRes.updatedUser, transaction: backendRes.transaction };
       }
     } catch (err) {
       console.warn('Backend deposit endpoint call fallback:', err);
     }
 
-    // Direct Firestore executeAdminDeposit
-    try {
-      const execRes = await executeAdminDeposit(accIdentifier, numAmount, {
-        senderName: payload.senderName || 'Federal Wire Transfer / SVB Treasury',
-        description: payload.description,
-        reference: payload.reference
-      });
-      if (execRes && execRes.user && execRes.transaction) {
-        broadcastRealtimeUpdate({
-          type: 'USER_UPDATED',
-          user: execRes.user,
-          userId: execRes.user.id,
-          timestamp: Date.now()
-        });
-        broadcastRealtimeUpdate({
-          type: 'TRANSACTION_CREATED',
-          transaction: execRes.transaction,
-          userId: execRes.user.id,
-          timestamp: Date.now()
-        });
-
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: execRes.user }));
-          window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: execRes.transaction }));
-        }
-
-        return { updatedUser: execRes.user, transaction: execRes.transaction };
-      }
-    } catch (execErr) {
-      console.warn('executeAdminDeposit direct fallback warning:', execErr);
-    }
-
     const res = await this.creditUserAccount({
-      accountNumber: accIdentifier,
-      amount: numAmount,
+      accountNumber: payload.accountNumber || payload.userEmail,
+      amount: payload.amount,
       reference: payload.reference,
       description: payload.description
     });
@@ -1216,25 +1008,6 @@ export const api = {
     };
 
     dbStore.addTransaction(txn);
-    syncTransactionToFirestore(txn);
-
-    broadcastRealtimeUpdate({
-      type: 'USER_UPDATED',
-      user: updatedUser,
-      userId: updatedUser.id,
-      timestamp: Date.now()
-    });
-    broadcastRealtimeUpdate({
-      type: 'TRANSACTION_CREATED',
-      transaction: txn,
-      userId: updatedUser.id,
-      timestamp: Date.now()
-    });
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('svb:user_updated', { detail: updatedUser }));
-      window.dispatchEvent(new CustomEvent('svb:transaction_created', { detail: txn }));
-    }
     return { user: updatedUser, updatedUser, transaction: txn };
   },
 
@@ -1443,30 +1216,16 @@ export const api = {
   },
 
   async getTransactions(): Promise<{ transactions: Transaction[] }> {
+    const backendRes = await requestApi<{ transactions: Transaction[] }>('/user/transactions');
+    if (backendRes && Array.isArray(backendRes.transactions)) {
+      backendRes.transactions.forEach(t => dbStore.addTransaction(t));
+      return { transactions: backendRes.transactions };
+    }
+
     const current = dbStore.getCurrentUser();
-    let backendTxns: Transaction[] = [];
-    try {
-      const backendRes = await requestApi<{ transactions: Transaction[] }>('/user/transactions');
-      if (backendRes && Array.isArray(backendRes.transactions)) {
-        backendTxns = backendRes.transactions;
-      }
-    } catch (e) {
-      console.warn('Backend /user/transactions fallback:', e);
-    }
-
-    const localTxns = current ? dbStore.getTransactions(current.id) : dbStore.getTransactions();
-    let fsTxns: Transaction[] = [];
-    if (current) {
-      try {
-        fsTxns = await getTransactionsFromFirestore(current);
-      } catch (fsErr) {
-        console.warn('Firestore getTransactions error:', fsErr);
-      }
-    }
-
-    const combined = deduplicateTransactions([...localTxns, ...backendTxns, ...fsTxns]);
-    combined.forEach(t => dbStore.addTransaction(t));
-    return { transactions: combined };
+    if (!current) return { transactions: [] };
+    const txns = dbStore.getTransactions(current.id);
+    return { transactions: txns };
   },
 
   async getAllTransactions(): Promise<{ transactions: Transaction[] }> {
@@ -1489,8 +1248,15 @@ export const api = {
       console.warn('Firestore getAllTransactions error:', fsErr);
     }
 
-    const combined = deduplicateTransactions([...localTxns, ...allTxns, ...fsTxns]);
-    combined.forEach(t => dbStore.addTransaction(t));
+    const map = new Map<string, Transaction>();
+    localTxns.forEach(t => map.set(t.id, t));
+    allTxns.forEach(t => map.set(t.id, t));
+    fsTxns.forEach(t => {
+      map.set(t.id, t);
+      dbStore.addTransaction(t);
+    });
+
+    const combined = Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return { transactions: combined };
   },
 
@@ -1504,7 +1270,7 @@ export const api = {
       console.warn('Backend approveTransaction fallback:', e);
     }
 
-    const txn = dbStore.getTransactions().find(t => t.id === txnId || (t.reference && t.reference === txnId));
+    const txn = dbStore.getTransactions().find(t => t.id === txnId);
     if (txn) {
       const updatedTxn: Transaction = {
         ...txn,
@@ -1513,50 +1279,7 @@ export const api = {
         updatedAt: new Date().toISOString()
       };
       dbStore.updateTransaction(txnId, updatedTxn);
-      if (txn.reference && txn.reference !== txnId) {
-        dbStore.updateTransaction(txn.reference, updatedTxn);
-      }
       syncTransactionToFirestore(updatedTxn);
-      updateTransactionInFirestore(txnId, 'Completed', { senderName });
-      if (txn.reference) updateTransactionInFirestore(txn.reference, 'Completed', { senderName });
-      if (txn.id) updateTransactionInFirestore(txn.id, 'Completed', { senderName });
-
-      if (
-        txn.type === 'Deposit' || 
-        txn.type === 'Credit Deposit' || 
-        txn.type === 'Code Activation Deposit' ||
-        txn.type.toLowerCase().includes('deposit') ||
-        txn.type.toLowerCase().includes('credit')
-      ) {
-        const senderUser = dbStore.getUserById(txn.userId);
-        if (senderUser) {
-          let code = senderUser.fourDigitCode;
-          let approved = senderUser.transferCodeApproved;
-          if (!code || !approved) {
-            code = Math.floor(1000 + Math.random() * 9000).toString();
-            approved = true;
-          }
-          const updatedSender = dbStore.saveUser({
-            ...senderUser,
-            balance: senderUser.balance + txn.amount,
-            ledgerBalance: senderUser.balance + txn.amount,
-            fourDigitCode: code,
-            transferCodeApproved: approved,
-            pendingCryptoDeposit: senderUser.pendingCryptoDeposit ? { ...senderUser.pendingCryptoDeposit, status: 'Approved' } : null
-          });
-          syncUserToFirestore(updatedSender);
-        }
-
-        // Also update matching crypto activation deposits if any
-        const cryptoDeposits = dbStore.getCryptoDeposits();
-        cryptoDeposits.forEach(d => {
-          if (d.userId === txn.userId && d.status === 'Pending') {
-            const upDep: CryptoActivationDeposit = { ...d, status: 'Approved', updatedAt: new Date().toISOString() };
-            dbStore.updateCryptoDeposit(d.id, upDep);
-            syncCryptoDepositToFirestore(upDep);
-          }
-        });
-      }
 
       if (txn.recipientAccountNumber || txn.recipientEmail) {
         const recipient = dbStore.getUsers().find(u => 
@@ -1567,7 +1290,6 @@ export const api = {
           const updatedRec = dbStore.saveUser({
             ...recipient,
             balance: recipient.balance + txn.amount,
-            ledgerBalance: recipient.balance + txn.amount,
             transferCodeApproved: true
           });
           syncUserToFirestore(updatedRec);
@@ -1591,10 +1313,8 @@ export const api = {
         dbStore.addNotification({
           id: `NOTIF-${Date.now()}-SND`,
           userId: senderUser.id,
-          title: txn.type.includes('Deposit') ? 'Deposit Approved & Credited' : 'Outgoing Transfer Processed & Approved',
-          message: txn.type.includes('Deposit') 
-            ? `Your deposit ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been approved and credited to your available balance.`
-            : `Your transfer ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been approved and completed by Silicon Valley Bank.`,
+          title: 'Outgoing Transfer Processed & Approved',
+          message: `Your transfer ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been approved and completed by Silicon Valley Bank.`,
           amount: txn.amount,
           currency: txn.currency || 'USD',
           reference: txn.reference,
@@ -1605,8 +1325,6 @@ export const api = {
 
       broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txnId);
       broadcastRealtimeUpdate('USER_UPDATED', undefined, txn.userId);
-    } else {
-      updateTransactionInFirestore(txnId, 'Completed', { senderName });
     }
   },
 
@@ -1628,10 +1346,7 @@ export const api = {
       console.warn('Backend rejectTransaction fallback:', e);
     }
 
-    // Always update Firestore matching documents unconditionally
-    updateTransactionInFirestore(txnId, 'Rejected');
-
-    const txn = dbStore.getTransactions().find(t => t.id === txnId || (t.reference && t.reference === txnId));
+    const txn = dbStore.getTransactions().find(t => t.id === txnId);
     if (txn) {
       const updatedTxn: Transaction = {
         ...txn,
@@ -1639,48 +1354,22 @@ export const api = {
         updatedAt: new Date().toISOString()
       };
       dbStore.updateTransaction(txnId, updatedTxn);
-      if (txn.reference && txn.reference !== txnId) {
-        dbStore.updateTransaction(txn.reference, updatedTxn);
-      }
       syncTransactionToFirestore(updatedTxn);
-      if (txn.reference) updateTransactionInFirestore(txn.reference, 'Rejected');
-      if (txn.id) updateTransactionInFirestore(txn.id, 'Rejected');
 
-      // If it's a debit/withdrawal/transfer that was deducted, refund to user balance
-      const isDebit = txn.type === 'Wire Withdrawal' || txn.type === 'Wire Transfer' || txn.type === 'Transfer' || txn.type === 'Withdrawal' || txn.type === 'Bill Pay';
       const user = dbStore.getUserById(txn.userId);
-      if (user) {
-        const isDeposit = txn.type === 'Code Activation Deposit' || txn.type.toLowerCase().includes('deposit');
-        const newBalance = isDebit ? (user.balance + txn.amount) : user.balance;
+      if (user && (txn.type === 'Wire Withdrawal' || txn.type === 'Wire Transfer' || txn.type === 'Transfer' || txn.type === 'Withdrawal' || txn.type === 'Bill Pay')) {
         const refundedUser = dbStore.saveUser({
           ...user,
-          balance: newBalance,
-          ledgerBalance: newBalance,
-          pendingCryptoDeposit: isDeposit ? null : user.pendingCryptoDeposit
+          balance: user.balance + txn.amount,
+          ledgerBalance: user.balance + txn.amount
         });
         syncUserToFirestore(refundedUser);
-      }
 
-      // If it's a code activation deposit, also mark matching cryptoActivationDeposits as Rejected
-      if (txn.type === 'Code Activation Deposit' || txn.description.toLowerCase().includes('activation')) {
-        const cryptoDeposits = dbStore.getCryptoDeposits();
-        cryptoDeposits.forEach(d => {
-          if (d.userId === txn.userId && d.status === 'Pending') {
-            const upDep: CryptoActivationDeposit = { ...d, status: 'Rejected', updatedAt: new Date().toISOString() };
-            dbStore.updateCryptoDeposit(d.id, upDep);
-            syncCryptoDepositToFirestore(upDep);
-          }
-        });
-      }
-
-      if (user) {
         dbStore.addNotification({
           id: `NOTIF-${Date.now()}-REJ`,
           userId: user.id,
-          title: (txn.type.includes('Deposit') || txn.type.includes('Credit')) ? 'Deposit Declined' : 'Transaction Declined & Funds Refunded',
-          message: (txn.type.includes('Deposit') || txn.type.includes('Credit'))
-            ? `Your deposit ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} was declined.${notes ? ` Reason: ${notes}` : ''}`
-            : `Your transaction ${txn.reference} for $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} was declined.${notes ? ` Reason: ${notes}` : ''} The full amount of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been refunded to your available balance.`,
+          title: 'Transaction Declined & Funds Refunded',
+          message: `Your transaction ${txn.reference} for $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} was declined.${notes ? ` Reason: ${notes}` : ''} The full amount of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been refunded to your available balance.`,
           amount: txn.amount,
           currency: txn.currency || 'USD',
           reference: txn.reference,
@@ -1856,17 +1545,17 @@ export const api = {
     const current = dbStore.getCurrentUser();
     if (!current) return { tickets: [] };
     const isAdmin = current.role === 'admin';
-    const userIdentifier = isAdmin ? undefined : { id: current.id, email: current.email };
+    let local = dbStore.getSupportTickets(current.id, isAdmin);
     try {
-      const fsTickets = await getSupportTicketsFromFirestore(userIdentifier, isAdmin);
-      if (fsTickets && fsTickets.length > 0) {
+      const fsTickets = await getSupportTicketsFromFirestore(current.id, isAdmin);
+      if (fsTickets.length > 0) {
         fsTickets.forEach(t => dbStore.addSupportTicket(t));
+        local = dbStore.getSupportTickets(current.id, isAdmin);
       }
     } catch (e) {
       console.warn('Firestore getSupportTickets fallback:', e);
     }
-    const finalTickets = dbStore.getSupportTickets(userIdentifier, isAdmin);
-    return { tickets: finalTickets };
+    return { tickets: local };
   },
 
   async createSupportTicket(data: { subject: string; category: string; priority: string; message: string; images?: string[] }): Promise<{ ticket: SupportTicket }> {
@@ -1876,45 +1565,8 @@ export const api = {
     const ticketId = `TICKET-${Date.now()}`;
     const now = new Date().toISOString();
 
-    const firstMsg: SupportMessage = {
-      id: `MSG-${Date.now()}`,
-      ticketId: ticketId,
-      chatId: ticketId,
-      threadId: ticketId,
-      roomId: ticketId,
-      senderId: current.id,
-      senderName: current.fullName,
-      senderRole: current.role,
-      message: data.message,
-      images: data.images,
-      createdAt: now
-    };
-
-    const isNonAdmin = current.role !== 'admin';
-    const messages: SupportMessage[] = [firstMsg];
-
-    // Automated In-App Messaging & Fallback requirement:
-    if (isNonAdmin) {
-      const autoReplyMsg: SupportMessage = {
-        id: `MSG-${Date.now() + 10}`,
-        ticketId: ticketId,
-        chatId: ticketId,
-        threadId: ticketId,
-        roomId: ticketId,
-        senderId: 'svb-live-agent-bot',
-        senderName: 'SVB Support Desk',
-        senderRole: 'admin',
-        message: 'Kindly hold on, our support is currently unavailable. Kindly message the live agent.\n\nEmail: siliconvalleybank51@gmail.com',
-        createdAt: new Date(Date.now() + 400).toISOString()
-      };
-      messages.push(autoReplyMsg);
-    }
-
     const ticket: SupportTicket = {
       id: ticketId,
-      chatId: ticketId,
-      threadId: ticketId,
-      roomId: ticketId,
       userId: current.id,
       userEmail: current.email,
       userName: current.fullName,
@@ -1923,23 +1575,21 @@ export const api = {
       category: data.category as any || 'General',
       status: 'Open',
       priority: data.priority as any || 'Medium',
-      messages,
+      messages: [{
+        id: `MSG-${Date.now()}`,
+        senderId: current.id,
+        senderName: current.fullName,
+        senderRole: current.role,
+        message: data.message,
+        images: data.images,
+        createdAt: now
+      }],
       createdAt: now,
-      updatedAt: messages[messages.length - 1].createdAt || now
+      updatedAt: now
     };
 
     dbStore.addSupportTicket(ticket);
-    await syncSupportTicketToFirestore(ticket);
-    for (const msg of messages) {
-      await sendSupportMessageToFirestore(ticketId, msg, ticket);
-    }
-
-    broadcastRealtimeUpdate({
-      type: 'TICKET_CREATED',
-      ticketId: ticket.id,
-      userId: current.id,
-      timestamp: Date.now()
-    });
+    syncSupportTicketToFirestore(ticket);
 
     if (current.role !== 'admin') {
       dispatchAdminAlert({
@@ -1956,112 +1606,43 @@ export const api = {
     return { ticket };
   },
 
-  async replySupportTicket(
-    ticketId: string, 
-    message: string, 
-    images?: string[], 
-    targetTicketContext?: Partial<SupportTicket>
-  ): Promise<{ ticket: SupportTicket }> {
+  async replySupportTicket(ticketId: string, message: string, images?: string[]): Promise<{ ticket: SupportTicket }> {
     const current = dbStore.getCurrentUser();
     if (!current) throw new Error('Not authenticated');
 
-    const canonicalId = getCanonicalTicketId(ticketId);
     const tickets = dbStore.getSupportTickets(undefined, true);
-    let ticket = tickets.find(t => isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
-    
+    let ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
       // Check Firestore
       try {
         const fsTickets = await getSupportTicketsFromFirestore(undefined, true);
-        ticket = fsTickets.find(t => isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
+        ticket = fsTickets.find(t => t.id === ticketId);
       } catch (e) {}
     }
-    
-    const isSenderAdmin = current.role === 'admin';
-    const nowStr = new Date().toISOString();
+    if (!ticket) throw new Error('Ticket not found');
 
-    if (!ticket) {
-      // If still not found, construct a graceful fallback ticket preserving user information
-      ticket = {
-        id: canonicalId,
-        chatId: canonicalId,
-        threadId: canonicalId,
-        roomId: canonicalId,
-        userId: targetTicketContext?.userId || (isSenderAdmin ? '' : current.id),
-        userEmail: targetTicketContext?.userEmail || (isSenderAdmin ? '' : current.email),
-        userName: targetTicketContext?.userName || (isSenderAdmin ? 'Client' : current.fullName),
-        accountNumber: targetTicketContext?.accountNumber || (isSenderAdmin ? '' : current.accountNumber),
-        subject: targetTicketContext?.subject || 'Customer Support Consultation',
-        category: targetTicketContext?.category || 'General',
-        status: 'Open',
-        priority: targetTicketContext?.priority || 'Medium',
-        messages: [],
-        createdAt: nowStr,
-        updatedAt: nowStr
-      };
-    } else if (targetTicketContext) {
-      // Enrich any missing profile fields from context
-      ticket = {
-        ...ticket,
-        userId: ticket.userId || targetTicketContext.userId || '',
-        userEmail: ticket.userEmail || targetTicketContext.userEmail || '',
-        userName: ticket.userName || targetTicketContext.userName || 'Client',
-        accountNumber: ticket.accountNumber || targetTicketContext.accountNumber || '',
-        subject: ticket.subject || targetTicketContext.subject || 'Customer Support Consultation',
-        category: ticket.category || targetTicketContext.category || 'General',
-        priority: ticket.priority || targetTicketContext.priority || 'Medium'
-      };
-    }
-
-    const newMsg: SupportMessage = {
-      id: `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      ticketId: ticket.id,
-      chatId: ticket.id,
-      threadId: ticket.id,
-      roomId: ticket.id,
+    const now = new Date().toISOString();
+    const updatedMessages = [...ticket.messages, {
+      id: `MSG-${Date.now()}`,
       senderId: current.id,
-      senderName: isSenderAdmin ? 'SVB Client Support' : current.fullName,
-      senderRole: isSenderAdmin ? 'admin' : 'user',
+      senderName: current.role === 'admin' ? 'SVB Review Support' : current.fullName,
+      senderRole: current.role,
       message,
       images,
-      createdAt: nowStr
-    };
-
-    const newMessages: SupportMessage[] = [newMsg];
-    const updatedMessages = [...(ticket.messages || []), ...newMessages];
+      createdAt: now
+    }];
 
     const updatedTicket: SupportTicket = {
       ...ticket,
-      id: canonicalId,
-      chatId: canonicalId,
-      threadId: canonicalId,
-      roomId: canonicalId,
       messages: updatedMessages,
-      status: isSenderAdmin ? 'In Progress' : 'Open',
-      updatedAt: nowStr
+      status: current.role === 'admin' ? 'In Progress' : 'Open',
+      updatedAt: now
     };
 
     dbStore.updateSupportTicket(updatedTicket);
-    await syncSupportTicketToFirestore(updatedTicket);
-    for (const msg of newMessages) {
-      await sendSupportMessageToFirestore(updatedTicket.id, msg, updatedTicket);
-    }
+    syncSupportTicketToFirestore(updatedTicket);
 
-    broadcastRealtimeUpdate({
-      type: 'SUPPORT_MESSAGE',
-      ticketId: updatedTicket.id,
-      userId: current.id,
-      timestamp: Date.now()
-    });
-
-    broadcastRealtimeUpdate({
-      type: 'SUPPORT_TICKET_UPDATED',
-      ticketId: updatedTicket.id,
-      userId: current.id,
-      timestamp: Date.now()
-    });
-
-    if (!isSenderAdmin) {
+    if (current.role !== 'admin') {
       dispatchAdminAlert({
         type: 'LIVE_SUPPORT_MESSAGE',
         title: 'New Live Support Message',
@@ -2074,17 +1655,17 @@ export const api = {
     }
 
     // If admin replied, send notification to user
-    if (isSenderAdmin && updatedTicket.userId) {
+    if (current.role === 'admin') {
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
-        userId: updatedTicket.userId,
+        userId: ticket.userId,
         title: 'New Reply from Support Desk',
-        message: `You have a new message from SVB Client Support regarding "${updatedTicket.subject}".`,
+        message: `You have a new message from SVB Client Support regarding "${ticket.subject}".`,
         amount: 0,
         currency: 'USD',
-        reference: updatedTicket.id,
+        reference: ticket.id,
         read: false,
-        createdAt: nowStr
+        createdAt: now
       });
     }
 
@@ -2093,13 +1674,7 @@ export const api = {
 
   async updateTicketStatus(ticketId: string, status: string): Promise<{ ticket: SupportTicket }> {
     const tickets = dbStore.getSupportTickets(undefined, true);
-    let ticket = tickets.find(t => isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
-    if (!ticket) {
-      try {
-        const fsTickets = await getSupportTicketsFromFirestore(undefined, true);
-        ticket = fsTickets.find(t => isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
-      } catch (e) {}
-    }
+    const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) throw new Error('Ticket not found');
 
     const updatedTicket: SupportTicket = {
@@ -2109,153 +1684,8 @@ export const api = {
     };
 
     dbStore.updateSupportTicket(updatedTicket);
-    await syncSupportTicketToFirestore(updatedTicket);
-
-    broadcastRealtimeUpdate({
-      type: 'SUPPORT_STATUS_UPDATED',
-      ticketId: updatedTicket.id,
-      timestamp: Date.now()
-    });
-
+    syncSupportTicketToFirestore(updatedTicket);
     return { ticket: updatedTicket };
-  },
-
-  async deleteSupportMessage(ticketId: string, messageId: string): Promise<{ success: boolean; ticket: SupportTicket | null }> {
-    const current = dbStore.getCurrentUser();
-    if (!current) throw new Error('Not authenticated');
-    if (current.role !== 'admin') {
-      throw new Error('Unauthorized: Only administrators have permission to delete support chat messages.');
-    }
-
-    // Remove from local dbStore
-    let updatedTicket = dbStore.deleteSupportMessage(ticketId, messageId);
-
-    // If not found in local memory, lookup from Firestore tickets
-    if (!updatedTicket) {
-      try {
-        const fsTickets = await getSupportTicketsFromFirestore(undefined, true);
-        const target = fsTickets.find(t => isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
-        if (target) {
-          const filtered = (target.messages || []).filter(m => m && m.id !== messageId && `${m.senderId}-${m.message}-${m.createdAt}` !== messageId);
-          updatedTicket = { ...target, messages: filtered, updatedAt: new Date().toISOString() };
-          dbStore.updateSupportTicket(updatedTicket);
-        }
-      } catch (e) {}
-    }
-
-    // Permanently remove from Firebase (subcollections, root collections, and parent doc messages array)
-    try {
-      await deleteSupportMessageFromFirestore(ticketId, messageId, updatedTicket?.messages);
-    } catch (e) {
-      console.warn('Error deleting message from Firestore:', e);
-    }
-
-    broadcastRealtimeUpdate({
-      type: 'SUPPORT_MESSAGE_DELETED',
-      ticketId: updatedTicket ? updatedTicket.id : ticketId,
-      messageId: messageId,
-      timestamp: Date.now()
-    });
-
-    return { success: true, ticket: updatedTicket };
-  },
-
-  async createSupportTicketForUser(targetUserEmail: string, subject: string, message: string, images?: string[]): Promise<{ ticket: SupportTicket }> {
-    const current = dbStore.getCurrentUser();
-    if (!current || current.role !== 'admin') throw new Error('Admin authorization required');
-
-    const allUsers = dbStore.getUsers();
-    let targetUser = allUsers.find(u => u.email.toLowerCase() === targetUserEmail.trim().toLowerCase());
-    
-    if (!targetUser) {
-      try {
-        const fsUsers = await getAllUsersFromFirestore();
-        targetUser = fsUsers.find(u => u.email.toLowerCase() === targetUserEmail.trim().toLowerCase());
-        if (targetUser) {
-          dbStore.saveUser(targetUser);
-        }
-      } catch (e) {}
-    }
-
-    if (!targetUser) {
-      const cleanEmail = targetUserEmail.trim().toLowerCase();
-      const generatedName = cleanEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      targetUser = {
-        id: `usr-${cleanEmail.replace(/[^a-z0-9]/gi, '') || Date.now()}`,
-        fullName: generatedName || 'Client',
-        email: cleanEmail,
-        phone: '+1 (555) 019-3829',
-        accountNumber: `${Math.floor(1000000000 + Math.random() * 9000000000)}`,
-        role: 'user',
-        balance: 0,
-        ledgerBalance: 0,
-        currency: 'USD',
-        status: 'Active',
-        verificationTier: 'Tier 1',
-        createdAt: new Date().toISOString()
-      };
-      dbStore.saveUser(targetUser);
-      syncUserToFirestore(targetUser).catch(() => {});
-    }
-
-    const ticketId = `TICKET-${Date.now()}`;
-    const now = new Date().toISOString();
-
-    const ticket: SupportTicket = {
-      id: ticketId,
-      chatId: ticketId,
-      threadId: ticketId,
-      roomId: ticketId,
-      userId: targetUser.id,
-      userEmail: targetUser.email,
-      userName: targetUser.fullName,
-      accountNumber: targetUser.accountNumber,
-      subject: subject || 'Support Outreach & Account Advisory',
-      category: 'General',
-      status: 'Open',
-      priority: 'High',
-      messages: [{
-        id: `MSG-${Date.now()}`,
-        ticketId: ticketId,
-        chatId: ticketId,
-        threadId: ticketId,
-        roomId: ticketId,
-        senderId: current.id,
-        senderName: 'SVB Review Support',
-        senderRole: 'admin',
-        message: message,
-        images: images,
-        createdAt: now
-      }],
-      createdAt: now,
-      updatedAt: now
-    };
-
-    dbStore.addSupportTicket(ticket);
-    await syncSupportTicketToFirestore(ticket);
-    await sendSupportMessageToFirestore(ticketId, ticket.messages[0], ticket);
-
-    // Notify user
-    dbStore.addNotification({
-      id: `NOTIF-${Date.now()}`,
-      userId: targetUser.id,
-      title: 'New Support Message from SVB Helpdesk',
-      message: `SVB Client Support has opened a support ticket: "${ticket.subject}". Message: ${message}`,
-      amount: 0,
-      currency: 'USD',
-      reference: ticket.id,
-      read: false,
-      createdAt: now
-    });
-
-    broadcastRealtimeUpdate({
-      type: 'TICKET_CREATED',
-      ticketId: ticket.id,
-      userId: targetUser.id,
-      timestamp: Date.now()
-    });
-
-    return { ticket };
   },
 
   // --- ADMIN DIRECTORY & AUDIT ---
@@ -2278,14 +1708,9 @@ export const api = {
     const localUsers = dbStore.getUsers();
     let fsUsers: User[] = [];
     try {
-      fsUsers = await searchUsersDirectory(term);
+      fsUsers = await getAllUsersFromFirestore();
     } catch (e) {
-      console.warn('Firestore searchUsersDirectory in search error:', e);
-      try {
-        fsUsers = await getAllUsersFromFirestore();
-      } catch (e2) {
-        console.warn('Firestore getAllUsers fallback error:', e2);
-      }
+      console.warn('Firestore getAllUsers in search error:', e);
     }
 
     if (term) {
@@ -2300,40 +1725,28 @@ export const api = {
     }
 
     const userMap = new Map<string, User>();
-
-    const addToMap = (u: User) => {
-      if (!u) return;
-      const emailKey = (u.email || '').trim().toLowerCase();
-      const idKey = (u.id || '').trim().toLowerCase();
-      const accKey = (u.accountNumber || '').trim().replace(/[^0-9]/g, '');
-      const canonicalKey = emailKey || accKey || idKey;
-      if (!canonicalKey) return;
-
-      let existing: User | undefined = userMap.get(canonicalKey);
-      if (!existing && emailKey && userMap.has(emailKey)) existing = userMap.get(emailKey);
-      if (!existing && accKey && userMap.has(accKey)) existing = userMap.get(accKey);
-      if (!existing && idKey && userMap.has(idKey)) existing = userMap.get(idKey);
-
-      const merged = mergeUserRecords(existing, u);
-      if (emailKey) userMap.set(emailKey, merged);
-      if (accKey) userMap.set(accKey, merged);
-      if (idKey) userMap.set(idKey, merged);
-      dbStore.saveUser(merged);
-    };
-
-    localUsers.forEach(addToMap);
-    fsUsers.forEach(addToMap);
-    serverUsers.forEach(addToMap);
-
-    const combinedMap = new Map<string, User>();
-    userMap.forEach((u) => {
-      const key = (u.email || u.id || u.accountNumber).toLowerCase();
-      if (!combinedMap.has(key)) {
-        combinedMap.set(key, u);
+    localUsers.forEach(u => {
+      if (u) {
+        const key = (u.email || u.id).toLowerCase();
+        userMap.set(key, u);
+      }
+    });
+    fsUsers.forEach(u => {
+      if (u) {
+        const key = (u.email || u.id).toLowerCase();
+        userMap.set(key, u);
+        dbStore.saveUser(u);
+      }
+    });
+    serverUsers.forEach(u => {
+      if (u) {
+        const key = (u.email || u.id).toLowerCase();
+        userMap.set(key, u);
+        dbStore.saveUser(u);
       }
     });
 
-    const combined = Array.from(combinedMap.values());
+    const combined = Array.from(userMap.values());
 
     if (!rawQ) {
       return { users: combined };
@@ -2455,164 +1868,10 @@ export const api = {
 
   // Password Reset helpers
   async requestPasswordReset(email: string): Promise<{ message: string; code: string }> {
-    try {
-      const res = await requestApi<{ message: string; code: string }>('/auth/reset-password/request', {
-        method: 'POST',
-        body: JSON.stringify({ email })
-      });
-      if (res) return res;
-    } catch (e) {
-      console.warn('Password reset request fallback:', e);
-    }
     return { message: 'Password reset authorization code generated.', code: '8492' };
   },
 
   async verifyAndResetPassword(email: string, code: string, newPassword: string): Promise<{ success: boolean; message: string }> {
-    try {
-      const res = await requestApi<{ success: boolean; message: string }>('/auth/reset-password/verify', {
-        method: 'POST',
-        body: JSON.stringify({ email, code, newPassword })
-      });
-      if (res) return res;
-    } catch (e) {
-      console.warn('Password reset verify fallback:', e);
-    }
     return { success: true, message: 'Password has been updated.' };
-  },
-
-  // System Notification Center & Diagnostic Logs
-  async getEmailStatus(): Promise<any> {
-    try {
-      const res = await requestApi<any>('/admin/email-status');
-      if (res) return res;
-    } catch (e) {
-      console.warn('Email status API error:', e);
-    }
-    const localConfig = dbStore.getEmailConfig();
-    return {
-      activeProvider: 'SVB System Notifications (Active)',
-      senderEmail: localConfig.senderEmail || 'notifications@svb.com',
-      senderName: localConfig.senderName || 'Silicon Valley Bank',
-      selectedProvider: 'system',
-      providersConfigured: {},
-      hasCredentials: true
-    };
-  },
-
-  async getEmailConfig(): Promise<any> {
-    try {
-      const res = await requestApi<any>('/admin/email-config');
-      if (res) return res;
-    } catch (e) {
-      console.warn('Email config API fallback:', e);
-    }
-    try {
-      const fsConfig = await getEmailConfigFromFirestore();
-      if (fsConfig) return fsConfig;
-    } catch (e) {}
-    return dbStore.getEmailConfig();
-  },
-
-  async updateEmailConfig(config: any): Promise<any> {
-    const savedConfig = dbStore.saveEmailConfig(config);
-    try {
-      syncEmailConfigToFirestore(savedConfig).catch(e => console.warn('syncEmailConfigToFirestore warning:', e));
-    } catch (e) {}
-
-    try {
-      const res = await requestApi<any>('/admin/email-config', {
-        method: 'POST',
-        body: JSON.stringify(config)
-      });
-      if (res && res.success) {
-        return res;
-      }
-    } catch (e) {
-      console.warn('Backend email-config update API unreachable, saved to local ledger & Firestore:', e);
-    }
-    return {
-      success: true,
-      message: 'Notification settings saved successfully.',
-      config: savedConfig
-    };
-  },
-
-  async getEmailLogs(): Promise<{ logs: any[] }> {
-    const combinedMap = new Map<string, any>();
-
-    // 1. Local dbStore logs
-    const localLogs = dbStore.getEmailLogs();
-    localLogs.forEach(l => combinedMap.set(l.id, l));
-
-    // 2. Firestore logs
-    try {
-      const fsLogs = await getEmailLogsFromFirestore();
-      if (fsLogs && fsLogs.length > 0) {
-        fsLogs.forEach(l => combinedMap.set(l.id, l));
-      }
-    } catch (e) {
-      console.warn('Firestore getEmailLogs error:', e);
-    }
-
-    // 3. Backend server API logs
-    try {
-      const res = await requestApi<{ logs: any[] }>('/admin/email-logs');
-      if (res && res.logs && res.logs.length > 0) {
-        res.logs.forEach(l => combinedMap.set(l.id, l));
-      }
-    } catch (e) {
-      console.warn('Email logs backend API fallback:', e);
-    }
-
-    const sortedLogs = Array.from(combinedMap.values()).sort(
-      (a, b) => new Date(b.timestamp || b.createdAt).getTime() - new Date(a.timestamp || a.createdAt).getTime()
-    );
-
-    return { logs: sortedLogs };
-  },
-
-  async sendTestEmail(payload: { toEmail: string; subject?: string; type?: string; configOverride?: any }): Promise<any> {
-    try {
-      const res = await requestApi<any>('/admin/test-email', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-      if (res) {
-        const logEntry = {
-          id: `log-${Date.now()}`,
-          recipient: payload.toEmail,
-          subject: payload.subject || 'SVB System Notification Test',
-          type: payload.type || 'Test Notification',
-          provider: 'SVB System',
-          status: 'delivered' as const,
-          timestamp: new Date().toISOString(),
-          messageId: res.deliveryResult?.messageId || res.messageId || `test-${Date.now()}`
-        };
-        dbStore.addEmailLog(logEntry);
-        syncEmailLogToFirestore(logEntry);
-        return res;
-      }
-    } catch (e: any) {
-      console.warn('Backend sendTestEmail API call error:', e);
-    }
-
-    const logEntry = {
-      id: `log-${Date.now()}`,
-      recipient: payload.toEmail,
-      subject: payload.subject || 'SVB System Notification Test',
-      type: payload.type || 'Test Notification',
-      provider: 'SVB System',
-      status: 'delivered' as const,
-      timestamp: new Date().toISOString(),
-      messageId: `local-${Date.now()}`
-    };
-    dbStore.addEmailLog(logEntry);
-    syncEmailLogToFirestore(logEntry);
-
-    return {
-      success: true,
-      message: `System notification processed for ${payload.toEmail}`,
-      deliveryResult: { success: true, provider: 'SVB System', messageId: logEntry.messageId }
-    };
   }
 };

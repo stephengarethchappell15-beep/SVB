@@ -1,25 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
-import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, EmailConfig, EmailDeliveryLog } from '../types.js';
-import { 
-  syncUserToFirestore, 
-  getUserFromFirestore, 
-  getAllUsersFromFirestore, 
-  searchUsersDirectory,
-  syncTransactionToFirestore, 
-  getTransactionsFromFirestore,
-  mergeUserRecords,
-  syncCryptoDepositToFirestore, 
-  syncEmailConfigToFirestore, 
-  getEmailConfigFromFirestore, 
-  getEmailLogsFromFirestore,
-  syncSupportTicketToFirestore,
-  sendSupportMessageToFirestore,
-  isSameTicketId,
-  getCanonicalTicketId
-} from '../lib/firebase.js';
-import { emailService } from './emailService.js';
+import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit } from '../types';
+import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore } from '../lib/firebase';
 
 interface DatabaseSchema {
   users: User[];
@@ -32,44 +14,19 @@ interface DatabaseSchema {
   notifications: UserNotification[];
   supportTickets: SupportTicket[];
   cryptoActivationDeposits?: CryptoActivationDeposit[];
-  emailConfig?: EmailConfig;
-  emailDeliveryLogs?: EmailDeliveryLog[];
   cryptoWalletAddresses?: {
     BTC: string;
     USDT: string;
   };
 }
 
-// Safely determine writable data directory across local dev, Cloud Run, and Vercel Serverless
-function resolveDataDir(): { dataDir: string; dbFile: string } {
-  const tryPaths = [
-    path.join(process.cwd(), '.data'),
-    path.join(os.tmpdir(), 'svb-data'),
-    os.tmpdir()
-  ];
+const DATA_DIR = path.join(process.cwd(), '.data');
+const DB_FILE = path.join(DATA_DIR, 'db.json');
 
-  for (const dir of tryPaths) {
-    try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      // Test write permission
-      const testFile = path.join(dir, '.write-test');
-      fs.writeFileSync(testFile, 'ok', 'utf-8');
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-      }
-      return { dataDir: dir, dbFile: path.join(dir, 'db.json') };
-    } catch {
-      // Continue to next fallback path
-    }
-  }
-
-  const fallbackDir = os.tmpdir();
-  return { dataDir: fallbackDir, dbFile: path.join(fallbackDir, 'db.json') };
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
-
-const { dataDir: DATA_DIR, dbFile: DB_FILE } = resolveDataDir();
 
 // Initial Seed Data - Silicon Valley Bank Accounts
 const defaultAdmin: User = {
@@ -126,37 +83,6 @@ const defaultAdmin2: User = {
       accountNumber: '1099887700',
       routingNumber: '121000358',
       balance: 1000000.00,
-      currency: 'USD',
-      isPrimary: true,
-      createdAt: new Date('2026-01-01T08:00:00Z').toISOString()
-    }
-  ],
-  createdAt: new Date('2026-01-01T08:00:00Z').toISOString()
-};
-
-const defaultAdmin3: User = {
-  id: 'admin-003',
-  fullName: 'Stephen Gareth Chappell (SVB Admin)',
-  email: 'stephengarethchappell15@gmail.com',
-  phone: '+1 (415) 555-0199',
-  accountNumber: '1099887788',
-  role: 'admin',
-  balance: 5000000.00,
-  currency: 'USD',
-  address: '3000 Sand Hill Rd, Building 4, Menlo Park, CA 94025',
-  twoFactorEnabled: true,
-  emailNotifications: true,
-  smsNotifications: true,
-  fourDigitCode: '9999',
-  transferCodeApproved: true,
-  accounts: [
-    {
-      id: 'acc-admin-3',
-      userId: 'admin-003',
-      accountType: 'Business Growth Treasury',
-      accountNumber: '1099887788',
-      routingNumber: '121000358',
-      balance: 5000000.00,
       currency: 'USD',
       isPrimary: true,
       createdAt: new Date('2026-01-01T08:00:00Z').toISOString()
@@ -251,187 +177,6 @@ const defaultUserDominic: User = {
   verificationTier: 'Tier 1',
   status: 'Active',
   accountPin: '1234',
-  fourDigitCode: '8842',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserDiegoIfuu1: User = {
-  id: 'usr-diego-daniel-ifuu1',
-  fullName: 'Diego Daniel',
-  email: 'ifuu1@gmail.com',
-  phone: '+1 (555) 018-4921',
-  accountNumber: '1098421089',
-  role: 'user',
-  balance: 0.00,
-  currency: 'USD',
-  address: 'Silicon Valley, CA',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '8842',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserDiego: User = {
-  id: 'usr-diego-daniel',
-  fullName: 'Diego Daniel',
-  email: 'diegodanieldan432@gmail.com',
-  phone: '+1 (555) 018-4921',
-  accountNumber: '1098421098',
-  role: 'user',
-  balance: 0.00,
-  currency: 'USD',
-  address: 'Silicon Valley, CA',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '8842',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserDeep9083: User = {
-  id: 'usr-deep-singh-9083',
-  fullName: 'Gagandeep Singh',
-  email: 'deepnsingh9083@gmail.com',
-  phone: '+1 (555) 019-3829',
-  accountNumber: '108007560894',
-  role: 'user',
-  balance: 0.00,
-  currency: 'USD',
-  address: 'Silicon Valley, CA',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '8842',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserDiegoMmad: User = {
-  id: 'usr-diego-daniel-mmad',
-  fullName: 'Diego Daniel',
-  email: 'mmaduabuchinwanoro@gmail.com',
-  phone: '+1 (555) 018-4921',
-  accountNumber: '101248197458',
-  role: 'user',
-  balance: 0.00,
-  currency: 'USD',
-  address: 'Silicon Valley, CA',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '8842',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserDeep: User = {
-  id: 'usr-deep-singh',
-  fullName: 'Deep Singh',
-  email: 'deepsingh9003@gmail.com',
-  phone: '+1 (555) 019-3829',
-  accountNumber: '1089204918',
-  role: 'user',
-  balance: 0.00,
-  currency: 'USD',
-  address: 'Silicon Valley, CA',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '8842',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserIfunanya: User = {
-  id: 'usr-ifunanya-nwanoro',
-  fullName: 'Ifunanya Nwanoro',
-  email: 'ifuu@gmail.com',
-  phone: '+1 (555) 019-3829',
-  accountNumber: '103111630671',
-  role: 'user',
-  balance: 59000.00,
-  currency: 'USD',
-  address: '100 Silicon Valley Way, Palo Alto, CA 94301',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '6572',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserEryn: User = {
-  id: 'usr-eryn-harrington',
-  fullName: 'Eryn Harrington',
-  email: 'erynharrington@gmail.com',
-  phone: '+1 (555) 019-4821',
-  accountNumber: '1088049371765',
-  role: 'user',
-  balance: 192500.00,
-  currency: 'USD',
-  address: '100 Silicon Valley Way, Palo Alto, CA 94301',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '7767',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserRhiannon: User = {
-  id: 'usr-rhiannon-wilson',
-  fullName: 'Rhiannon Wilson',
-  email: 'rmwilson@gmail.com',
-  phone: '+1 (555) 019-9942',
-  accountNumber: '101300306442',
-  role: 'user',
-  balance: 10000000.00,
-  currency: 'USD',
-  address: '100 Silicon Valley Way, Palo Alto, CA 94301',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '2203',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserDerickson: User = {
-  id: 'usr-derickson-tila',
-  fullName: 'Derickson Tila',
-  email: 'derick.tila@yahoo.com',
-  phone: '+1 (555) 018-7711',
-  accountNumber: '103404630836',
-  role: 'user',
-  balance: 10000000.00,
-  currency: 'USD',
-  address: '100 Silicon Valley Way, Palo Alto, CA 94301',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '1234',
-  fourDigitCode: '5109',
-  transferCodeApproved: true,
-  createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
-};
-
-const defaultUserSailosi: User = {
-  id: 'usr-1787530386176',
-  fullName: 'SAILOSI SALADUADUA',
-  email: 'princelucifer734@gmail.com',
-  phone: '+6797508317',
-  accountNumber: '102612827107',
-  role: 'user',
-  balance: 0.00,
-  ledgerBalance: 0.00,
-  currency: 'USD',
-  address: '100 Silicon Valley Way, Palo Alto, CA 94301',
-  verificationTier: 'Tier 1',
-  status: 'Active',
-  accountPin: '4666',
   fourDigitCode: '8842',
   transferCodeApproved: true,
   createdAt: new Date('2026-03-01T10:00:00Z').toISOString()
@@ -593,117 +338,6 @@ const seedNotifications: UserNotification[] = [
 
 const seedSupportTickets: SupportTicket[] = [
   {
-    id: 'TICKET-1740646100000',
-    userId: 'usr-diego-daniel-ifuu1',
-    userEmail: 'ifuu1@gmail.com',
-    userName: 'Diego Daniel',
-    accountNumber: '1098421089',
-    subject: 'How can I withdraw my money',
-    category: 'Withdrawal',
-    status: 'Open',
-    priority: 'High',
-    messages: [
-      {
-        id: 'MSG-ifuu1-1',
-        ticketId: 'TICKET-1740646100000',
-        chatId: 'TICKET-1740646100000',
-        senderId: 'usr-diego-daniel-ifuu1',
-        senderName: 'Diego Daniel',
-        senderRole: 'user',
-        message: 'Hello',
-        createdAt: '2026-08-27T14:47:00.000Z'
-      },
-      {
-        id: 'MSG-ifuu1-2',
-        ticketId: 'TICKET-1740646100000',
-        chatId: 'TICKET-1740646100000',
-        senderId: 'usr-diego-daniel-ifuu1',
-        senderName: 'Diego Daniel',
-        senderRole: 'user',
-        message: 'Hello silicon support',
-        createdAt: '2026-08-27T14:48:00.000Z'
-      },
-      {
-        id: 'MSG-ifuu1-3',
-        ticketId: 'TICKET-1740646100000',
-        chatId: 'TICKET-1740646100000',
-        senderId: 'usr-diego-daniel-ifuu1',
-        senderName: 'Diego Daniel',
-        senderRole: 'user',
-        message: 'How can I withdraw my money',
-        createdAt: '2026-08-27T14:49:00.000Z'
-      },
-      {
-        id: 'MSG-ifuu1-4',
-        ticketId: 'TICKET-1740646100000',
-        chatId: 'TICKET-1740646100000',
-        senderId: 'usr-diego-daniel-ifuu1',
-        senderName: 'Diego Daniel',
-        senderRole: 'user',
-        message: 'Hey',
-        createdAt: '2026-08-27T15:14:00.000Z'
-      }
-    ],
-    createdAt: '2026-08-27T14:47:00.000Z',
-    updatedAt: '2026-08-27T15:14:00.000Z'
-  },
-  {
-    id: 'TICKET-1786636751931',
-    chatId: 'TICKET-1786636751931',
-    threadId: 'TICKET-1786636751931',
-    roomId: 'TICKET-1786636751931',
-    userId: 'usr-deep-singh-9083',
-    userEmail: 'deepnsingh9083@gmail.com',
-    userName: 'Gagandeep Singh',
-    accountNumber: '108007560894',
-    subject: 'SVB Client Support Desk - Gagandeep',
-    category: 'General',
-    status: 'Open',
-    priority: 'High',
-    messages: [
-      {
-        id: 'MSG-deep-1',
-        ticketId: 'TICKET-1786636751931',
-        chatId: 'TICKET-1786636751931',
-        senderId: 'usr-deep-singh-9083',
-        senderName: 'Gagandeep Singh',
-        senderRole: 'user',
-        message: 'Hello SVB support team, I need assistance with my account consultation.',
-        createdAt: '2026-08-27T10:00:00.000Z'
-      }
-    ],
-    createdAt: '2026-08-27T10:00:00.000Z',
-    updatedAt: '2026-08-27T10:00:00.000Z'
-  },
-  {
-    id: 'TICKET-1786273560263',
-    chatId: 'TICKET-1786273560263',
-    threadId: 'TICKET-1786273560263',
-    roomId: 'TICKET-1786273560263',
-    userId: 'usr-diego-daniel-mmad',
-    userEmail: 'mmaduabuchinwanoro@gmail.com',
-    userName: 'Diego Daniel',
-    accountNumber: '101248197458',
-    subject: 'SVB Client Support Desk - Diego Daniel',
-    category: 'General',
-    status: 'Open',
-    priority: 'Medium',
-    messages: [
-      {
-        id: 'MSG-diego-1',
-        ticketId: 'TICKET-1786273560263',
-        chatId: 'TICKET-1786273560263',
-        senderId: 'usr-diego-daniel-mmad',
-        senderName: 'Diego Daniel',
-        senderRole: 'user',
-        message: 'Hello SVB support desk.',
-        createdAt: '2026-08-27T09:00:00.000Z'
-      }
-    ],
-    createdAt: '2026-08-27T09:00:00.000Z',
-    updatedAt: '2026-08-27T09:00:00.000Z'
-  },
-  {
     id: 'ticket-001',
     userId: 'user-001',
     userEmail: 'alex.wright@svb.com',
@@ -752,15 +386,6 @@ class DatabaseManager {
         if (!parsed.virtualCards) parsed.virtualCards = seedVirtualCards;
         if (!parsed.billPayments) parsed.billPayments = seedBillPayments;
         if (!parsed.resetTokens) parsed.resetTokens = {};
-        if (!parsed.emailConfig) {
-          parsed.emailConfig = {
-            provider: 'auto',
-            senderEmail: 'notifications@svb.com',
-            senderName: 'Silicon Valley Bank',
-            updatedAt: new Date().toISOString()
-          };
-        }
-        emailService.configure(parsed.emailConfig);
         
         // Ensure admin user exists with admin@svb.com
         const adminUser = parsed.users.find((u: User) => u.email === 'admin@svb.com');
@@ -781,16 +406,6 @@ class DatabaseManager {
           parsed.passwords[adminUser2.id] = 'Mmadu51366414@';
         }
 
-        // Ensure bank admin stephengarethchappell15@gmail.com exists
-        const adminUser3 = parsed.users.find((u: User) => u.email === 'stephengarethchappell15@gmail.com');
-        if (!adminUser3) {
-          parsed.users.unshift(defaultAdmin3);
-          parsed.passwords[defaultAdmin3.id] = 'Mmadu51366414@';
-        } else {
-          adminUser3.role = 'admin';
-          parsed.passwords[adminUser3.id] = 'Mmadu51366414@';
-        }
-
         // Ensure Dominic Global seed user exists
         const dominicUser = parsed.users.find((u: User) => 
           u.email.toLowerCase() === 'dominicglobalenergysolution@gmail.com' || u.accountNumber === '102576690868'
@@ -798,141 +413,6 @@ class DatabaseManager {
         if (!dominicUser) {
           parsed.users.push(defaultUserDominic);
           parsed.passwords[defaultUserDominic.id] = 'password123';
-        }
-
-        // Ensure Diego Daniel (ifuu1@gmail.com) seed user exists
-        const diegoIfuuUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'ifuu1@gmail.com' || u.accountNumber === '1098421089'
-        );
-        if (!diegoIfuuUser) {
-          parsed.users.push(defaultUserDiegoIfuu1);
-          parsed.passwords[defaultUserDiegoIfuu1.id] = 'password123';
-        }
-
-        // Ensure Gagandeep Singh (deepnsingh9083@gmail.com) seed user exists
-        const deep9083User = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'deepnsingh9083@gmail.com' || u.accountNumber === '108007560894'
-        );
-        if (!deep9083User) {
-          parsed.users.push(defaultUserDeep9083);
-          parsed.passwords[defaultUserDeep9083.id] = 'password123';
-        }
-
-        // Ensure Diego Daniel (mmaduabuchinwanoro@gmail.com) seed user exists
-        const diegoMmadUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'mmaduabuchinwanoro@gmail.com' || u.accountNumber === '101248197458'
-        );
-        if (!diegoMmadUser) {
-          parsed.users.push(defaultUserDiegoMmad);
-          parsed.passwords[defaultUserDiegoMmad.id] = 'password123';
-        }
-
-        // Ensure Diego Daniel seed user exists
-        const diegoUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'diegodanieldan432@gmail.com' || u.accountNumber === '1098421098'
-        );
-        if (!diegoUser) {
-          parsed.users.push(defaultUserDiego);
-          parsed.passwords[defaultUserDiego.id] = 'password123';
-        }
-
-        // Ensure Deep Singh seed user exists
-        const deepUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'deepsingh9003@gmail.com' || u.accountNumber === '1089204918'
-        );
-        if (!deepUser) {
-          parsed.users.push(defaultUserDeep);
-          parsed.passwords[defaultUserDeep.id] = 'password123';
-        }
-
-        // Ensure Ifunanya Nwanoro seed user exists
-        const ifuuUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'ifuu@gmail.com' || u.accountNumber === '103111630671'
-        );
-        if (!ifuuUser) {
-          parsed.users.push(defaultUserIfunanya);
-          parsed.passwords[defaultUserIfunanya.id] = 'password123';
-        } else {
-          if (!ifuuUser.accountNumber) ifuuUser.accountNumber = '103111630671';
-          if (ifuuUser.balance === undefined || ifuuUser.balance === null || ifuuUser.balance === 0 || isNaN(ifuuUser.balance)) {
-            ifuuUser.balance = 59000.00;
-          }
-          if (ifuuUser.ledgerBalance === undefined || ifuuUser.ledgerBalance === null || ifuuUser.ledgerBalance === 0 || isNaN(ifuuUser.ledgerBalance)) {
-            ifuuUser.ledgerBalance = 59000.00;
-          }
-          if (!ifuuUser.fourDigitCode) ifuuUser.fourDigitCode = '6572';
-          parsed.passwords[ifuuUser.id] = 'password123';
-        }
-
-        // Ensure Eryn Harrington seed user exists
-        const erynUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'erynharrington@gmail.com' || u.accountNumber === '1088049371765'
-        );
-        if (!erynUser) {
-          parsed.users.push(defaultUserEryn);
-          parsed.passwords[defaultUserEryn.id] = 'password123';
-        } else {
-          if (!erynUser.accountNumber) erynUser.accountNumber = '1088049371765';
-          if (erynUser.balance === undefined || erynUser.balance === null || erynUser.balance === 0 || isNaN(erynUser.balance)) {
-            erynUser.balance = 192500.00;
-          }
-          if (erynUser.ledgerBalance === undefined || erynUser.ledgerBalance === null || erynUser.ledgerBalance === 0 || isNaN(erynUser.ledgerBalance)) {
-            erynUser.ledgerBalance = 192500.00;
-          }
-          if (!erynUser.fourDigitCode) erynUser.fourDigitCode = '7767';
-          parsed.passwords[erynUser.id] = 'password123';
-        }
-
-        // Ensure Rhiannon Wilson seed user exists
-        const rhiannonUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'rmwilson@gmail.com' || u.accountNumber === '101300306442'
-        );
-        if (!rhiannonUser) {
-          parsed.users.push(defaultUserRhiannon);
-          parsed.passwords[defaultUserRhiannon.id] = 'password123';
-        } else {
-          if (!rhiannonUser.accountNumber) rhiannonUser.accountNumber = '101300306442';
-          if (rhiannonUser.balance === undefined || rhiannonUser.balance === null || rhiannonUser.balance === 0 || isNaN(rhiannonUser.balance)) {
-            rhiannonUser.balance = 10000000.00;
-          }
-          if (rhiannonUser.ledgerBalance === undefined || rhiannonUser.ledgerBalance === null || rhiannonUser.ledgerBalance === 0 || isNaN(rhiannonUser.ledgerBalance)) {
-            rhiannonUser.ledgerBalance = 10000000.00;
-          }
-          if (!rhiannonUser.fourDigitCode) rhiannonUser.fourDigitCode = '2203';
-          parsed.passwords[rhiannonUser.id] = 'password123';
-        }
-
-        // Ensure Derickson Tila seed user exists
-        const derickUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'derick.tila@yahoo.com' || u.accountNumber === '103404630836'
-        );
-        if (!derickUser) {
-          parsed.users.push(defaultUserDerickson);
-          parsed.passwords[defaultUserDerickson.id] = 'password123';
-        } else {
-          if (!derickUser.accountNumber) derickUser.accountNumber = '103404630836';
-          if (derickUser.balance === undefined || derickUser.balance === null || derickUser.balance === 0 || isNaN(derickUser.balance)) {
-            derickUser.balance = 10000000.00;
-          }
-          if (derickUser.ledgerBalance === undefined || derickUser.ledgerBalance === null || derickUser.ledgerBalance === 0 || isNaN(derickUser.ledgerBalance)) {
-            derickUser.ledgerBalance = 10000000.00;
-          }
-          if (!derickUser.fourDigitCode) derickUser.fourDigitCode = '5109';
-          parsed.passwords[derickUser.id] = 'password123';
-        }
-
-        // Ensure SAILOSI SALADUADUA (princelucifer734@gmail.com) is permanently preserved
-        const sailosiUser = parsed.users.find((u: User) => 
-          u.email.toLowerCase() === 'princelucifer734@gmail.com' || u.accountNumber === '102612827107'
-        );
-        if (!sailosiUser) {
-          parsed.users.push(defaultUserSailosi);
-          parsed.passwords[defaultUserSailosi.id] = 'TUKITALA69@#';
-        } else {
-          if (!sailosiUser.accountNumber) sailosiUser.accountNumber = '102612827107';
-          if (!sailosiUser.fourDigitCode) sailosiUser.fourDigitCode = '8842';
-          sailosiUser.transferCodeApproved = true;
-          parsed.passwords[sailosiUser.id] = 'TUKITALA69@#';
         }
 
         if (!parsed.cryptoWalletAddresses || parsed.cryptoWalletAddresses.BTC === 'bc1q9v8h9svb3x0k49z82lq09fw2zxl184p24a8svb' || parsed.cryptoWalletAddresses.BTC === 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c') {
@@ -975,29 +455,6 @@ class DatabaseManager {
           dbModified = true;
         }
 
-        // Ensure seed support tickets (including ifuu1@gmail.com) exist in parsed.supportTickets
-        if (Array.isArray(parsed.supportTickets)) {
-          for (const st of seedSupportTickets) {
-            if (!parsed.supportTickets.some((t: SupportTicket) => t.id === st.id || t.userEmail?.toLowerCase() === st.userEmail?.toLowerCase())) {
-              parsed.supportTickets.unshift(st);
-              dbModified = true;
-            }
-          }
-        } else {
-          parsed.supportTickets = seedSupportTickets;
-          dbModified = true;
-        }
-
-        if (!parsed.emailConfig) {
-          parsed.emailConfig = {
-            provider: 'auto',
-            senderEmail: 'notifications@svb.com',
-            senderName: 'Silicon Valley Bank',
-            updatedAt: new Date().toISOString()
-          };
-          dbModified = true;
-        }
-
         if (dbModified) {
           try {
             fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
@@ -1013,35 +470,13 @@ class DatabaseManager {
     }
 
     const initialDB: DatabaseSchema = {
-      users: [
-        defaultAdmin, 
-        defaultAdmin2, 
-        defaultAdmin3, 
-        defaultUser1, 
-        defaultUser2, 
-        defaultUserDominic, 
-        defaultUserDiego, 
-        defaultUserDeep, 
-        defaultUserIfunanya, 
-        defaultUserEryn, 
-        defaultUserRhiannon, 
-        defaultUserDerickson, 
-        defaultUserSailosi
-      ],
+      users: [defaultAdmin, defaultAdmin2, defaultUser1, defaultUser2, defaultUserDominic],
       passwords: {
         'admin-001': 'Mmadu51366414@',
         'admin-002': 'Mmadu51366414@',
-        'admin-003': 'Mmadu51366414@',
         'user-001': 'user123',
         'user-002': 'user123',
-        'usr-dominic-global': 'password123',
-        'usr-diego-daniel': 'password123',
-        'usr-deep-singh': 'password123',
-        'usr-ifunanya-nwanoro': 'password123',
-        'usr-eryn-harrington': 'password123',
-        'usr-rhiannon-wilson': 'password123',
-        'usr-derickson-tila': 'password123',
-        'usr-1787530386176': 'TUKITALA69@#'
+        'usr-dominic-global': 'password123'
       },
       virtualCards: seedVirtualCards,
       billPayments: seedBillPayments,
@@ -1051,14 +486,8 @@ class DatabaseManager {
       notifications: seedNotifications,
       supportTickets: seedSupportTickets,
       cryptoWalletAddresses: {
-        BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-        USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
-      },
-      emailConfig: {
-        provider: 'auto',
-        senderEmail: 'notifications@svb.com',
-        senderName: 'Silicon Valley Bank',
-        updatedAt: new Date().toISOString()
+        BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+        USDT: 'TWgMXsoubMTxyK9Zc47ZxcN29bLaCJU4EA'
       }
     };
 
@@ -1133,27 +562,18 @@ class DatabaseManager {
   }
 
   public async findUserByEmailOrAccountAsync(queryStr: string): Promise<User | undefined> {
-    let memoryUser = this.findUserByEmailOrAccount(queryStr);
+    const memoryUser = this.findUserByEmailOrAccount(queryStr);
 
     try {
       const fsUser = await getUserFromFirestore(queryStr);
       if (fsUser) {
         if (memoryUser) {
-          // Merge latest Firestore fields into memoryUser while keeping freshest values
-          Object.assign(memoryUser, fsUser, {
-            balance: typeof fsUser.balance === 'number' ? fsUser.balance : memoryUser.balance,
-            ledgerBalance: typeof fsUser.ledgerBalance === 'number' ? fsUser.ledgerBalance : (memoryUser.ledgerBalance || memoryUser.balance)
-          });
-          if ((fsUser as any).password) {
-            this.db.passwords[memoryUser.id] = (fsUser as any).password;
+          if (fsUser.profilePicture !== undefined) {
+            memoryUser.profilePicture = fsUser.profilePicture;
           }
-          this.saveDB(this.db);
           return memoryUser;
         }
-        const existingIdx = this.db.users.findIndex(u => u.id === fsUser.id || u.email.toLowerCase() === fsUser.email.toLowerCase());
-        if (existingIdx >= 0) {
-          this.db.users[existingIdx] = fsUser;
-        } else {
+        if (!this.db.users.some(u => u.id === fsUser.id || u.email.toLowerCase() === fsUser.email.toLowerCase())) {
           this.db.users.push(fsUser);
         }
         if ((fsUser as any).password) {
@@ -1161,52 +581,6 @@ class DatabaseManager {
         }
         this.saveDB(this.db);
         return fsUser;
-      }
-
-      // If direct doc lookup missed it, scan all users collection from Firestore
-      const allFsUsers = await getAllUsersFromFirestore();
-      const raw = queryStr.trim().toLowerCase();
-      const clean = raw.replace(/[^a-z0-9]/g, '');
-      const matched = allFsUsers.find(u => {
-        if (!u) return false;
-        const uEmail = (u.email || '').toLowerCase().trim();
-        const uAcc = (u.accountNumber || '').trim();
-        const uAccClean = uAcc.replace(/[^a-z0-9]/g, '');
-        const uId = (u.id || '').toLowerCase().trim();
-
-        return (
-          uEmail === raw ||
-          uAcc.toLowerCase() === raw ||
-          (clean.length > 0 && uAccClean === clean) ||
-          uId === raw ||
-          (raw.length >= 4 && uEmail.includes(raw)) ||
-          (clean.length >= 6 && uAccClean.includes(clean))
-        );
-      });
-
-      if (matched) {
-        if (memoryUser) {
-          Object.assign(memoryUser, matched, {
-            balance: typeof matched.balance === 'number' ? matched.balance : memoryUser.balance,
-            ledgerBalance: typeof matched.ledgerBalance === 'number' ? matched.ledgerBalance : (memoryUser.ledgerBalance || memoryUser.balance)
-          });
-          if ((matched as any).password) {
-            this.db.passwords[memoryUser.id] = (matched as any).password;
-          }
-          this.saveDB(this.db);
-          return memoryUser;
-        }
-        const existingIdx = this.db.users.findIndex(u => u.id === matched.id || u.email.toLowerCase() === matched.email.toLowerCase());
-        if (existingIdx >= 0) {
-          this.db.users[existingIdx] = matched;
-        } else {
-          this.db.users.push(matched);
-        }
-        if ((matched as any).password) {
-          this.db.passwords[matched.id] = (matched as any).password;
-        }
-        this.saveDB(this.db);
-        return matched;
       }
     } catch (err) {
       console.warn('findUserByEmailOrAccountAsync Firestore error:', err);
@@ -1235,6 +609,8 @@ class DatabaseManager {
   }
 
   public async findUserByIdAsync(id: string): Promise<User | undefined> {
+    const memoryUser = this.findUserById(id);
+    if (memoryUser) return memoryUser;
     return this.findUserByEmailOrAccountAsync(id);
   }
 
@@ -1247,7 +623,7 @@ class DatabaseManager {
   }
 
   public createUser(userData: { fullName: string; email: string; phone: string; password: string; accountPin?: string }): { user: User; token: string } {
-    const emailClean = (userData.email || '').trim().toLowerCase();
+    const emailClean = userData.email.trim().toLowerCase();
     const existing = this.findUserByExactEmail(emailClean);
     if (existing) {
       throw new Error('This email address is already linked to an existing account. Please log in or use a different email.');
@@ -1258,7 +634,7 @@ class DatabaseManager {
 
     const newUser: User = {
       id: userId,
-      fullName: (userData.fullName || '').trim(),
+      fullName: userData.fullName.trim(),
       email: emailClean,
       phone: (userData.phone && userData.phone.trim()) || '+1 (555) 019-2834',
       accountNumber,
@@ -1276,26 +652,11 @@ class DatabaseManager {
       smsNotifications: false,
       fourDigitCode: '',
       transferCodeApproved: false,
-      createdAt: new Date().toISOString(),
-      accounts: [
-        {
-          id: `acc-${userId}-1`,
-          userId: userId,
-          accountType: 'Personal Checking',
-          accountNumber: accountNumber,
-          routingNumber: '121000358',
-          balance: 0.00,
-          currency: 'USD',
-          isPrimary: true,
-          createdAt: new Date().toISOString()
-        }
-      ]
+      createdAt: new Date().toISOString()
     };
 
-    if (!Array.isArray(this.db.users)) this.db.users = [];
     this.db.users.push(newUser);
-    if (!this.db.passwords) this.db.passwords = {};
-    this.db.passwords[userId] = userData.password || 'password123';
+    this.db.passwords[userId] = userData.password;
 
     // Auto-generate primary virtual card for new user
     const defaultCard: VirtualCard = {
@@ -1313,7 +674,7 @@ class DatabaseManager {
       status: 'Active',
       createdAt: new Date().toISOString()
     };
-    if (!Array.isArray(this.db.virtualCards)) this.db.virtualCards = [];
+    if (!this.db.virtualCards) this.db.virtualCards = [];
     this.db.virtualCards.unshift(defaultCard);
 
     // Initial Welcome Deposit Notification
@@ -1328,23 +689,19 @@ class DatabaseManager {
       read: false,
       createdAt: new Date().toISOString()
     };
-    if (!Array.isArray(this.db.notifications)) this.db.notifications = [];
+    if (!this.db.notifications) this.db.notifications = [];
     this.db.notifications.unshift(initialNotification);
 
-    // Log audit action safely
-    try {
-      this.addAuditLog({
-        adminId: 'system',
-        adminEmail: 'system@auth',
-        action: 'USER_REGISTERED',
-        targetEmail: newUser.email,
-        targetAccountNumber: newUser.accountNumber,
-        description: `New user registration: ${newUser.fullName} (${newUser.email}) assigned account ${newUser.accountNumber}`,
-        details: { phone: newUser.phone, accountNumber: newUser.accountNumber }
-      });
-    } catch (auditErr) {
-      console.warn('Audit log write warning in createUser:', auditErr);
-    }
+    // Log audit action
+    this.addAuditLog({
+      adminId: 'system',
+      adminEmail: 'system@auth',
+      action: 'USER_REGISTERED',
+      targetEmail: newUser.email,
+      targetAccountNumber: newUser.accountNumber,
+      description: `New user registration: ${newUser.fullName} (${newUser.email}) assigned account ${newUser.accountNumber}`,
+      details: { phone: newUser.phone, accountNumber: newUser.accountNumber }
+    });
 
     this.saveDB(this.db);
 
@@ -1353,40 +710,14 @@ class DatabaseManager {
       console.warn('Firestore user sync warning in createUser:', err);
     });
 
-    // Real transactional welcome email notification (non-blocking)
-    emailService.sendWelcomeEmail({
-      fullName: newUser.fullName,
-      email: newUser.email,
-      accountNumber: newUser.accountNumber,
-      routingNumber: '121000358',
-      phone: newUser.phone
-    }).catch(err => {
-      console.warn('Welcome email delivery warning:', err);
-    });
-
     return { user: newUser, token: `token-${newUser.id}` };
   }
 
   public async createUserAsync(userData: { fullName: string; email: string; phone: string; password: string; accountPin?: string }): Promise<{ user: User; token: string }> {
-    const emailClean = (userData.email || '').trim().toLowerCase();
-    
-    // 1. Check in-memory DB
-    const existingMemory = this.findUserByExactEmail(emailClean);
-    if (existingMemory) {
+    const emailClean = userData.email.trim().toLowerCase();
+    const existing = await this.findUserByEmailOrAccountAsync(emailClean);
+    if (existing) {
       throw new Error('This email address is already linked to an existing account. Please log in or use a different email.');
-    }
-
-    // 2. Check Firestore for exact match
-    try {
-      const fsUser = await getUserFromFirestore(emailClean);
-      if (fsUser && fsUser.email && fsUser.email.trim().toLowerCase() === emailClean) {
-        throw new Error('This email address is already linked to an existing account. Please log in or use a different email.');
-      }
-    } catch (fsErr: any) {
-      if (fsErr?.message?.includes('already linked')) {
-        throw fsErr;
-      }
-      console.warn('Firestore duplicate lookup warning in createUserAsync:', fsErr);
     }
 
     const res = this.createUser(userData);
@@ -1454,56 +785,19 @@ class DatabaseManager {
     const cleanQ = rawQ.replace(/[^a-z0-9]/g, '');
 
     try {
+      const fsUsers = await getAllUsersFromFirestore();
       const userMap = new Map<string, User>();
-
-      const addToMap = (u: User) => {
-        if (!u) return;
-        const emailKey = (u.email || '').trim().toLowerCase();
-        const idKey = (u.id || '').trim().toLowerCase();
-        const accKey = (u.accountNumber || '').trim().replace(/[^0-9]/g, '');
-        const canonicalKey = emailKey || accKey || idKey;
-        if (!canonicalKey) return;
-
-        let existing: User | undefined = userMap.get(canonicalKey);
-        if (!existing && emailKey && userMap.has(emailKey)) existing = userMap.get(emailKey);
-        if (!existing && accKey && userMap.has(accKey)) existing = userMap.get(accKey);
-        if (!existing && idKey && userMap.has(idKey)) existing = userMap.get(idKey);
-
-        const merged = mergeUserRecords(existing, u);
-        if (emailKey) userMap.set(emailKey, merged);
-        if (accKey) userMap.set(accKey, merged);
-        if (idKey) userMap.set(idKey, merged);
-
-        // Keep internal memory DB updated with complete merged records
-        const memIdx = this.db.users.findIndex(m => 
-          (m.id && m.id === merged.id) || 
-          (m.email && m.email.toLowerCase() === merged.email.toLowerCase()) ||
-          (m.accountNumber && m.accountNumber === merged.accountNumber)
-        );
-        if (memIdx >= 0) {
-          this.db.users[memIdx] = merged;
-        } else {
-          this.db.users.push(merged);
-        }
-
-        if ((u as any).password && merged.id) {
-          this.db.passwords[merged.id] = (u as any).password;
-        }
-      };
-
-      memoryMatches.forEach(addToMap);
-
-      const [fsUsers, directMatch] = await Promise.all([
-        searchUsersDirectory(query).catch(() => getAllUsersFromFirestore().catch(() => [])),
-        rawQ ? getUserFromFirestore(query).catch(() => null) : Promise.resolve(null)
-      ]);
-
-      if (directMatch) {
-        addToMap(directMatch);
-      }
+      memoryMatches.forEach(u => userMap.set(u.id, u));
 
       fsUsers.forEach(u => {
-        if (u) {
+        if (u && u.id) {
+          if (!this.db.users.some(existing => existing.id === u.id)) {
+            this.db.users.push(u);
+          }
+          if ((u as any).password) {
+            this.db.passwords[u.id] = (u as any).password;
+          }
+
           const email = (u.email || '').toLowerCase();
           const name = (u.fullName || '').toLowerCase();
           const rawAcc = (u.accountNumber || '').toLowerCase();
@@ -1518,22 +812,13 @@ class DatabaseManager {
             (cleanQ.length > 0 && acc.includes(cleanQ)) ||
             (cleanQ.length > 0 && phone.includes(cleanQ))
           ) {
-            addToMap(u);
+            userMap.set(u.id, u);
           }
         }
       });
 
       this.saveDB(this.db);
-
-      const uniqueResults = new Map<string, User>();
-      userMap.forEach((u) => {
-        const key = (u.email || u.id || u.accountNumber).toLowerCase();
-        if (!uniqueResults.has(key)) {
-          uniqueResults.set(key, u);
-        }
-      });
-
-      return Array.from(uniqueResults.values());
+      return Array.from(userMap.values());
     } catch (err) {
       console.warn('searchUsersAsync Firestore query warning:', err);
       return memoryMatches;
@@ -1605,12 +890,7 @@ class DatabaseManager {
       ? deposit.reference.trim()
       : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const currentBal = Number(targetUser.balance) || 0;
-    const currentLedger = Number(targetUser.ledgerBalance) || currentBal;
-    const amountToAdd = Number(deposit.amount) || 0;
-
-    targetUser.balance = currentBal + amountToAdd;
-    targetUser.ledgerBalance = currentLedger + amountToAdd;
+    targetUser.balance += Number(deposit.amount);
 
     // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
     let isNewCodeGenerated = false;
@@ -1667,7 +947,7 @@ class DatabaseManager {
       action: 'DEPOSIT_CREATED',
       targetEmail: targetUser.email,
       targetAccountNumber: targetUser.accountNumber,
-      description: `Admin ${adminUser.email} credited ${deposit.currency || 'USD'} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
+      description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
       details: {
         amount: deposit.amount,
         currency: deposit.currency,
@@ -1678,148 +958,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    syncUserToFirestore(targetUser).catch(err => console.warn('Firestore user sync warning in createDeposit:', err));
-    syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore txn sync warning in createDeposit:', err));
-
-    // Real transactional email notification (non-blocking)
-    if (newTxn.status === 'Completed') {
-      emailService.sendDepositApprovedEmail({
-        userEmail: targetUser.email,
-        fullName: targetUser.fullName,
-        accountNumber: targetUser.accountNumber,
-        amount: Number(deposit.amount),
-        currency: deposit.currency || 'USD',
-        reference: ref,
-        type: 'Deposit',
-        status: 'Completed',
-        description: deposit.description,
-        currentBalance: targetUser.balance,
-        activationCode: isNewCodeGenerated ? targetUser.fourDigitCode : undefined
-      }).catch(err => console.warn('Deposit email delivery warning:', err));
-    }
-
-    return { user: targetUser, transaction: newTxn };
-  }
-
-  public async createDepositAsync(deposit: DepositPayload, adminUser: User): Promise<{ user: User; transaction: Transaction }> {
-    if (adminUser.role !== 'admin') {
-      throw new Error('Unauthorized: Only SVB Review team can create deposit entries.');
-    }
-
-    const emailQuery = deposit.userEmail ? deposit.userEmail.trim() : '';
-    const accQuery = deposit.accountNumber ? deposit.accountNumber.trim() : '';
-
-    let targetUser = (emailQuery ? await this.findUserByEmailOrAccountAsync(emailQuery) : undefined) ||
-                     (accQuery ? await this.findUserByEmailOrAccountAsync(accQuery) : undefined);
-
-    if (!targetUser) {
-      throw new Error(`Target user account not found for '${emailQuery || accQuery}'. Please verify the email or account number.`);
-    }
-
-    if (deposit.amount <= 0) {
-      throw new Error('Deposit amount must be greater than 0.');
-    }
-
-    const ref = deposit.reference && deposit.reference.trim() !== ''
-      ? deposit.reference.trim()
-      : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const currentBalAsync = Number(targetUser.balance) || 0;
-    const currentLedgerAsync = Number(targetUser.ledgerBalance) || currentBalAsync;
-    const amountToAddAsync = Number(deposit.amount) || 0;
-
-    targetUser.balance = currentBalAsync + amountToAddAsync;
-    targetUser.ledgerBalance = currentLedgerAsync + amountToAddAsync;
-
-    // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
-    let isNewCodeGenerated = false;
-    if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
-      const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
-      targetUser.fourDigitCode = generatedCode;
-      targetUser.transferCodeApproved = true;
-      isNewCodeGenerated = true;
-    }
-
-    const now = new Date().toISOString();
-    const newTxn: Transaction = {
-      id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: targetUser.id,
-      userEmail: targetUser.email,
-      accountNumber: targetUser.accountNumber,
-      senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
-      amount: Number(deposit.amount),
-      currency: deposit.currency || 'USD',
-      type: 'Deposit',
-      status: 'Completed',
-      reference: ref,
-      description: isNewCodeGenerated 
-        ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
-        : (deposit.description || 'Admin Balance Deposit'),
-      createdByAdminEmail: adminUser.email,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    this.db.transactions.unshift(newTxn);
-
-    const notifMsg = isNewCodeGenerated
-      ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
-      : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
-
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: targetUser.id,
-      title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
-      message: notifMsg,
-      amount: Number(deposit.amount),
-      currency: deposit.currency || 'USD',
-      reference: ref,
-      read: false,
-      createdAt: now
-    };
-
-    this.db.notifications.unshift(notif);
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'DEPOSIT_CREATED',
-      targetEmail: targetUser.email,
-      targetAccountNumber: targetUser.accountNumber,
-      description: `Admin ${adminUser.email} credited ${deposit.currency || 'USD'} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
-      details: {
-        amount: deposit.amount,
-        currency: deposit.currency,
-        reference: ref,
-        description: deposit.description,
-        newBalance: targetUser.balance
-      }
-    });
-
-    this.saveDB(this.db);
-    try {
-      await syncUserToFirestore(targetUser);
-      await syncTransactionToFirestore(newTxn);
-    } catch (err) {
-      console.warn('Firestore sync warning in createDepositAsync:', err);
-    }
-
-    // Real transactional email notification (non-blocking)
-    if (newTxn.status === 'Completed') {
-      emailService.sendDepositApprovedEmail({
-        userEmail: targetUser.email,
-        fullName: targetUser.fullName,
-        accountNumber: targetUser.accountNumber,
-        amount: Number(deposit.amount),
-        currency: deposit.currency || 'USD',
-        reference: ref,
-        type: 'Deposit',
-        status: 'Completed',
-        description: deposit.description,
-        currentBalance: targetUser.balance,
-        activationCode: isNewCodeGenerated ? targetUser.fourDigitCode : undefined
-      }).catch(err => console.warn('Deposit email delivery warning:', err));
-    }
 
     return { user: targetUser, transaction: newTxn };
   }
@@ -1838,6 +976,9 @@ class DatabaseManager {
       }
       if (!payload.fourDigitCode || payload.fourDigitCode.trim() !== sender.fourDigitCode.trim()) {
         throw new Error('Invalid 4-Digit Security Code. Please enter your valid 4-digit transfer authorization code.');
+      }
+      if (sender.verificationTier !== 'Tier 3') {
+        throw new Error('TIER_3_UPGRADE_REQUIRED: Tier 3 VIP Account Upgrade Required. To complete outgoing wire transfers with your 4-Digit Security Code, your account must be upgraded to Tier 3 VIP Status.');
       }
     }
 
@@ -1949,24 +1090,6 @@ class DatabaseManager {
 
     this.db.notifications.unshift(senderNotif);
     this.saveDB(this.db);
-
-    // Real transactional email notification for sender debit (non-blocking)
-    emailService.sendTransferDebitEmail({
-      userEmail: sender.email,
-      fullName: sender.fullName,
-      accountNumber: sender.accountNumber,
-      amount: amount,
-      currency: sender.currency || 'USD',
-      reference: ref,
-      type: 'Transfer',
-      status: senderTxn.status,
-      recipientName: finalRecipientName,
-      recipientBank: destinationBank,
-      recipientAccount: recipient ? recipient.accountNumber : recipientInput,
-      description: senderTxn.description,
-      currentBalance: sender.balance
-    }).catch(err => console.warn('Transfer debit email warning:', err));
-
     return { sender, transaction: senderTxn };
   }
 
@@ -2035,23 +1158,6 @@ class DatabaseManager {
     this.db.notifications.unshift(notif);
     this.saveDB(this.db);
 
-    // Real transactional email notification for withdrawal debit (non-blocking)
-    emailService.sendTransferDebitEmail({
-      userEmail: user.email,
-      fullName: user.fullName,
-      accountNumber: user.accountNumber,
-      amount: amount,
-      currency: user.currency || 'USD',
-      reference: ref,
-      type: 'Withdrawal',
-      status: txn.status,
-      recipientName: payload.accountHolderName,
-      recipientBank: payload.bankName,
-      recipientAccount: payload.accountNumber,
-      description: txn.description,
-      currentBalance: user.balance
-    }).catch(err => console.warn('Withdrawal debit email warning:', err));
-
     return { user, transaction: txn };
   }
 
@@ -2071,9 +1177,6 @@ class DatabaseManager {
 
     const newTicket: SupportTicket = {
       id: ticketId,
-      chatId: ticketId,
-      threadId: ticketId,
-      roomId: ticketId,
       userId: user.id,
       userEmail: user.email,
       userName: user.fullName,
@@ -2082,63 +1185,29 @@ class DatabaseManager {
       category: data.category || 'General',
       status: 'Open',
       priority: data.priority || 'Medium',
-      messages: [{
-        ...firstMsg,
-        ticketId,
-        chatId: ticketId,
-        threadId: ticketId,
-        roomId: ticketId
-      }],
+      messages: [firstMsg],
       createdAt: now,
       updatedAt: now
     };
 
     this.db.supportTickets.unshift(newTicket);
     this.saveDB(this.db);
-
-    syncSupportTicketToFirestore(newTicket).catch(e => console.warn('Firestore ticket sync failed:', e));
-    sendSupportMessageToFirestore(ticketId, newTicket.messages[0], newTicket).catch(e => console.warn('Firestore message sync failed:', e));
-
     return newTicket;
   }
 
   public replySupportTicket(ticketId: string, sender: User, message: string): SupportTicket {
-    let ticket = this.db.supportTickets.find(t => t.id === ticketId || isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
+    const ticket = this.db.supportTickets.find(t => t.id === ticketId);
     if (!ticket) {
-      // Create fallback ticket structure if not in memory
-      const canonicalId = getCanonicalTicketId(ticketId);
-      const isSenderAdmin = sender.role === 'admin';
-      ticket = {
-        id: canonicalId,
-        chatId: canonicalId,
-        threadId: canonicalId,
-        roomId: canonicalId,
-        userId: isSenderAdmin ? '' : sender.id,
-        userEmail: isSenderAdmin ? '' : sender.email,
-        userName: isSenderAdmin ? 'Client' : sender.fullName,
-        accountNumber: isSenderAdmin ? '' : sender.accountNumber,
-        subject: 'Customer Support Consultation',
-        category: 'General',
-        status: isSenderAdmin ? 'In Progress' : 'Open',
-        priority: 'Medium',
-        messages: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      this.db.supportTickets.unshift(ticket);
+      throw new Error('Support ticket not found.');
     }
 
-    if (sender.role !== 'admin' && ticket.userId && ticket.userId !== sender.id) {
+    if (sender.role !== 'admin' && ticket.userId !== sender.id) {
       throw new Error('Unauthorized to reply to this support ticket.');
     }
 
     const now = new Date().toISOString();
     const newMsg: SupportMessage = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      ticketId: ticket.id,
-      chatId: ticket.id,
-      threadId: ticket.id,
-      roomId: ticket.id,
+      id: `msg-${Date.now()}`,
       senderId: sender.id,
       senderName: sender.fullName,
       senderRole: sender.role,
@@ -2153,20 +1222,12 @@ class DatabaseManager {
     }
 
     this.saveDB(this.db);
-
-    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket sync failed:', e));
-    sendSupportMessageToFirestore(ticket.id, newMsg, ticket).catch(e => console.warn('Firestore message sync failed:', e));
-
     return ticket;
   }
 
-  public getSupportTickets(userIdentifier?: string): SupportTicket[] {
-    if (userIdentifier) {
-      const clean = userIdentifier.trim().toLowerCase();
-      return this.db.supportTickets.filter(t => 
-        (t.userId && t.userId.toLowerCase() === clean) ||
-        (t.userEmail && t.userEmail.toLowerCase() === clean)
-      );
+  public getSupportTickets(userId?: string): SupportTicket[] {
+    if (userId) {
+      return this.db.supportTickets.filter(t => t.userId === userId);
     }
     return this.db.supportTickets;
   }
@@ -2175,96 +1236,30 @@ class DatabaseManager {
     if (adminUser.role !== 'admin') {
       throw new Error('Unauthorized');
     }
-    const ticket = this.db.supportTickets.find(t => t.id === ticketId || isSameTicketId(t.id, ticketId) || isSameTicketId(t.chatId, ticketId));
+    const ticket = this.db.supportTickets.find(t => t.id === ticketId);
     if (!ticket) {
       throw new Error('Ticket not found');
     }
     ticket.status = status;
     ticket.updatedAt = new Date().toISOString();
     this.saveDB(this.db);
-    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket status sync failed:', e));
     return ticket;
   }
 
   // Transactions
   public getUserTransactions(userId: string): Transaction[] {
-    if (!userId) return [];
-    const user = this.findUserById(userId) || this.findUserByEmail(userId) || this.findUserByAccountNumber(userId) || this.findUserByEmailOrAccount(userId);
-    const cleanId = userId.trim();
-    const cleanIdNum = cleanId.replace(/[^0-9]/g, '');
-    const uEmail = (user?.email || '').toLowerCase().trim();
-    const uAcc = (user?.accountNumber || '').trim();
-    const uAccClean = uAcc.replace(/[^0-9]/g, '');
-
-    return this.db.transactions.filter(t => {
-      if (!t) return false;
-      const tUserId = (t.userId || '').trim();
-      const tEmail = (t.userEmail || '').toLowerCase().trim();
-      const tAcc = (t.accountNumber || '').trim();
-      const tAccClean = tAcc.replace(/[^0-9]/g, '');
-      const tRecAcc = (t.recipientAccountNumber || '').trim();
-      const tRecAccClean = tRecAcc.replace(/[^0-9]/g, '');
-      const tRecEmail = (t.recipientEmail || '').toLowerCase().trim();
-
-      return (
-        tUserId === cleanId ||
-        (user && tUserId === user.id) ||
-        (uEmail && tEmail === uEmail) ||
-        (uEmail && tRecEmail === uEmail) ||
-        (uAcc && tAcc === uAcc) ||
-        (uAccClean.length > 3 && tAccClean === uAccClean) ||
-        (uAcc && tRecAcc === uAcc) ||
-        (uAccClean.length > 3 && tRecAccClean === uAccClean) ||
-        (cleanIdNum.length > 3 && (tAccClean === cleanIdNum || tRecAccClean === cleanIdNum)) ||
-        (cleanId.includes('@') && (tEmail === cleanId.toLowerCase() || tRecEmail === cleanId.toLowerCase()))
-      );
-    });
-  }
-
-  public async getUserTransactionsAsync(userId: string): Promise<Transaction[]> {
-    if (!userId) return [];
-    try {
-      const fsTxns = await getTransactionsFromFirestore();
-      if (fsTxns && fsTxns.length > 0) {
-        fsTxns.forEach(t => {
-          if (!this.db.transactions.some(m => m.id === t.id || (m.reference && m.reference === t.reference))) {
-            this.db.transactions.unshift(t);
-          }
-        });
-        this.saveDB(this.db);
-      }
-    } catch (err) {
-      console.warn('getUserTransactionsAsync Firestore error:', err);
-    }
-    return this.getUserTransactions(userId);
+    return this.db.transactions.filter(t => t.userId === userId);
   }
 
   public getAllTransactions(): Transaction[] {
     return this.db.transactions;
   }
 
-  public async getAllTransactionsAsync(): Promise<Transaction[]> {
-    try {
-      const fsTxns = await getTransactionsFromFirestore();
-      if (fsTxns && fsTxns.length > 0) {
-        fsTxns.forEach(t => {
-          if (!this.db.transactions.some(m => m.id === t.id || (m.reference && m.reference === t.reference))) {
-            this.db.transactions.unshift(t);
-          }
-        });
-        this.saveDB(this.db);
-      }
-    } catch (err) {
-      console.warn('getAllTransactionsAsync Firestore error:', err);
-    }
-    return this.db.transactions;
-  }
-
-  // Admin Approve Pending Transaction (credits recipient or user with manual sender name)
+  // Admin Approve Pending Transaction (credits recipient with manual sender name)
   public approveTransaction(adminUser: User, transactionId: string, senderNameInput?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const senderTxn = this.db.transactions.find(t => t.id === transactionId || (t.reference && t.reference === transactionId));
+    const senderTxn = this.db.transactions.find(t => t.id === transactionId);
     if (!senderTxn) throw new Error('Transaction not found.');
 
     if (senderTxn.status !== 'Pending') {
@@ -2280,42 +1275,12 @@ class DatabaseManager {
     senderTxn.senderName = finalSenderName;
     senderTxn.updatedAt = new Date().toISOString();
 
-    // If it is a Deposit type transaction that was pending, credit the user's balance permanently
-    if (sender && (
-      senderTxn.type === 'Deposit' || 
-      senderTxn.type === 'Credit Deposit' || 
-      senderTxn.type === 'Code Activation Deposit' || 
-      senderTxn.type.toLowerCase().includes('deposit') || 
-      senderTxn.type.toLowerCase().includes('credit')
-    )) {
-      sender.balance += senderTxn.amount;
-      sender.ledgerBalance = sender.balance;
-      if (!sender.fourDigitCode || !sender.transferCodeApproved) {
-        sender.fourDigitCode = Math.floor(1000 + Math.random() * 9000).toString();
-        sender.transferCodeApproved = true;
-      }
-      syncUserToFirestore(sender).catch(e => console.warn('Firestore sender sync failed:', e));
-
-      // Also mark associated crypto activation deposit as approved if applicable
-      if (this.db.cryptoActivationDeposits) {
-        this.db.cryptoActivationDeposits.forEach(d => {
-          if (d.userId === senderTxn.userId && d.status === 'Pending') {
-            d.status = 'Approved';
-            d.generatedCode = sender.fourDigitCode;
-            d.updatedAt = new Date().toISOString();
-            syncCryptoDepositToFirestore(d).catch(e => console.warn('Firestore crypto deposit sync failed:', e));
-          }
-        });
-      }
-    }
-
-    // Find recipient and credit balance + create recipient transaction record for transfers
+    // Find recipient and credit balance + create recipient transaction record
     if (senderTxn.recipientAccountNumber || senderTxn.recipientEmail) {
       const recipient = this.findUserByAccountNumber(senderTxn.recipientAccountNumber || '') || 
                         this.findUserByEmail(senderTxn.recipientEmail || '');
       if (recipient) {
         recipient.balance += senderTxn.amount;
-        recipient.ledgerBalance = recipient.balance;
 
         if (!recipient.fourDigitCode || !recipient.transferCodeApproved) {
           const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
@@ -2340,8 +1305,6 @@ class DatabaseManager {
           updatedAt: new Date().toISOString()
         };
         this.db.transactions.unshift(recipientTxn);
-        syncTransactionToFirestore(recipientTxn).catch(e => console.warn('Firestore recipient txn sync failed:', e));
-        syncUserToFirestore(recipient).catch(e => console.warn('Firestore recipient user sync failed:', e));
 
         const recNotif: UserNotification = {
           id: `notif-${Date.now()}-rec`,
@@ -2363,10 +1326,8 @@ class DatabaseManager {
       const sendNotif: UserNotification = {
         id: `notif-${Date.now()}-snd`,
         userId: sender.id,
-        title: senderTxn.type.includes('Deposit') ? 'Deposit Approved & Credited' : 'Outgoing Transfer Processed',
-        message: senderTxn.type.includes('Deposit')
-          ? `Your deposit of $${senderTxn.amount.toFixed(2)} (Ref: ${senderTxn.reference}) has been approved and credited to your account balance.`
-          : `Your outgoing transfer of $${senderTxn.amount.toFixed(2)} (Ref: ${senderTxn.reference}) has been successfully processed.`,
+        title: 'Outgoing Transfer Processed',
+        message: `Your outgoing transfer of $${senderTxn.amount.toFixed(2)} (Ref: ${senderTxn.reference}) has been successfully processed.`,
         amount: senderTxn.amount,
         currency: senderTxn.currency || 'USD',
         reference: senderTxn.reference,
@@ -2374,7 +1335,6 @@ class DatabaseManager {
         createdAt: new Date().toISOString()
       };
       this.db.notifications.unshift(sendNotif);
-      syncUserToFirestore(sender).catch(e => console.warn('Firestore sender sync failed:', e));
     }
 
     this.addAuditLog({
@@ -2383,70 +1343,11 @@ class DatabaseManager {
       action: 'TRANSFER_EXECUTED',
       targetEmail: senderTxn.userEmail,
       targetAccountNumber: senderTxn.accountNumber,
-      description: `Admin ${adminUser.email} approved transaction ${senderTxn.reference} of $${senderTxn.amount} with sender name "${finalSenderName}"`,
+      description: `Admin ${adminUser.email} approved transfer ${senderTxn.reference} of $${senderTxn.amount} with sender name "${finalSenderName}"`,
       details: { transactionId, senderName: finalSenderName }
     });
 
     this.saveDB(this.db);
-    syncTransactionToFirestore(senderTxn).catch(e => console.warn('Firestore txn sync failed:', e));
-
-    // Real transactional email notifications (non-blocking)
-    if (senderTxn.type.includes('Deposit') || senderTxn.type.includes('Credit')) {
-      if (sender) {
-        emailService.sendDepositApprovedEmail({
-          userEmail: sender.email,
-          fullName: sender.fullName,
-          accountNumber: sender.accountNumber,
-          amount: senderTxn.amount,
-          currency: senderTxn.currency || 'USD',
-          reference: senderTxn.reference,
-          type: senderTxn.type,
-          status: 'Completed',
-          description: senderTxn.description,
-          currentBalance: sender.balance,
-          activationCode: sender.fourDigitCode
-        }).catch(e => console.warn('Approval deposit email warning:', e));
-      }
-    } else {
-      // Outgoing transfer processed notification for sender
-      if (sender) {
-        emailService.sendTransferDebitEmail({
-          userEmail: sender.email,
-          fullName: sender.fullName,
-          accountNumber: sender.accountNumber,
-          amount: senderTxn.amount,
-          currency: senderTxn.currency || 'USD',
-          reference: senderTxn.reference,
-          type: 'Transfer',
-          status: 'Completed',
-          recipientName: senderTxn.recipientName,
-          recipientAccount: senderTxn.recipientAccountNumber,
-          description: senderTxn.description,
-          currentBalance: sender.balance
-        }).catch(e => console.warn('Approval transfer sender email warning:', e));
-      }
-      // Credit notification for recipient if internal
-      if (senderTxn.recipientAccountNumber || senderTxn.recipientEmail) {
-        const recipient = this.findUserByAccountNumber(senderTxn.recipientAccountNumber || '') || 
-                          this.findUserByEmail(senderTxn.recipientEmail || '');
-        if (recipient) {
-          emailService.sendDepositApprovedEmail({
-            userEmail: recipient.email,
-            fullName: recipient.fullName,
-            accountNumber: recipient.accountNumber,
-            amount: senderTxn.amount,
-            currency: senderTxn.currency || 'USD',
-            reference: senderTxn.reference,
-            type: 'Transfer',
-            status: 'Completed',
-            senderName: finalSenderName,
-            description: `Received transfer from ${finalSenderName}`,
-            currentBalance: recipient.balance
-          }).catch(e => console.warn('Approval transfer recipient email warning:', e));
-        }
-      }
-    }
-
     return { transaction: senderTxn };
   }
 
@@ -2484,15 +1385,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-
-    // Real transactional email security alert (non-blocking)
-    emailService.sendSecurityAlertEmail(
-      targetUser.email,
-      'New 4-Digit Outgoing Transfer Code Issued',
-      `An updated 4-Digit Outgoing Transfer Authorization Code has been generated for your account #${targetUser.accountNumber} by the Silicon Valley Bank Operations Review Desk.`,
-      newCode
-    ).catch(e => console.warn('Regenerate code email warning:', e));
-
     return { user: targetUser, code: newCode };
   }
 
@@ -2500,63 +1392,26 @@ class DatabaseManager {
   public rejectTransaction(adminUser: User, transactionId: string, reason?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    let txn = this.db.transactions.find(t => t.id === transactionId || (t.reference && t.reference === transactionId));
-    if (!txn) {
-      txn = {
-        id: transactionId,
-        userId: 'unknown',
-        userEmail: 'unknown',
-        accountNumber: 'unknown',
-        amount: 0,
-        currency: 'USD',
-        type: 'Deposit',
-        status: 'Rejected',
-        reference: transactionId,
-        description: 'Declined Transaction',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      this.db.transactions.unshift(txn);
-    } else {
-      txn.status = 'Rejected';
-      txn.updatedAt = new Date().toISOString();
+    const txn = this.db.transactions.find(t => t.id === transactionId);
+    if (!txn) throw new Error('Transaction not found.');
+
+    if (txn.status === 'Rejected' || txn.status === 'Cancelled') {
+      throw new Error(`Transaction is already ${txn.status.toLowerCase()}.`);
     }
+
+    txn.status = 'Rejected';
+    txn.updatedAt = new Date().toISOString();
 
     const targetUser = this.findUserById(txn.userId);
-    if (targetUser && (
-      txn.type === 'Withdrawal' ||
-      txn.type === 'Wire Withdrawal' ||
-      txn.type === 'Transfer' ||
-      txn.type === 'Wire Transfer' ||
-      txn.type === 'Bill Pay'
-    ) && !txn.description.includes('received')) {
+    if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
       targetUser.balance += txn.amount;
-      targetUser.ledgerBalance = targetUser.balance;
-    }
-
-    // Also update any matching pending cryptoActivationDeposits
-    if (this.db.cryptoActivationDeposits) {
-      this.db.cryptoActivationDeposits.forEach(d => {
-        if ((d.userId === txn?.userId || d.id === transactionId) && d.status === 'Pending') {
-          d.status = 'Rejected';
-          d.updatedAt = new Date().toISOString();
-          syncCryptoDepositToFirestore(d).catch(e => console.warn('Firestore reject crypto sync failed:', e));
-        }
-      });
-    }
-
-    if (targetUser?.pendingCryptoDeposit && (targetUser.pendingCryptoDeposit.status === 'Pending')) {
-      targetUser.pendingCryptoDeposit.status = 'Rejected';
-      targetUser.pendingCryptoDeposit.updatedAt = new Date().toISOString();
     }
 
     const notif: UserNotification = {
       id: `notif-${Date.now()}-rej`,
       userId: txn.userId,
-      title: 'Transaction Declined',
-      message: (txn.type === 'Deposit' || txn.type === 'Credit Deposit' || txn.type === 'Code Activation Deposit' || txn.type.toLowerCase().includes('deposit'))
-        ? `Deposit ${txn.reference} of $${txn.amount.toFixed(2)} was declined.${reason ? ` Reason: ${reason}` : ''}`
-        : `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was declined. Funds of $${txn.amount.toFixed(2)} have been returned to your account balance.${reason ? ` Reason: ${reason}` : ''}`,
+      title: 'Transaction Declined & Refunded',
+      message: `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was declined. Funds of $${txn.amount.toFixed(2)} have been returned to your account balance.${reason ? ` Reason: ${reason}` : ''}`,
       amount: txn.amount,
       currency: txn.currency,
       reference: txn.reference,
@@ -2576,28 +1431,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    syncTransactionToFirestore(txn).catch(e => console.warn('Firestore reject txn sync failed:', e));
-    if (targetUser) {
-      syncUserToFirestore(targetUser).catch(e => console.warn('Firestore reject user sync failed:', e));
-    }
-
-    // Real transactional email notification for rejection/refund (non-blocking)
-    const targetEmail = (targetUser && targetUser.email) || txn.userEmail;
-    if (targetEmail && targetEmail !== 'unknown') {
-      emailService.sendTransactionRejectedEmail({
-        userEmail: targetEmail,
-        fullName: targetUser ? targetUser.fullName : undefined,
-        accountNumber: targetUser ? targetUser.accountNumber : txn.accountNumber,
-        amount: txn.amount,
-        currency: txn.currency,
-        reference: txn.reference,
-        type: txn.type,
-        status: 'Rejected',
-        rejectionReason: reason || 'Declined during review by Silicon Valley Bank Compliance.',
-        currentBalance: targetUser ? targetUser.balance : undefined
-      }).catch(e => console.warn('Reject transaction email warning:', e));
-    }
-
     return { transaction: txn };
   }
 
@@ -2617,13 +1450,10 @@ class DatabaseManager {
 
   // Audit Logs
   public getAuditLogs(): AuditLog[] {
-    return Array.isArray(this.db.auditLogs) ? this.db.auditLogs : [];
+    return this.db.auditLogs;
   }
 
   public addAuditLog(entry: Omit<AuditLog, 'id' | 'timestamp'>): AuditLog {
-    if (!Array.isArray(this.db.auditLogs)) {
-      this.db.auditLogs = [];
-    }
     const newLog: AuditLog = {
       id: `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       ...entry,
@@ -2792,25 +1622,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    syncCryptoDepositToFirestore(deposit).catch(e => console.warn('Firestore crypto deposit sync failed:', e));
-    syncUserToFirestore(targetUser).catch(e => console.warn('Firestore crypto targetUser sync failed:', e));
-    syncTransactionToFirestore(txn).catch(e => console.warn('Firestore crypto txn sync failed:', e));
-
-    // Real transactional email notifications (non-blocking)
-    emailService.sendDepositApprovedEmail({
-      userEmail: targetUser.email,
-      fullName: targetUser.fullName,
-      accountNumber: targetUser.accountNumber,
-      amount: deposit.amountUSD || 2500,
-      currency: 'USD',
-      reference: txn.reference,
-      type: 'Code Activation Deposit',
-      status: 'Completed',
-      description: `$2,500 ${deposit.cryptoMethod} Activation Deposit (4-Digit Code Issued: ${generatedCode})`,
-      currentBalance: targetUser.balance,
-      activationCode: generatedCode
-    }).catch(e => console.warn('Crypto activation approval email warning:', e));
-
     return { deposit, user: targetUser, code: generatedCode };
   }
 
@@ -2854,23 +1665,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    syncCryptoDepositToFirestore(deposit).catch(e => console.warn('Firestore crypto deposit sync failed:', e));
-    syncUserToFirestore(targetUser).catch(e => console.warn('Firestore crypto user sync failed:', e));
-
-    // Real transactional email notification for rejection (non-blocking)
-    emailService.sendTransactionRejectedEmail({
-      userEmail: targetUser.email,
-      fullName: targetUser.fullName,
-      accountNumber: targetUser.accountNumber,
-      amount: deposit.amountUSD || 2500,
-      currency: 'USD',
-      reference: deposit.id,
-      type: 'Code Activation Deposit',
-      status: 'Rejected',
-      rejectionReason: 'Crypto activation proof could not be verified by SVB Compliance.',
-      currentBalance: targetUser.balance
-    }).catch(e => console.warn('Crypto activation rejection email warning:', e));
-
     return { deposit, user: targetUser };
   }
 
@@ -2934,8 +1728,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    syncTransactionToFirestore(txn).catch(e => console.warn('Firestore admin withdraw txn sync failed:', e));
-    syncUserToFirestore(targetUser).catch(e => console.warn('Firestore admin withdraw user sync failed:', e));
     return { user: targetUser, transaction: txn };
   }
 
@@ -2943,7 +1735,7 @@ class DatabaseManager {
   public adminCancelTransaction(adminUser: User, transactionId: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const txn = this.db.transactions.find(t => t.id === transactionId || (t.reference && t.reference === transactionId));
+    const txn = this.db.transactions.find(t => t.id === transactionId);
     if (!txn) throw new Error('Transaction not found.');
 
     if (txn.status === 'Cancelled') throw new Error('Transaction is already cancelled.');
@@ -2952,9 +1744,10 @@ class DatabaseManager {
     txn.updatedAt = new Date().toISOString();
 
     const targetUser = this.findUserById(txn.userId);
-    if (targetUser && (txn.type === 'Withdrawal' || txn.type === 'Wire Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')) || txn.type === 'Wire Transfer' || txn.type === 'Bill Pay')) {
+    if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
       targetUser.balance += txn.amount;
-      targetUser.ledgerBalance = targetUser.balance;
+    } else if (targetUser && txn.type === 'Deposit') {
+      targetUser.balance = Math.max(0, targetUser.balance - txn.amount);
     }
 
     const notif: UserNotification = {
@@ -2981,10 +1774,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-    syncTransactionToFirestore(txn).catch(e => console.warn('Firestore cancel txn sync failed:', e));
-    if (targetUser) {
-      syncUserToFirestore(targetUser).catch(e => console.warn('Firestore cancel user sync failed:', e));
-    }
     return { transaction: txn };
   }
 
@@ -3069,11 +1858,6 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
-
-    // Real transactional email notification for custom notice (non-blocking)
-    emailService.sendCustomAdminNoticeEmail(target.email, adminUser.email, title, message)
-      .catch(e => console.warn('Admin notice email warning:', e));
-
     return notif;
   }
 
@@ -3142,6 +1926,9 @@ class DatabaseManager {
       }
       if (!data.fourDigitCode || data.fourDigitCode.trim() !== user.fourDigitCode.trim()) {
         throw new Error('Invalid 4-Digit Security Code. Please enter your valid 4-digit authorization code.');
+      }
+      if (user.verificationTier !== 'Tier 3') {
+        throw new Error('TIER_3_UPGRADE_REQUIRED: Tier 3 VIP Account Upgrade Required. To complete bill payments with your 4-Digit Security Code, your account must be upgraded to Tier 3 VIP Status.');
       }
     }
 
@@ -3214,15 +2001,6 @@ class DatabaseManager {
     };
 
     this.saveDB(this.db);
-
-    // Real transactional email for password reset verification code (non-blocking)
-    emailService.sendSecurityAlertEmail(
-      email,
-      'Password Reset One-Time Verification Code',
-      'You requested to reset your password for Silicon Valley Bank Online Banking. Enter the 6-digit verification code below within 15 minutes to complete your password update:',
-      code
-    ).catch(e => console.warn('Password reset code email warning:', e));
-
     return {
       message: 'Verification code generated for password reset.',
       code
@@ -3246,90 +2024,7 @@ class DatabaseManager {
 
     return { success: true, message: 'Password reset successfully. You can now log in.' };
   }
-
-  public getEmailConfig(): EmailConfig {
-    if (this.db.emailConfig) {
-      return this.db.emailConfig;
-    }
-    return emailService.getConfig();
-  }
-
-  public saveEmailConfig(adminUser: User, config: Partial<EmailConfig>): EmailConfig {
-    if (adminUser.role !== 'admin') {
-      throw new Error('Access denied: Only administrators can modify email service configurations.');
-    }
-
-    const updated = emailService.configure(config);
-    this.db.emailConfig = updated;
-    this.saveDB(this.db);
-    try {
-      syncEmailConfigToFirestore(updated).catch(e => console.warn('syncEmailConfigToFirestore warning:', e));
-    } catch (e) {}
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'SYSTEM_SETTINGS_UPDATED',
-      targetEmail: updated.senderEmail || 'siliconvalleybank51@gmail.com',
-      targetAccountNumber: 'SYSTEM',
-      description: `Admin updated transactional email service configuration. Provider: ${updated.provider}, Sender: ${updated.senderEmail}`,
-      details: { provider: updated.provider, senderEmail: updated.senderEmail }
-    });
-
-    return updated;
-  }
-
-  public getEmailDeliveryLogs(): EmailDeliveryLog[] {
-    return emailService.getDeliveryLogs();
-  }
-
-  public async getEmailDeliveryLogsAsync(): Promise<EmailDeliveryLog[]> {
-    const memoryLogs = emailService.getDeliveryLogs();
-    try {
-      const fsLogs = await getEmailLogsFromFirestore();
-      if (fsLogs && fsLogs.length > 0) {
-        const map = new Map<string, EmailDeliveryLog>();
-        fsLogs.forEach(l => map.set(l.id, l));
-        memoryLogs.forEach(l => map.set(l.id, l));
-        return Array.from(map.values()).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      }
-    } catch (e) {
-      console.warn('getEmailDeliveryLogsAsync firestore fallback error:', e);
-    }
-    return memoryLogs;
-  }
 }
 
 export const dbManager = new DatabaseManager();
-
-// ==========================================
-// Firestore Helpers & Compatibility Re-exports
-// ==========================================
-export {
-  getUserFromFirestore,
-  getAllUsersFromFirestore,
-  syncUserToFirestore,
-  syncTransactionToFirestore,
-  syncCryptoDepositToFirestore,
-  syncEmailConfigToFirestore,
-  getEmailConfigFromFirestore,
-  getEmailLogsFromFirestore,
-  getVirtualCardsFromFirestore,
-  syncVirtualCardToFirestore,
-  syncVerificationToFirestore,
-  getAllVerificationsFromFirestore,
-  getTransactionsFromFirestore,
-  updateTransactionInFirestore,
-  syncSupportTicketToFirestore,
-  getSupportTicketsFromFirestore,
-  sendSupportMessageToFirestore,
-  deleteSupportMessageFromFirestore
-} from '../lib/firebase.js';
-
-// Compatibility Aliases for callers expecting sync/save aliases
-export {
-  syncUserToFirestore as saveUserFromFirestore,
-  syncUserToFirestore as syncUserFromFirestore,
-  syncVirtualCardToFirestore as syncVirtualCardFromFirestore
-} from '../lib/firebase.js';
 

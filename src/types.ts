@@ -88,7 +88,6 @@ export interface Tier3VerificationRequest {
 
 export interface User {
   id: string;
-  uid?: string;
   fullName: string;
   email: string;
   phone: string;
@@ -108,8 +107,6 @@ export interface User {
   smsNotifications?: boolean;
   accounts?: BankAccount[];
   createdAt: string;
-  updatedAt?: string;
-  lastUpdated?: string;
 
   // 4-Digit Security Code & Activation Deposit fields
   accountPin?: string; // 4-digit Account Security PIN set during registration
@@ -118,7 +115,7 @@ export interface User {
   pendingCryptoDeposit?: CryptoActivationDeposit | null;
 }
 
-export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee' | 'ADMIN_DEPOSIT';
+export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee';
 export type TransactionStatus = 'Completed' | 'Pending' | 'Cancelled' | 'Rejected' | 'Refunded';
 
 export interface Transaction {
@@ -136,27 +133,21 @@ export interface Transaction {
   destinationBank?: string;
   transferType?: 'Domestic' | 'International';
   amount: number;
-  balanceAfter?: number;
   currency: string;
   type: TransactionType;
   status: TransactionStatus;
   reference: string;
   description: string;
   createdByAdminEmail?: string;
-  timestamp?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SupportMessage {
   id: string;
-  ticketId?: string;
-  chatId?: string;
-  threadId?: string;
-  roomId?: string;
   senderId: string;
   senderName: string;
-  senderRole: 'user' | 'admin' | 'system' | 'agent' | 'support';
+  senderRole: UserRole;
   message: string;
   images?: string[];
   createdAt: string;
@@ -164,9 +155,6 @@ export interface SupportMessage {
 
 export interface SupportTicket {
   id: string;
-  chatId?: string;
-  threadId?: string;
-  roomId?: string;
   userId: string;
   userEmail: string;
   userName: string;
@@ -184,7 +172,7 @@ export interface AuditLog {
   id: string;
   adminId: string;
   adminEmail: string;
-  action: 'USER_REGISTERED' | 'DEPOSIT_CREATED' | 'WITHDRAWAL_EXECUTED' | 'TRANSFER_EXECUTED' | 'ROLE_UPDATED' | 'USER_SEARCHED' | 'PROFILE_UPDATED' | 'SUPPORT_TICKET_UPDATED' | 'VIRTUAL_CARD_CREATED' | 'BILL_PAID' | 'SYSTEM_SEED' | 'EMAIL_CONFIG_UPDATED' | 'SYSTEM_SETTINGS_UPDATED';
+  action: 'USER_REGISTERED' | 'DEPOSIT_CREATED' | 'WITHDRAWAL_EXECUTED' | 'TRANSFER_EXECUTED' | 'ROLE_UPDATED' | 'USER_SEARCHED' | 'PROFILE_UPDATED' | 'SUPPORT_TICKET_UPDATED' | 'VIRTUAL_CARD_CREATED' | 'BILL_PAID' | 'SYSTEM_SEED';
   targetEmail: string;
   targetAccountNumber: string;
   description: string;
@@ -238,24 +226,5 @@ export interface AuthResponse {
   user: User;
   token: string;
   requires2FA?: boolean;
-}
-
-export interface EmailConfig {
-  provider: 'auto' | 'system';
-  senderEmail: string;
-  senderName: string;
-  updatedAt?: string;
-}
-
-export interface EmailDeliveryLog {
-  id: string;
-  timestamp: string;
-  recipient: string;
-  subject: string;
-  type: string;
-  provider: string;
-  status: 'Delivered' | 'Failed' | 'delivered' | 'failed';
-  messageId?: string;
-  error?: string;
 }
 
