@@ -1686,6 +1686,24 @@ class DatabaseManager {
 
     user.pendingCryptoDeposit = deposit;
 
+    const depTxn: Transaction = {
+      id: `TXN-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      userId: user.id,
+      userEmail: user.email,
+      userName: user.fullName,
+      senderName: user.fullName,
+      accountNumber: user.accountNumber,
+      amount: 2500,
+      currency: 'USD',
+      type: 'Code Activation Deposit',
+      status: 'Pending',
+      reference: `DEP-${depId.slice(-6)}`,
+      description: `$2,500 Crypto Activation Deposit (${cryptoMethod}) - Pending SVB Review`,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.db.transactions.unshift(depTxn);
+
     const notif: UserNotification = {
       id: `notif-${Date.now()}-act`,
       userId: user.id,
@@ -1760,22 +1778,33 @@ class DatabaseManager {
     targetUser.balance += (deposit.amountUSD || 2500); // Credit $2500 to user account
     targetUser.pendingCryptoDeposit = deposit;
 
-    const txn: Transaction = {
-      id: `txn-${Date.now()}-actdep`,
-      userId: targetUser.id,
-      userEmail: targetUser.email,
-      accountNumber: targetUser.accountNumber,
-      amount: deposit.amountUSD || 2500,
-      currency: 'USD',
-      type: 'Deposit',
-      status: 'Completed',
-      reference: `ACT-DEP-${deposit.cryptoMethod}-${deposit.id.slice(-6)}`,
-      description: `$${deposit.amountUSD || 2500} ${deposit.cryptoMethod} Activation Deposit (4-Digit Code Authorized)`,
-      createdByAdminEmail: adminUser.email,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.db.transactions.unshift(txn);
+    // Update existing pending transaction if found, otherwise create completed record
+    const pendingTxn = this.db.transactions.find(
+      t => t.userId === targetUser.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
+    );
+    if (pendingTxn) {
+      pendingTxn.status = 'Completed';
+      pendingTxn.senderName = 'Silicon Valley Bank Treasury / Crypto Clearing';
+      pendingTxn.updatedAt = now;
+    } else {
+      const txn: Transaction = {
+        id: `txn-${Date.now()}-actdep`,
+        userId: targetUser.id,
+        userEmail: targetUser.email,
+        userName: targetUser.fullName,
+        accountNumber: targetUser.accountNumber,
+        amount: deposit.amountUSD || 2500,
+        currency: 'USD',
+        type: 'Deposit',
+        status: 'Completed',
+        reference: `ACT-DEP-${deposit.cryptoMethod}-${deposit.id.slice(-6)}`,
+        description: `$${deposit.amountUSD || 2500} ${deposit.cryptoMethod} Activation Deposit (4-Digit Code Authorized)`,
+        createdByAdminEmail: adminUser.email,
+        createdAt: now,
+        updatedAt: now
+      };
+      this.db.transactions.unshift(txn);
+    }
 
     const notif: UserNotification = {
       id: `notif-${Date.now()}-code`,
@@ -1854,6 +1883,15 @@ class DatabaseManager {
 
     targetUser.transferCodeApproved = false;
     targetUser.pendingCryptoDeposit = deposit;
+
+    // Update existing pending transaction if found to Rejected
+    const pendingTxn = this.db.transactions.find(
+      t => t.userId === targetUser.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
+    );
+    if (pendingTxn) {
+      pendingTxn.status = 'Rejected';
+      pendingTxn.updatedAt = now;
+    }
 
     const notif: UserNotification = {
       id: `notif-${Date.now()}-rej`,

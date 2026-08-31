@@ -428,20 +428,48 @@ class LocalDBStore {
     const existingIdx = this.db.transactions.findIndex(
       t => t.id === txn.id || (txn.reference && t.reference && t.reference === txn.reference)
     );
+    const isFinal = (st?: string) =>
+      st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+
     if (existingIdx >= 0) {
-      this.db.transactions[existingIdx] = { ...this.db.transactions[existingIdx], ...txn };
+      const existing = this.db.transactions[existingIdx];
+      const keepStatus = isFinal(existing.status) && txn.status === 'Pending' ? existing.status : (txn.status || existing.status);
+      this.db.transactions[existingIdx] = {
+        ...existing,
+        ...txn,
+        status: keepStatus,
+        senderName: txn.senderName || existing.senderName,
+        userName: txn.userName || existing.userName,
+        userEmail: txn.userEmail || existing.userEmail,
+        accountNumber: txn.accountNumber || existing.accountNumber,
+        description: txn.description || existing.description,
+        type: txn.type || existing.type,
+        amount: txn.amount !== undefined ? txn.amount : existing.amount,
+        currency: txn.currency || existing.currency || 'USD',
+        reference: txn.reference || existing.reference,
+        updatedAt: txn.updatedAt || existing.updatedAt || new Date().toISOString()
+      };
+      this.persist();
+      return this.db.transactions[existingIdx];
     } else {
       this.db.transactions.unshift(txn);
+      this.persist();
+      return txn;
     }
-    this.persist();
-    return txn;
   }
 
   updateTransaction(id: string, updates: Partial<Transaction>): Transaction | null {
     this.refresh();
-    const idx = this.db.transactions.findIndex(t => t.id === id);
+    const idx = this.db.transactions.findIndex(
+      t => t.id === id || (updates.reference && t.reference && t.reference === updates.reference)
+    );
     if (idx >= 0) {
-      this.db.transactions[idx] = { ...this.db.transactions[idx], ...updates, updatedAt: new Date().toISOString() };
+      const existing = this.db.transactions[idx];
+      this.db.transactions[idx] = {
+        ...existing,
+        ...updates,
+        updatedAt: updates.updatedAt || new Date().toISOString()
+      };
       this.persist();
       return this.db.transactions[idx];
     }
@@ -572,7 +600,19 @@ class LocalDBStore {
 
   addCryptoDeposit(dep: CryptoActivationDeposit): CryptoActivationDeposit {
     this.refresh();
-    this.db.cryptoDeposits.unshift(dep);
+    const idx = this.db.cryptoDeposits.findIndex(d => d.id === dep.id);
+    if (idx >= 0) {
+      const existing = this.db.cryptoDeposits[idx];
+      const isFinal = existing.status === 'Approved' || existing.status === 'Rejected';
+      this.db.cryptoDeposits[idx] = {
+        ...existing,
+        ...dep,
+        status: isFinal && dep.status === 'Pending' ? existing.status : (dep.status || existing.status),
+        updatedAt: dep.updatedAt || existing.updatedAt || new Date().toISOString()
+      };
+    } else {
+      this.db.cryptoDeposits.unshift(dep);
+    }
     this.persist();
     return dep;
   }
@@ -581,7 +621,7 @@ class LocalDBStore {
     this.refresh();
     const idx = this.db.cryptoDeposits.findIndex(d => d.id === id);
     if (idx >= 0) {
-      this.db.cryptoDeposits[idx] = { ...this.db.cryptoDeposits[idx], ...updates };
+      this.db.cryptoDeposits[idx] = { ...this.db.cryptoDeposits[idx], ...updates, updatedAt: updates.updatedAt || new Date().toISOString() };
       this.persist();
     }
   }
@@ -594,7 +634,19 @@ class LocalDBStore {
 
   addVerification(req: Tier3VerificationRequest): Tier3VerificationRequest {
     this.refresh();
-    this.db.verifications.unshift(req);
+    const idx = this.db.verifications.findIndex(v => v.id === req.id);
+    if (idx >= 0) {
+      const existing = this.db.verifications[idx];
+      const isFinal = existing.status === 'Approved' || existing.status === 'Rejected';
+      this.db.verifications[idx] = {
+        ...existing,
+        ...req,
+        status: isFinal && req.status === 'Pending' ? existing.status : (req.status || existing.status),
+        updatedAt: req.updatedAt || existing.updatedAt || new Date().toISOString()
+      };
+    } else {
+      this.db.verifications.unshift(req);
+    }
     this.persist();
     return req;
   }
@@ -603,7 +655,7 @@ class LocalDBStore {
     this.refresh();
     const idx = this.db.verifications.findIndex(v => v.id === id);
     if (idx >= 0) {
-      this.db.verifications[idx] = { ...this.db.verifications[idx], ...updates };
+      this.db.verifications[idx] = { ...this.db.verifications[idx], ...updates, updatedAt: updates.updatedAt || new Date().toISOString() };
       this.persist();
     }
   }

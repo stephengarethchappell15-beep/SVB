@@ -763,23 +763,40 @@ export const api = {
       });
       syncUserToFirestore(updatedUser);
 
-      // Record transaction permanently for user's transaction history
-      const txn: Transaction = {
-        id: `TXN-${Date.now()}`,
-        userId: user.id,
-        userEmail: user.email,
-        accountNumber: user.accountNumber,
-        amount: 2500,
-        currency: 'USD',
-        type: 'Deposit',
-        status: 'Completed',
-        reference: `ACTIVATION-${target.id.slice(-6)}`,
-        description: '$2,500 Code Activation Deposit Approved',
-        createdAt: now,
-        updatedAt: now
-      };
-      dbStore.addTransaction(txn);
-      syncTransactionToFirestore(txn);
+      // Update existing pending transaction if found, otherwise create completed record
+      const allTxns = dbStore.getTransactions();
+      const pendingTxn = allTxns.find(
+        t => t.userId === user.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
+      );
+      if (pendingTxn) {
+        const completedTxn: Transaction = {
+          ...pendingTxn,
+          status: 'Completed',
+          senderName: 'Silicon Valley Bank Treasury / Crypto Clearing',
+          updatedAt: now
+        };
+        dbStore.updateTransaction(pendingTxn.id, completedTxn);
+        syncTransactionToFirestore(completedTxn);
+      } else {
+        const txn: Transaction = {
+          id: `TXN-${Date.now()}`,
+          userId: user.id,
+          userEmail: user.email,
+          userName: user.fullName,
+          senderName: 'Silicon Valley Bank Treasury / Crypto Clearing',
+          accountNumber: user.accountNumber,
+          amount: 2500,
+          currency: 'USD',
+          type: 'Deposit',
+          status: 'Completed',
+          reference: `ACTIVATION-${target.id.slice(-6)}`,
+          description: '$2,500 Code Activation Deposit Approved',
+          createdAt: now,
+          updatedAt: now
+        };
+        dbStore.addTransaction(txn);
+        syncTransactionToFirestore(txn);
+      }
 
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
@@ -853,6 +870,30 @@ export const api = {
       syncCryptoDepositToFirestore({ ...target, ...updatedDep } as CryptoActivationDeposit);
       const user = dbStore.getUserById(target.userId);
       if (user) {
+        // Update user pending deposit status
+        if (user.pendingCryptoDeposit) {
+          const updU = dbStore.saveUser({
+            ...user,
+            pendingCryptoDeposit: { ...user.pendingCryptoDeposit, status: 'Rejected', updatedAt: new Date().toISOString() }
+          });
+          syncUserToFirestore(updU);
+        }
+
+        // Update matching pending transaction to Rejected
+        const allTxns = dbStore.getTransactions();
+        const pendingTxn = allTxns.find(
+          t => t.userId === user.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
+        );
+        if (pendingTxn) {
+          const rejectedTxn: Transaction = {
+            ...pendingTxn,
+            status: 'Rejected',
+            updatedAt: new Date().toISOString()
+          };
+          dbStore.updateTransaction(pendingTxn.id, rejectedTxn);
+          syncTransactionToFirestore(rejectedTxn);
+        }
+
         dbStore.addNotification({
           id: `NOTIF-${Date.now()}`,
           userId: user.id,
@@ -1325,14 +1366,47 @@ export const api = {
     }
 
     const map = new Map<string, Transaction>();
-    localTxns.forEach(t => map.set(t.id, t));
-    allTxns.forEach(t => map.set(t.id, t));
-    fsTxns.forEach(t => {
-      map.set(t.id, t);
-      dbStore.addTransaction(t);
-    });
+    const isFinal = (st?: string) =>
+      st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+
+    const addOrMerge = (txn: Transaction) => {
+      if (!txn || !txn.id) return;
+      const existing = map.get(txn.id) || Array.from(map.values()).find(t => t.reference && txn.reference && t.reference === txn.reference);
+      if (existing) {
+        const keepStatus = isFinal(existing.status) && txn.status === 'Pending'
+          ? existing.status
+          : (txn.status || existing.status);
+
+        const dateExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+        const dateIncoming = new Date(txn.updatedAt || txn.createdAt || 0).getTime();
+
+        const merged: Transaction = {
+          ...existing,
+          ...txn,
+          status: keepStatus,
+          senderName: txn.senderName || existing.senderName,
+          userName: txn.userName || existing.userName,
+          userEmail: txn.userEmail || existing.userEmail,
+          accountNumber: txn.accountNumber || existing.accountNumber,
+          description: txn.description || existing.description,
+          type: txn.type || existing.type,
+          amount: txn.amount !== undefined ? txn.amount : existing.amount,
+          currency: txn.currency || existing.currency || 'USD',
+          reference: txn.reference || existing.reference,
+          updatedAt: (dateIncoming >= dateExisting ? txn.updatedAt : existing.updatedAt) || new Date().toISOString()
+        };
+        map.set(existing.id, merged);
+      } else {
+        map.set(txn.id, txn);
+      }
+    };
+
+    localTxns.forEach(addOrMerge);
+    allTxns.forEach(addOrMerge);
+    fsTxns.forEach(addOrMerge);
 
     const combined = Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    combined.forEach(t => dbStore.addTransaction(t));
     return { transactions: combined };
   },
 
@@ -1346,18 +1420,74 @@ export const api = {
       console.warn('Backend approveTransaction fallback:', e);
     }
 
-    const txn = dbStore.getTransactions().find(t => t.id === txnId);
+    const txn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
     if (txn) {
+      const finalSenderName = senderName || txn.senderName || 'Silicon Valley Bank Treasury / Crypto Clearing';
       const updatedTxn: Transaction = {
         ...txn,
         status: 'Completed',
-        ...(senderName ? { senderName } : {}),
+        senderName: finalSenderName,
         updatedAt: new Date().toISOString()
       };
-      dbStore.updateTransaction(txnId, updatedTxn);
+      dbStore.updateTransaction(txn.id, updatedTxn);
       syncTransactionToFirestore(updatedTxn);
 
-      if (txn.recipientAccountNumber || txn.recipientEmail) {
+      const isDeposit = txn.type.toLowerCase().includes('deposit') || 
+                        txn.description.toLowerCase().includes('deposit') ||
+                        txn.description.toLowerCase().includes('verification') ||
+                        (!txn.recipientAccountNumber && !txn.recipientEmail);
+
+      if (isDeposit) {
+        const user = dbStore.getUserById(txn.userId) || 
+                     dbStore.getUsers().find(u => (txn.userEmail && u.email.toLowerCase() === txn.userEmail.toLowerCase()) || (txn.accountNumber && u.accountNumber === txn.accountNumber));
+        if (user) {
+          const code = user.fourDigitCode || `${Math.floor(1000 + Math.random() * 9000)}`;
+          const updatedUserData: Partial<User> = {
+            ...user,
+            balance: user.balance + txn.amount,
+            ledgerBalance: (user.ledgerBalance || user.balance) + txn.amount,
+            fourDigitCode: code,
+            transferCodeApproved: true
+          };
+
+          if (user.pendingCryptoDeposit) {
+            updatedUserData.pendingCryptoDeposit = {
+              ...user.pendingCryptoDeposit,
+              status: 'Approved',
+              generatedCode: code,
+              updatedAt: new Date().toISOString()
+            };
+          }
+
+          const updatedU = dbStore.saveUser(updatedUserData as User);
+          syncUserToFirestore(updatedU);
+
+          // Also update matching crypto deposit in dbStore if exists
+          const matchingCryptoDep = dbStore.getCryptoDeposits().find(d => d.userId === user.id && d.status === 'Pending');
+          if (matchingCryptoDep) {
+            const updDep: CryptoActivationDeposit = {
+              ...matchingCryptoDep,
+              status: 'Approved',
+              generatedCode: code,
+              updatedAt: new Date().toISOString()
+            };
+            dbStore.updateCryptoDeposit(matchingCryptoDep.id, updDep);
+            syncCryptoDepositToFirestore(updDep);
+          }
+
+          dbStore.addNotification({
+            id: `NOTIF-${Date.now()}-DEP`,
+            userId: user.id,
+            title: 'Deposit Approved & Account Credited',
+            message: `Your deposit of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (Ref: ${txn.reference}) has been APPROVED and credited to your account.`,
+            amount: txn.amount,
+            currency: txn.currency || 'USD',
+            reference: txn.reference,
+            read: false,
+            createdAt: new Date().toISOString()
+          });
+        }
+      } else if (txn.recipientAccountNumber || txn.recipientEmail) {
         const recipient = dbStore.getUsers().find(u => 
           (txn.recipientAccountNumber && u.accountNumber === txn.recipientAccountNumber) || 
           (txn.recipientEmail && u.email.toLowerCase() === txn.recipientEmail.toLowerCase())
@@ -1374,7 +1504,7 @@ export const api = {
             id: `NOTIF-${Date.now()}-REC`,
             userId: recipient.id,
             title: 'Funds Credited to Account',
-            message: `Your account received $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${senderName || 'SVB Treasury'}. Ref: ${txn.reference}`,
+            message: `Your account received $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${finalSenderName}. Ref: ${txn.reference}`,
             amount: txn.amount,
             currency: txn.currency || 'USD',
             reference: txn.reference,
@@ -1385,7 +1515,7 @@ export const api = {
       }
 
       const senderUser = dbStore.getUserById(txn.userId);
-      if (senderUser) {
+      if (senderUser && !isDeposit) {
         dbStore.addNotification({
           id: `NOTIF-${Date.now()}-SND`,
           userId: senderUser.id,
@@ -1399,7 +1529,7 @@ export const api = {
         });
       }
 
-      broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txnId);
+      broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txn.id);
       broadcastRealtimeUpdate('USER_UPDATED', undefined, txn.userId);
     }
   },
@@ -1422,14 +1552,14 @@ export const api = {
       console.warn('Backend rejectTransaction fallback:', e);
     }
 
-    const txn = dbStore.getTransactions().find(t => t.id === txnId);
+    const txn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
     if (txn) {
       const updatedTxn: Transaction = {
         ...txn,
         status: 'Rejected',
         updatedAt: new Date().toISOString()
       };
-      dbStore.updateTransaction(txnId, updatedTxn);
+      dbStore.updateTransaction(txn.id, updatedTxn);
       syncTransactionToFirestore(updatedTxn);
 
       const user = dbStore.getUserById(txn.userId);
@@ -1454,7 +1584,26 @@ export const api = {
         });
       }
 
-      broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txnId);
+      // If user had matching pending crypto deposit, update it to Rejected
+      const matchingCryptoDep = dbStore.getCryptoDeposits().find(d => (d.userId === txn.userId || d.accountNumber === txn.accountNumber) && d.status === 'Pending');
+      if (matchingCryptoDep) {
+        const updDep: Partial<CryptoActivationDeposit> = {
+          status: 'Rejected',
+          updatedAt: new Date().toISOString()
+        };
+        dbStore.updateCryptoDeposit(matchingCryptoDep.id, updDep);
+        syncCryptoDepositToFirestore({ ...matchingCryptoDep, ...updDep } as CryptoActivationDeposit);
+      }
+
+      if (user && user.pendingCryptoDeposit && user.pendingCryptoDeposit.status === 'Pending') {
+        const updU = dbStore.saveUser({
+          ...user,
+          pendingCryptoDeposit: { ...user.pendingCryptoDeposit, status: 'Rejected', updatedAt: new Date().toISOString() }
+        });
+        syncUserToFirestore(updU);
+      }
+
+      broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txn.id);
       broadcastRealtimeUpdate('USER_UPDATED', undefined, txn.userId);
     }
   },

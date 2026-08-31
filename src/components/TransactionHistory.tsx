@@ -184,21 +184,21 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                       {txn.type === 'Deposit' || txn.type === 'Credit' ? '+' : '-'}${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
                     </td>
                     <td className="py-3.5 px-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
-                        txn.status === 'Completed'
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1.5 uppercase ${
+                        txn.status === 'Completed' || txn.status === 'Approved'
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                           : txn.status === 'Pending'
                           ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                           : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                       }`}>
-                        {txn.status === 'Completed' ? (
+                        {txn.status === 'Completed' || txn.status === 'Approved' ? (
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                         ) : txn.status === 'Pending' ? (
                           <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
                         ) : (
                           <XCircle className="w-3 h-3 text-rose-400" />
                         )}
-                        {txn.status}
+                        {txn.status === 'Completed' ? 'Approved' : txn.status === 'Pending' ? 'Pending Review' : (txn.status === 'Rejected' ? 'Cancelled / Rejected' : txn.status)}
                       </span>
                     </td>
                     <td className="py-3.5 px-3 text-right">

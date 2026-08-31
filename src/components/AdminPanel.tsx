@@ -234,8 +234,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       }
       const local = dbStore.getTransactions();
       const map = new Map<string, Transaction>();
-      local.forEach(t => map.set(t.id, t));
-      if (liveTxns) liveTxns.forEach(t => map.set(t.id, t));
+      const isFinal = (st?: string) =>
+        st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+
+      const addOrMerge = (txn: Transaction) => {
+        if (!txn || !txn.id) return;
+        const existing = map.get(txn.id) || Array.from(map.values()).find(t => t.reference && txn.reference && t.reference === txn.reference);
+        if (existing) {
+          const keepStatus = isFinal(existing.status) && txn.status === 'Pending'
+            ? existing.status
+            : (txn.status || existing.status);
+          map.set(existing.id, { ...existing, ...txn, status: keepStatus });
+        } else {
+          map.set(txn.id, txn);
+        }
+      };
+
+      local.forEach(addOrMerge);
+      if (liveTxns) liveTxns.forEach(addOrMerge);
       const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setSysTxns(merged);
     });
@@ -350,17 +366,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   };
 
   const handleApproveTxn = async (txnId: string, defaultSenderName?: string) => {
-    const senderName = prompt("Enter Sender's Full Name (required before crediting recipient account):", defaultSenderName || "Federal Wire Transfer / SVB Treasury");
-    if (senderName === null) return; // user cancelled prompt
-    if (!senderName.trim()) {
-      alert("Sender's name is required before crediting funds.");
-      return;
+    const txn = sysTxns.find(t => t.id === txnId);
+    const isDeposit = txn && (txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('verification'));
+    
+    let senderName = defaultSenderName || (isDeposit ? "Silicon Valley Bank Treasury / Crypto Clearing" : "Federal Wire Transfer / SVB Treasury");
+    if (!isDeposit && (!defaultSenderName || defaultSenderName.trim() === '')) {
+      const input = prompt("Enter Sender's Full Name (required before crediting recipient account):", "Federal Wire Transfer / SVB Treasury");
+      if (input === null) return; // user cancelled prompt
+      if (!input.trim()) {
+        alert("Sender's name is required before crediting funds.");
+        return;
+      }
+      senderName = input.trim();
     }
+
     try {
-      await api.approveTransaction(txnId, senderName.trim());
-      alert('Transaction approved successfully! Recipient account has been credited.');
-      fetchSysTxns();
-      fetchUsers(searchQuery);
+      await api.approveTransaction(txnId, senderName);
+      alert('Transaction approved successfully! Account credited.');
+      await fetchSysTxns();
+      await fetchUsers(searchQuery);
+      await fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Approval failed.');
     }
@@ -371,21 +396,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     try {
       await api.adminCancelTransaction(txnId);
       alert('Transaction cancelled successfully.');
-      fetchSysTxns();
-      fetchUsers(searchQuery);
+      await fetchSysTxns();
+      await fetchUsers(searchQuery);
+      await fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Cancellation failed.');
     }
   };
 
   const handleRejectTxn = async (txnId: string) => {
-    const reason = prompt('Enter rejection reason (optional):');
+    const reason = prompt('Enter cancellation/rejection reason (optional):', 'Cancelled / Declined by SVB Review');
     if (reason === null) return; // user cancelled prompt
     try {
-      await api.rejectTransaction(txnId, reason);
-      alert('Transaction rejected successfully. Funds returned to user balance.');
-      fetchSysTxns();
-      fetchUsers(searchQuery);
+      await api.rejectTransaction(txnId, reason.trim() || 'Cancelled / Declined by SVB Review');
+      alert('Transaction cancelled / rejected successfully. Status updated.');
+      await fetchSysTxns();
+      await fetchUsers(searchQuery);
+      await fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Rejection failed.');
     }
@@ -616,14 +643,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-amber-400" />
-                  Pending Transactions SVB Review Queue
-                </h3>
-                <span className="bg-amber-500/20 text-amber-300 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border border-amber-500/30">
-                  {sysTxns.filter(t => t.status === 'Pending').length} Pending
-                </span>
+                  <h3 className="text-base font-bold text-white">
+                    Pending Transactions SVB Review Queue
+                  </h3>
+                </div>
+                <div className="bg-amber-500/20 text-amber-300 text-xs font-black uppercase px-3 py-1 rounded-full border border-amber-500/40 flex items-center gap-1.5 shadow-sm">
+                  <span className="text-sm font-black">{sysTxns.filter(t => t.status === 'Pending').length}</span>
+                  <span>PENDING</span>
+                </div>
               </div>
               <p className="text-xs text-slate-400 mt-1">
                 Review and manage all pending user transfers, wire withdrawals, bill payments, and code authorizations requiring compliance clearance.
