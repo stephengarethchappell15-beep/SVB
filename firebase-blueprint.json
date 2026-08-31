@@ -17,6 +17,89 @@
         "status": { "type": "string" }
       },
       "required": ["id", "email", "fullName"]
+    },
+    "VirtualCard": {
+      "title": "VirtualCard",
+      "description": "Virtual debit/credit card for user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "cardholderName": { "type": "string" },
+        "cardNumber": { "type": "string" },
+        "cvv": { "type": "string" },
+        "expiryMonth": { "type": "string" },
+        "expiryYear": { "type": "string" },
+        "cardType": { "type": "string" },
+        "category": { "type": "string" },
+        "spendingLimit": { "type": "number" },
+        "spentAmount": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "userId", "cardNumber"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial ledger transaction item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "reference": { "type": "string" }
+      },
+      "required": ["id", "userId", "amount", "type", "status"]
+    },
+    "CryptoActivationDeposit": {
+      "title": "CryptoActivationDeposit",
+      "description": "Crypto deposit for 4-digit code activation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "cryptoMethod": { "type": "string" },
+        "walletAddress": { "type": "string" },
+        "amountUSD": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "userId", "cryptoMethod", "amountUSD", "status"]
+    },
+    "Tier3VerificationRequest": {
+      "title": "Tier3VerificationRequest",
+      "description": "VIP Tier 3 verification submission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string" },
+        "documentType": { "type": "string" },
+        "documentUrl": { "type": "string" }
+      },
+      "required": ["id", "userId", "status", "documentType"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer support desk ticket thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "subject": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "userId", "subject", "status"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Global application configuration documents",
+      "type": "object",
+      "properties": {
+        "BTC": { "type": "string" },
+        "USDT": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -31,6 +114,30 @@
     "/users_by_account/{accNo}": {
       "schema": "User",
       "description": "User lookup documents by account number"
+    },
+    "/virtual_cards/{cardId}": {
+      "schema": "VirtualCard",
+      "description": "User virtual cards"
+    },
+    "/transactions/{txnId}": {
+      "schema": "Transaction",
+      "description": "Financial transactions"
+    },
+    "/crypto_activation_deposits/{depositId}": {
+      "schema": "CryptoActivationDeposit",
+      "description": "Activation deposit submissions"
+    },
+    "/tier3_verifications/{verificationId}": {
+      "schema": "Tier3VerificationRequest",
+      "description": "VIP account upgrade verifications"
+    },
+    "/support_tickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Support tickets and client chat messages"
+    },
+    "/config/{configId}": {
+      "schema": "AppConfig",
+      "description": "Global bank configurations"
     }
   }
 }

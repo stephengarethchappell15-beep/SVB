@@ -1,8 +1,97 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Default deny for all unmatched paths
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // Helper functions for entity validation
+    function isValidUser(data) {
+      return data.id is string && data.email is string && data.fullName is string;
+    }
+
+    function isValidVirtualCard(data) {
+      return data.id is string && data.userId is string && data.cardNumber is string;
+    }
+
+    function isValidTransaction(data) {
+      return data.id is string && data.userId is string && (data.amount is number || data.amount is int || data.amount is float);
+    }
+
+    function isValidCryptoDeposit(data) {
+      return data.id is string && data.userId is string;
+    }
+
+    function isValidVerification(data) {
+      return data.id is string && data.userId is string;
+    }
+
+    function isValidSupportTicket(data) {
+      return data.id is string && data.userId is string;
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 2. Email lookup index collection
+    match /users_by_email/{email} {
+      allow read: if true;
+      allow create, update: if isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 3. Account number lookup index collection
+    match /users_by_account/{accNo} {
+      allow read: if true;
+      allow create, update: if isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 4. Virtual cards
+    match /virtual_cards/{cardId} {
+      allow read: if true;
+      allow create, update: if isValidVirtualCard(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 5. Transactions ledger
+    match /transactions/{txnId} {
+      allow read: if true;
+      allow create, update: if isValidTransaction(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 6. Crypto Activation Deposits
+    match /crypto_activation_deposits/{depositId} {
+      allow read: if true;
+      allow create, update: if isValidCryptoDeposit(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 7. Tier 3 VIP Verifications
+    match /tier3_verifications/{verificationId} {
+      allow read: if true;
+      allow create, update: if isValidVerification(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 8. Support Tickets & Desk Messages
+    match /support_tickets/{ticketId} {
+      allow read: if true;
+      allow create, update: if isValidSupportTicket(request.resource.data);
+      allow delete: if false;
+    }
+
+    // 9. Config (Crypto wallet addresses, etc.)
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

@@ -439,7 +439,7 @@ app.post('/api/admin/deposit', async (req, res) => {
       return res.status(400).json({ error: 'Deposit amount must be a positive number.' });
     }
 
-    const result = dbManager.createDeposit(
+    const result = await dbManager.createDepositAsync(
       {
         userEmail,
         accountNumber,

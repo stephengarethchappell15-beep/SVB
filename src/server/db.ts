@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit } from '../types';
-import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore } from '../lib/firebase';
+import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore } from '../lib/firebase';
 
 interface DatabaseSchema {
   users: User[];
@@ -562,15 +562,23 @@ class DatabaseManager {
   }
 
   public async findUserByEmailOrAccountAsync(queryStr: string): Promise<User | undefined> {
-    const memoryUser = this.findUserByEmailOrAccount(queryStr);
+    let memoryUser = this.findUserByEmailOrAccount(queryStr);
 
     try {
       const fsUser = await getUserFromFirestore(queryStr);
       if (fsUser) {
         if (memoryUser) {
-          if (fsUser.profilePicture !== undefined) {
-            memoryUser.profilePicture = fsUser.profilePicture;
+          if (fsUser.balance !== undefined) memoryUser.balance = fsUser.balance;
+          if (fsUser.ledgerBalance !== undefined) memoryUser.ledgerBalance = fsUser.ledgerBalance;
+          if (fsUser.fourDigitCode !== undefined) memoryUser.fourDigitCode = fsUser.fourDigitCode;
+          if (fsUser.transferCodeApproved !== undefined) memoryUser.transferCodeApproved = fsUser.transferCodeApproved;
+          if (fsUser.verificationTier !== undefined) memoryUser.verificationTier = fsUser.verificationTier;
+          if (fsUser.status !== undefined) memoryUser.status = fsUser.status;
+          if (fsUser.profilePicture !== undefined) memoryUser.profilePicture = fsUser.profilePicture;
+          if ((fsUser as any).password) {
+            this.db.passwords[memoryUser.id] = (fsUser as any).password;
           }
+          this.saveDB(this.db);
           return memoryUser;
         }
         if (!this.db.users.some(u => u.id === fsUser.id || u.email.toLowerCase() === fsUser.email.toLowerCase())) {
@@ -789,6 +797,16 @@ class DatabaseManager {
       const userMap = new Map<string, User>();
       memoryMatches.forEach(u => userMap.set(u.id, u));
 
+      // Also try direct lookup if query is non-empty (direct email or account number lookup)
+      if (rawQ) {
+        try {
+          const directUser = await getUserFromFirestore(query.trim());
+          if (directUser && directUser.id) {
+            fsUsers.push(directUser);
+          }
+        } catch (e) {}
+      }
+
       fsUsers.forEach(u => {
         if (u && u.id) {
           if (!this.db.users.some(existing => existing.id === u.id)) {
@@ -958,6 +976,110 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
+    syncUserToFirestore(targetUser).catch(err => console.warn('Firestore sync user error in createDeposit:', err));
+    syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore sync txn error in createDeposit:', err));
+
+    return { user: targetUser, transaction: newTxn };
+  }
+
+  public async createDepositAsync(deposit: DepositPayload, adminUser: User): Promise<{ user: User; transaction: Transaction }> {
+    if (adminUser.role !== 'admin') {
+      throw new Error('Unauthorized: Only SVB Review team can create deposit entries.');
+    }
+
+    const emailQuery = deposit.userEmail ? deposit.userEmail.trim() : '';
+    const accQuery = deposit.accountNumber ? deposit.accountNumber.trim() : '';
+
+    const targetUser = (emailQuery ? await this.findUserByEmailOrAccountAsync(emailQuery) : undefined) ||
+                       (accQuery ? await this.findUserByEmailOrAccountAsync(accQuery) : undefined);
+
+    if (!targetUser) {
+      throw new Error(`Target user account not found for '${emailQuery || accQuery}'. Please verify the email or account number.`);
+    }
+
+    if (deposit.amount <= 0) {
+      throw new Error('Deposit amount must be greater than 0.');
+    }
+
+    const ref = deposit.reference && deposit.reference.trim() !== ''
+      ? deposit.reference.trim()
+      : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    targetUser.balance += Number(deposit.amount);
+    targetUser.ledgerBalance = (targetUser.ledgerBalance ?? 0) + Number(deposit.amount);
+
+    let isNewCodeGenerated = false;
+    if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
+      const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+      targetUser.fourDigitCode = generatedCode;
+      targetUser.transferCodeApproved = true;
+      isNewCodeGenerated = true;
+    }
+
+    const now = new Date().toISOString();
+    const newTxn: Transaction = {
+      id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userId: targetUser.id,
+      userEmail: targetUser.email,
+      accountNumber: targetUser.accountNumber,
+      senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
+      amount: Number(deposit.amount),
+      currency: deposit.currency || 'USD',
+      type: 'Deposit',
+      status: 'Completed',
+      reference: ref,
+      description: isNewCodeGenerated 
+        ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
+        : (deposit.description || 'Admin Balance Deposit'),
+      createdByAdminEmail: adminUser.email,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    this.db.transactions.unshift(newTxn);
+
+    const notifMsg = isNewCodeGenerated
+      ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
+      : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
+
+    const notif: UserNotification = {
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userId: targetUser.id,
+      title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
+      message: notifMsg,
+      amount: Number(deposit.amount),
+      currency: deposit.currency || 'USD',
+      reference: ref,
+      read: false,
+      createdAt: now
+    };
+
+    this.db.notifications.unshift(notif);
+
+    this.addAuditLog({
+      adminId: adminUser.id,
+      adminEmail: adminUser.email,
+      action: 'DEPOSIT_CREATED',
+      targetEmail: targetUser.email,
+      targetAccountNumber: targetUser.accountNumber,
+      description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
+      details: {
+        amount: deposit.amount,
+        currency: deposit.currency,
+        reference: ref,
+        description: deposit.description,
+        newBalance: targetUser.balance
+      }
+    });
+
+    this.saveDB(this.db);
+
+    try {
+      await syncUserToFirestore(targetUser);
+      await syncTransactionToFirestore(newTxn);
+    } catch (fsErr) {
+      console.warn('Firestore sync error in createDepositAsync:', fsErr);
+    }
 
     return { user: targetUser, transaction: newTxn };
   }
