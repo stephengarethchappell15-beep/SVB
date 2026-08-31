@@ -543,7 +543,7 @@ app.post('/api/admin/approve-crypto-activation-deposit', async (req, res) => {
   }
 });
 
-// Admin: Reject $200 Crypto Activation Deposit
+// Admin: Reject $2,500 Crypto Activation Deposit
 app.post('/api/admin/reject-crypto-activation-deposit', async (req, res) => {
   const user = await getAuthUser(req);
   if (!user || user.role !== 'admin') {
@@ -551,10 +551,10 @@ app.post('/api/admin/reject-crypto-activation-deposit', async (req, res) => {
   }
 
   try {
-    const { depositId } = req.body;
+    const { depositId, reason, notes } = req.body;
     if (!depositId) return res.status(400).json({ error: 'Deposit ID is required.' });
 
-    const result = dbManager.rejectCryptoActivationDeposit(user, depositId);
+    const result = dbManager.rejectCryptoActivationDeposit(user, depositId, reason || notes);
     res.json({ message: 'Deposit rejected.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reject deposit.' });

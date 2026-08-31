@@ -287,6 +287,7 @@ export default function App() {
                 <BillPayPanel
                   user={user}
                   onRefreshUser={refreshUser}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
                 />
               )}
 
@@ -298,6 +299,7 @@ export default function App() {
                     setReceiptTxn(txn);
                     fetchData();
                   }}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
                 />
               )}
 
@@ -309,6 +311,7 @@ export default function App() {
                     setReceiptTxn(txn);
                     fetchData();
                   }}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
                 />
               )}
 

