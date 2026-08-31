@@ -63,6 +63,8 @@ export interface CryptoActivationDeposit {
   proofImage?: string; // Base64 screenshot proof image
   status: 'Pending' | 'Approved' | 'Rejected';
   generatedCode?: string;
+  adminNotes?: string;
+  decidedByAdminEmail?: string;
   createdAt: string;
   updatedAt: string;
 }

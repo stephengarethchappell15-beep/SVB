@@ -9,6 +9,12 @@ interface SupportChatWidgetProps {
   user: User;
 }
 
+export const triggerOpenSVBLiveChat = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('openSVBLiveChat'));
+  }
+};
+
 export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -21,6 +27,16 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
   const [selectedImageModal, setSelectedImageModal] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOpenChat = () => {
+      setIsOpen(true);
+    };
+    window.addEventListener('openSVBLiveChat', handleOpenChat);
+    return () => {
+      window.removeEventListener('openSVBLiveChat', handleOpenChat);
+    };
+  }, []);
 
   const fetchUserTickets = async (silent = false) => {
     try {

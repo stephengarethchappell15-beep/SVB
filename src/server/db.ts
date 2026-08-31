@@ -1377,7 +1377,7 @@ class DatabaseManager {
     return this.db.transactions;
   }
 
-  // Admin Approve Pending Transaction (credits recipient with manual sender name)
+  // Admin Approve Pending Transaction (credits recipient or user with manual sender name)
   public approveTransaction(adminUser: User, transactionId: string, senderNameInput?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
@@ -1397,12 +1397,51 @@ class DatabaseManager {
     senderTxn.senderName = finalSenderName;
     senderTxn.updatedAt = new Date().toISOString();
 
-    // Find recipient and credit balance + create recipient transaction record
-    if (senderTxn.recipientAccountNumber || senderTxn.recipientEmail) {
+    // Check if it's a deposit (Payment Verification Deposit or Direct Deposit to user)
+    const isDepositType = senderTxn.type.toLowerCase().includes('deposit') || 
+                          senderTxn.description.toLowerCase().includes('deposit') ||
+                          senderTxn.description.toLowerCase().includes('verification');
+
+    if (isDepositType && sender) {
+      sender.balance += senderTxn.amount;
+      sender.ledgerBalance = sender.balance;
+
+      // If it's a payment verification deposit or code activation, activate 4-digit code
+      if (!sender.fourDigitCode || !sender.transferCodeApproved) {
+        const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+        sender.fourDigitCode = generatedCode;
+        sender.transferCodeApproved = true;
+      }
+
+      // Update matching crypto activation deposit if present
+      if (this.db.cryptoActivationDeposits) {
+        const matchingDep = this.db.cryptoActivationDeposits.find(d => d.userId === sender.id && d.status === 'Pending');
+        if (matchingDep) {
+          matchingDep.status = 'Approved';
+          matchingDep.generatedCode = sender.fourDigitCode;
+          matchingDep.updatedAt = new Date().toISOString();
+        }
+      }
+
+      const depNotif: UserNotification = {
+        id: `notif-${Date.now()}-depapp`,
+        userId: sender.id,
+        title: 'Deposit Approved & Funds Credited',
+        message: `Your deposit of $${senderTxn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (Ref: ${senderTxn.reference}) has been APPROVED and credited to your account.`,
+        amount: senderTxn.amount,
+        currency: senderTxn.currency || 'USD',
+        reference: senderTxn.reference,
+        read: false,
+        createdAt: new Date().toISOString()
+      };
+      this.db.notifications.unshift(depNotif);
+    } else if (senderTxn.recipientAccountNumber || senderTxn.recipientEmail) {
+      // Find recipient and credit balance + create recipient transaction record
       const recipient = this.findUserByAccountNumber(senderTxn.recipientAccountNumber || '') || 
                         this.findUserByEmail(senderTxn.recipientEmail || '');
       if (recipient) {
         recipient.balance += senderTxn.amount;
+        recipient.ledgerBalance = recipient.balance;
 
         if (!recipient.fourDigitCode || !recipient.transferCodeApproved) {
           const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
@@ -1443,8 +1482,8 @@ class DatabaseManager {
       }
     }
 
-    // Send notification to sender
-    if (sender) {
+    // Send notification to sender if it was a transfer/wire/withdrawal
+    if (sender && !isDepositType) {
       const sendNotif: UserNotification = {
         id: `notif-${Date.now()}-snd`,
         userId: sender.id,
@@ -1465,8 +1504,8 @@ class DatabaseManager {
       action: 'TRANSFER_EXECUTED',
       targetEmail: senderTxn.userEmail,
       targetAccountNumber: senderTxn.accountNumber,
-      description: `Admin ${adminUser.email} approved transfer ${senderTxn.reference} of $${senderTxn.amount} with sender name "${finalSenderName}"`,
-      details: { transactionId, senderName: finalSenderName }
+      description: `Admin ${adminUser.email} approved transaction ${senderTxn.reference} of $${senderTxn.amount} (${senderTxn.type}) with sender/source name "${finalSenderName}"`,
+      details: { transactionId, senderName: finalSenderName, type: senderTxn.type }
     });
 
     this.saveDB(this.db);
@@ -1527,13 +1566,31 @@ class DatabaseManager {
     const targetUser = this.findUserById(txn.userId);
     if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
       targetUser.balance += txn.amount;
+      targetUser.ledgerBalance = targetUser.balance;
     }
 
+    // Update matching crypto activation deposit if present
+    if (this.db.cryptoActivationDeposits && targetUser) {
+      const matchingDep = this.db.cryptoActivationDeposits.find(d => d.userId === targetUser.id && d.status === 'Pending');
+      if (matchingDep) {
+        matchingDep.status = 'Rejected';
+        matchingDep.adminNotes = reason || 'Declined by SVB Review';
+        matchingDep.updatedAt = new Date().toISOString();
+      }
+      if (targetUser.pendingCryptoDeposit) {
+        targetUser.pendingCryptoDeposit.status = 'Rejected';
+        targetUser.pendingCryptoDeposit.adminNotes = reason || 'Declined by SVB Review';
+      }
+    }
+
+    const isDeposit = txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit');
     const notif: UserNotification = {
       id: `notif-${Date.now()}-rej`,
       userId: txn.userId,
-      title: 'Transaction Declined & Refunded',
-      message: `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was declined. Funds of $${txn.amount.toFixed(2)} have been returned to your account balance.${reason ? ` Reason: ${reason}` : ''}`,
+      title: isDeposit ? 'Deposit Request Declined' : 'Transaction Declined & Refunded',
+      message: isDeposit
+        ? `Deposit request ${txn.reference} of $${txn.amount.toFixed(2)} was declined by Silicon Valley Bank.${reason ? ` Reason: ${reason}` : ''}`
+        : `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was declined. Funds of $${txn.amount.toFixed(2)} have been returned to your account balance.${reason ? ` Reason: ${reason}` : ''}`,
       amount: txn.amount,
       currency: txn.currency,
       reference: txn.reference,

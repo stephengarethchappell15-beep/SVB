@@ -142,6 +142,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   // All System Transactions for Admin Cancel
   const [sysTxns, setSysTxns] = useState<Transaction[]>([]);
   const [loadingTxns, setLoadingTxns] = useState(false);
+  const [pendingQueueSearch, setPendingQueueSearch] = useState('');
 
   // Real-Time Admin Alerts & Sound State
   const [liveAlerts, setLiveAlerts] = useState<AdminAlert[]>([]);
@@ -610,7 +611,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
           </div>
         </div>
 
-      {/* Sub-Tab 0: Pending Transactions Review Queue */}
+      {/* Sub-Tab 0: Pending Transactions SVB Review Queue */}
       {subTab === 'pending' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
@@ -629,14 +630,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               </p>
             </div>
 
-            <button
-              onClick={fetchSysTxns}
-              disabled={loadingTxns}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-            >
-              <Clock className={`w-3.5 h-3.5 ${loadingTxns ? 'animate-spin text-amber-400' : ''}`} />
-              <span>Refresh Queue</span>
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={pendingQueueSearch}
+                  onChange={(e) => setPendingQueueSearch(e.target.value)}
+                  placeholder="Filter by ref, user, acc #..."
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none transition-colors"
+                />
+              </div>
+
+              <button
+                onClick={fetchSysTxns}
+                disabled={loadingTxns}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer shrink-0"
+              >
+                <Clock className={`w-3.5 h-3.5 ${loadingTxns ? 'animate-spin text-amber-400' : ''}`} />
+                <span>Refresh Queue</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -671,7 +685,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                   </tr>
                 ) : (
                   sysTxns
-                    .filter(t => t.status === 'Pending')
+                    .filter(t => {
+                      if (t.status !== 'Pending') return false;
+                      if (!pendingQueueSearch.trim()) return true;
+                      const q = pendingQueueSearch.toLowerCase().trim();
+                      return (
+                        (t.reference && t.reference.toLowerCase().includes(q)) ||
+                        (t.id && t.id.toLowerCase().includes(q)) ||
+                        (t.senderName && t.senderName.toLowerCase().includes(q)) ||
+                        (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
+                        (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
+                        (t.type && t.type.toLowerCase().includes(q)) ||
+                        (t.description && t.description.toLowerCase().includes(q)) ||
+                        (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
+                        (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
+                      );
+                    })
                     .map((t) => (
                       <tr key={t.id} className="hover:bg-slate-950/50 transition-colors">
                         <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
