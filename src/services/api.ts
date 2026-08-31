@@ -676,8 +676,17 @@ export const api = {
         images: img ? [img] : [],
         createdAt: nowStr
       });
+      // Automated Support response
+      ticket.messages.push({
+        id: `MSG-${Date.now() + 50}`,
+        senderId: 'svb-system-support',
+        senderName: 'SVB Live Support',
+        senderRole: 'admin',
+        message: 'We are unavailable right now. Kindly hold, or contact a live agent.',
+        createdAt: new Date(Date.now() + 100).toISOString()
+      });
       ticket.status = 'Open';
-      ticket.updatedAt = nowStr;
+      ticket.updatedAt = new Date(Date.now() + 100).toISOString();
       dbStore.updateSupportTicket(ticket);
       syncSupportTicketToFirestore(ticket);
     } catch (chatErr) {
@@ -1790,6 +1799,27 @@ export const api = {
     const ticketId = `TICKET-${Date.now()}`;
     const now = new Date().toISOString();
 
+    const initialMessages: SupportMessage[] = [{
+      id: `MSG-${Date.now()}`,
+      senderId: current.id,
+      senderName: current.fullName,
+      senderRole: current.role,
+      message: data.message,
+      images: data.images,
+      createdAt: now
+    }];
+
+    if (current.role !== 'admin') {
+      initialMessages.push({
+        id: `MSG-${Date.now() + 50}`,
+        senderId: 'svb-system-support',
+        senderName: 'SVB Live Support',
+        senderRole: 'admin',
+        message: 'We are unavailable right now. Kindly hold, or contact a live agent.',
+        createdAt: new Date(Date.now() + 100).toISOString()
+      });
+    }
+
     const ticket: SupportTicket = {
       id: ticketId,
       userId: current.id,
@@ -1800,17 +1830,9 @@ export const api = {
       category: data.category as any || 'General',
       status: 'Open',
       priority: data.priority as any || 'Medium',
-      messages: [{
-        id: `MSG-${Date.now()}`,
-        senderId: current.id,
-        senderName: current.fullName,
-        senderRole: current.role,
-        message: data.message,
-        images: data.images,
-        createdAt: now
-      }],
+      messages: initialMessages,
       createdAt: now,
-      updatedAt: now
+      updatedAt: current.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
     };
 
     dbStore.addSupportTicket(ticket);
@@ -1857,11 +1879,22 @@ export const api = {
       createdAt: now
     }];
 
+    if (current.role !== 'admin') {
+      updatedMessages.push({
+        id: `MSG-${Date.now() + 50}`,
+        senderId: 'svb-system-support',
+        senderName: 'SVB Live Support',
+        senderRole: 'admin',
+        message: 'We are unavailable right now. Kindly hold, or contact a live agent.',
+        createdAt: new Date(Date.now() + 100).toISOString()
+      });
+    }
+
     const updatedTicket: SupportTicket = {
       ...ticket,
       messages: updatedMessages,
       status: current.role === 'admin' ? 'In Progress' : 'Open',
-      updatedAt: now
+      updatedAt: current.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
     };
 
     dbStore.updateSupportTicket(updatedTicket);
