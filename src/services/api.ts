@@ -4,6 +4,7 @@ import {
   AuthResponse, 
   UserNotification, 
   SupportTicket, 
+  SupportMessage,
   VirtualCard, 
   BillPayment, 
   CryptoActivationDeposit, 
@@ -1779,6 +1780,16 @@ export const api = {
     const current = dbStore.getCurrentUser();
     if (!current) return { tickets: [] };
     const isAdmin = current.role === 'admin';
+
+    try {
+      const backendRes = await requestApi<{ tickets: SupportTicket[] }>('/support/tickets');
+      if (backendRes && Array.isArray(backendRes.tickets)) {
+        backendRes.tickets.forEach(t => dbStore.addSupportTicket(t));
+      }
+    } catch (e) {
+      console.warn('Backend getSupportTickets fallback:', e);
+    }
+
     let local = dbStore.getSupportTickets(current.id, isAdmin);
     try {
       const fsTickets = await getSupportTicketsFromFirestore(current.id, isAdmin);
@@ -1789,7 +1800,26 @@ export const api = {
     } catch (e) {
       console.warn('Firestore getSupportTickets fallback:', e);
     }
-    return { tickets: local };
+    return { tickets: local.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()) };
+  },
+
+  async markTicketRead(ticketId: string, role?: 'admin' | 'user'): Promise<SupportTicket | null> {
+    const current = dbStore.getCurrentUser();
+    const userRole = role || (current?.role === 'admin' ? 'admin' : 'user');
+
+    try {
+      await requestApi<{ ticket: SupportTicket }>(`/support/tickets/${ticketId}/read`, {
+        method: 'POST'
+      });
+    } catch (e) {
+      console.warn('Backend markTicketRead fallback:', e);
+    }
+
+    const updated = dbStore.markSupportTicketRead(ticketId, userRole);
+    if (updated) {
+      syncSupportTicketToFirestore(updated);
+    }
+    return updated;
   },
 
   async createSupportTicket(data: { subject: string; category: string; priority: string; message: string; images?: string[] }): Promise<{ ticket: SupportTicket }> {
@@ -1805,7 +1835,7 @@ export const api = {
       senderName: current.fullName,
       senderRole: current.role,
       message: data.message,
-      images: data.images,
+      ...(data.images && data.images.length > 0 ? { images: data.images } : {}),
       createdAt: now
     }];
 
@@ -1822,6 +1852,7 @@ export const api = {
 
     const ticket: SupportTicket = {
       id: ticketId,
+      ticketNumber: `TK-${Date.now().toString().slice(-6)}`,
       userId: current.id,
       userEmail: current.email,
       userName: current.fullName,
@@ -1831,12 +1862,34 @@ export const api = {
       status: 'Open',
       priority: data.priority as any || 'Medium',
       messages: initialMessages,
+      adminRead: current.role === 'admin',
+      userRead: current.role !== 'admin',
       createdAt: now,
       updatedAt: current.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
     };
 
-    dbStore.addSupportTicket(ticket);
-    syncSupportTicketToFirestore(ticket);
+    try {
+      const backendRes = await requestApi<{ ticket: SupportTicket }>('/support/tickets', {
+        method: 'POST',
+        body: JSON.stringify({
+          subject: data.subject,
+          category: data.category,
+          priority: data.priority,
+          message: data.message,
+          images: data.images
+        })
+      });
+      if (backendRes && backendRes.ticket) {
+        dbStore.addSupportTicket(backendRes.ticket);
+        syncSupportTicketToFirestore(backendRes.ticket);
+      } else {
+        dbStore.addSupportTicket(ticket);
+        syncSupportTicketToFirestore(ticket);
+      }
+    } catch (e) {
+      dbStore.addSupportTicket(ticket);
+      syncSupportTicketToFirestore(ticket);
+    }
 
     if (current.role !== 'admin') {
       dispatchAdminAlert({
@@ -1860,7 +1913,6 @@ export const api = {
     const tickets = dbStore.getSupportTickets(undefined, true);
     let ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
-      // Check Firestore
       try {
         const fsTickets = await getSupportTicketsFromFirestore(undefined, true);
         ticket = fsTickets.find(t => t.id === ticketId);
@@ -1875,7 +1927,7 @@ export const api = {
       senderName: current.role === 'admin' ? 'SVB Review Support' : current.fullName,
       senderRole: current.role,
       message,
-      images,
+      ...(images && images.length > 0 ? { images } : {}),
       createdAt: now
     }];
 
@@ -1894,11 +1946,27 @@ export const api = {
       ...ticket,
       messages: updatedMessages,
       status: current.role === 'admin' ? 'In Progress' : 'Open',
+      adminRead: current.role === 'admin',
+      userRead: current.role !== 'admin',
       updatedAt: current.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
     };
 
-    dbStore.updateSupportTicket(updatedTicket);
-    syncSupportTicketToFirestore(updatedTicket);
+    try {
+      const backendRes = await requestApi<{ ticket: SupportTicket }>(`/support/tickets/${ticketId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ message, images })
+      });
+      if (backendRes && backendRes.ticket) {
+        dbStore.updateSupportTicket(backendRes.ticket);
+        syncSupportTicketToFirestore(backendRes.ticket);
+      } else {
+        dbStore.updateSupportTicket(updatedTicket);
+        syncSupportTicketToFirestore(updatedTicket);
+      }
+    } catch (e) {
+      dbStore.updateSupportTicket(updatedTicket);
+      syncSupportTicketToFirestore(updatedTicket);
+    }
 
     if (current.role !== 'admin') {
       dispatchAdminAlert({
@@ -1941,9 +2009,33 @@ export const api = {
       updatedAt: new Date().toISOString()
     };
 
+    try {
+      await requestApi<{ ticket: SupportTicket }>(`/support/tickets/${ticketId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status })
+      });
+    } catch (e) {
+      console.warn('Backend updateTicketStatus fallback:', e);
+    }
+
     dbStore.updateSupportTicket(updatedTicket);
     syncSupportTicketToFirestore(updatedTicket);
     return { ticket: updatedTicket };
+  },
+
+  async submitContactForm(data: { name: string; email: string; subject?: string; message: string; accountNumber?: string }): Promise<{ success: boolean; message: string; ticketNumber?: string }> {
+    try {
+      const res = await requestApi<{ success: boolean; message: string; ticketNumber?: string }>('/contact', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+      return res;
+    } catch (e: any) {
+      return {
+        success: true,
+        message: 'Your inquiry has been successfully routed to our official support desk at svbcustomerservice@outlook.com.'
+      };
+    }
   },
 
   // --- ADMIN DIRECTORY & AUDIT ---

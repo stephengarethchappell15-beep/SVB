@@ -3,7 +3,8 @@ import { User, SupportTicket } from '../types';
 import { api } from '../services/api';
 import { subscribeSupportTicketsFromFirestore } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
-import { MessageSquare, X, Send, Headphones, ShieldCheck, Image, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, X, Send, Headphones, ShieldCheck, Image, CheckCircle2, Mail, ExternalLink } from 'lucide-react';
+import { openLiveAgentEmail, openSupportEmail, SUPPORT_EMAIL } from '../utils/supportEmail';
 
 interface SupportChatWidgetProps {
   user: User;
@@ -92,8 +93,12 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
     if (isOpen) {
       setHasUnread(false);
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      if (activeTicket && activeTicket.userRead === false) {
+        api.markTicketRead(activeTicket.id, 'user');
+        setActiveTicket(prev => prev ? { ...prev, userRead: true } : null);
+      }
     }
-  }, [isOpen, activeTicket?.messages]);
+  }, [isOpen, activeTicket?.id, activeTicket?.messages]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -182,12 +187,22 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
               </div>
             </div>
 
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => openSupportEmail(user)}
+                title={`Email official support desk: ${SUPPORT_EMAIL}`}
+                className="text-slate-400 hover:text-emerald-400 p-1.5 rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                <Mail className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Messages Body */}
@@ -238,6 +253,21 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{m.message}</p>
+
+                      {/* Contact Live Agent action button if response mentions contacting a live agent */}
+                      {m.senderRole === 'admin' && m.message.toLowerCase().includes('contact a live agent') && (
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => openLiveAgentEmail(user, { amount: 2500, method: 'Payment Proof Verification' })}
+                            className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Contact Live Agent</span>
+                            <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
+                          </button>
+                        </div>
+                      )}
 
                       {/* Render attached images */}
                       {m.images && m.images.length > 0 && (

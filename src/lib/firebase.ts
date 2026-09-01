@@ -46,18 +46,42 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.databaseId);
 
 /**
+ * Recursively strips undefined fields from objects/arrays to prevent Firestore serialization errors
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === undefined || data === null) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
+
+/**
  * Save or update user persistently in Firestore
  */
 export async function syncUserToFirestore(user: User, password?: string): Promise<void> {
   if (!user || !user.email) return;
   try {
     const cleanEmail = user.email.trim().toLowerCase();
-    const payload = {
+    const payload = sanitizeForFirestore({
       ...user,
       email: cleanEmail,
       updatedAt: new Date().toISOString(),
       ...(password ? { password } : {})
-    };
+    });
 
     // Save under primary user ID doc
     if (user.id) {
@@ -188,10 +212,11 @@ export async function getAllUsersFromFirestore(): Promise<User[]> {
 export async function syncVirtualCardToFirestore(card: VirtualCard): Promise<void> {
   if (!card || !card.id) return;
   try {
-    await setDoc(doc(db, 'virtual_cards', card.id), {
+    const payload = sanitizeForFirestore({
       ...card,
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, 'virtual_cards', card.id), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore virtual card sync error:', err);
   }
@@ -222,11 +247,12 @@ export async function getVirtualCardsFromFirestore(userId: string): Promise<Virt
 export async function syncCryptoAddressesToFirestore(addresses: { BTC: string; USDT: string }): Promise<void> {
   if (!addresses) return;
   try {
-    await setDoc(doc(db, 'config', 'crypto_addresses'), {
+    const payload = sanitizeForFirestore({
       BTC: addresses.BTC,
       USDT: addresses.USDT,
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, 'config', 'crypto_addresses'), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore crypto addresses sync error:', err);
   }
@@ -260,10 +286,11 @@ export function subscribeCryptoAddressesFromFirestore(callback: (addresses: { BT
 export async function syncCryptoDepositToFirestore(deposit: CryptoActivationDeposit): Promise<void> {
   if (!deposit || !deposit.id) return;
   try {
-    await setDoc(doc(db, 'crypto_activation_deposits', deposit.id), {
+    const payload = sanitizeForFirestore({
       ...deposit,
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, 'crypto_activation_deposits', deposit.id), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore crypto deposit sync error:', err);
   }
@@ -292,10 +319,11 @@ export async function getAllCryptoDepositsFromFirestore(): Promise<CryptoActivat
 export async function syncVerificationToFirestore(verif: Tier3VerificationRequest): Promise<void> {
   if (!verif || !verif.id) return;
   try {
-    await setDoc(doc(db, 'tier3_verifications', verif.id), {
+    const payload = sanitizeForFirestore({
       ...verif,
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, 'tier3_verifications', verif.id), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore verification sync error:', err);
   }
@@ -324,10 +352,11 @@ export async function getAllVerificationsFromFirestore(): Promise<Tier3Verificat
 export async function syncTransactionToFirestore(txn: Transaction): Promise<void> {
   if (!txn || !txn.id) return;
   try {
-    await setDoc(doc(db, 'transactions', txn.id), {
+    const payload = sanitizeForFirestore({
       ...txn,
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, 'transactions', txn.id), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore transaction sync error:', err);
   }
@@ -449,10 +478,13 @@ export function subscribeAllUsersFromFirestore(callback: (users: User[]) => void
 export async function syncSupportTicketToFirestore(ticket: SupportTicket): Promise<void> {
   if (!ticket || !ticket.id) return;
   try {
-    await setDoc(doc(db, 'support_tickets', ticket.id), {
+    const payload = sanitizeForFirestore({
       ...ticket,
+      adminRead: ticket.adminRead ?? false,
+      userRead: ticket.userRead ?? false,
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, 'support_tickets', ticket.id), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore support ticket sync error:', err);
   }

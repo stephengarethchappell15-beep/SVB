@@ -3,7 +3,8 @@ import { User, SupportTicket } from '../types';
 import { api } from '../services/api';
 import { subscribeSupportTicketsFromFirestore } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
-import { Headphones, MessageSquare, Plus, Send, Clock, CheckCircle, AlertCircle, ShieldAlert, User as UserIcon, LifeBuoy, Search, Filter, RefreshCw, Hash, Mail, ArrowRight } from 'lucide-react';
+import { Headphones, MessageSquare, Plus, Send, Clock, CheckCircle, AlertCircle, ShieldAlert, User as UserIcon, LifeBuoy, Search, Filter, RefreshCw, Hash, Mail, ArrowRight, ExternalLink } from 'lucide-react';
+import { openLiveAgentEmail, openSupportEmail, SUPPORT_EMAIL } from '../utils/supportEmail';
 
 interface CustomerSupportPanelProps {
   user: User;
@@ -58,10 +59,11 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
       (fsTickets) => {
         if (fsTickets && fsTickets.length > 0) {
           fsTickets.forEach(t => dbStore.addSupportTicket(t));
-          setTickets(fsTickets);
+          const sorted = [...fsTickets].sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+          setTickets(sorted);
           setSelectedTicket(prev => {
-            if (!prev) return fsTickets[0];
-            const updated = fsTickets.find(t => t.id === prev.id);
+            if (!prev) return sorted[0];
+            const updated = sorted.find(t => t.id === prev.id);
             return updated || prev;
           });
         }
@@ -70,6 +72,17 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
 
     return () => unsub();
   }, [user.id, user.role]);
+
+  const handleSelectTicket = async (t: SupportTicket) => {
+    setSelectedTicket(t);
+    if (user.role === 'admin' && t.adminRead === false) {
+      await api.markTicketRead(t.id, 'admin');
+      setTickets(prev => prev.map(item => item.id === t.id ? { ...item, adminRead: true } : item));
+    } else if (user.role !== 'admin' && t.userRead === false) {
+      await api.markTicketRead(t.id, 'user');
+      setTickets(prev => prev.map(item => item.id === t.id ? { ...item, userRead: true } : item));
+    }
+  };
 
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,7 +180,19 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {user.role !== 'admin' && (
+            <button
+              onClick={() => openSupportEmail(user)}
+              className="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+              title={`Email support desk directly at ${SUPPORT_EMAIL}`}
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Email Desk ({SUPPORT_EMAIL})</span>
+              <span className="sm:hidden">Email Desk</span>
+            </button>
+          )}
+
           <button
             onClick={fetchTickets}
             disabled={loading}
@@ -251,26 +276,44 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
                 </p>
               </div>
             ) : (
-              filteredTickets.map((t) => (
+              filteredTickets.map((t) => {
+                const isUnread = user.role === 'admin' ? t.adminRead === false : t.userRead === false;
+                return (
                 <button
                   key={t.id}
-                  onClick={() => setSelectedTicket(t)}
-                  className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                  onClick={() => handleSelectTicket(t)}
+                  className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer relative ${
                     selectedTicket?.id === t.id
-                      ? 'bg-slate-800 border-emerald-500/50 shadow-md'
+                      ? 'bg-slate-800 border-emerald-500/50 shadow-md ring-1 ring-emerald-500/30'
+                      : isUnread
+                      ? 'bg-slate-950/90 border-amber-500/40 shadow-sm'
                       : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-950'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-xs text-slate-100 truncate">{t.subject}</span>
-                    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${
-                      t.status === 'Open' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                      t.status === 'In Progress' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                      t.status === 'Resolved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                      'bg-slate-700/20 text-slate-400 border-slate-700/30'
-                    }`}>
-                      {t.status}
-                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {isUnread && (
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                      )}
+                      <span className={`text-xs truncate ${isUnread ? 'font-bold text-white' : 'font-semibold text-slate-100'}`}>
+                        {t.subject}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isUnread && (
+                        <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          NEW
+                        </span>
+                      )}
+                      <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${
+                        t.status === 'Open' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                        t.status === 'In Progress' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                        t.status === 'Resolved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                        'bg-slate-700/20 text-slate-400 border-slate-700/30'
+                      }`}>
+                        {t.status}
+                      </span>
+                    </div>
                   </div>
 
                   {user.role === 'admin' && (
@@ -291,7 +334,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
                     </span>
                   </div>
                 </button>
-              ))
+              );})
             )}
           </div>
         </div>
@@ -362,7 +405,20 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
                           ? 'bg-emerald-600/30 border border-emerald-500/30 rounded-tr-none' 
                           : 'bg-slate-950 border border-slate-800 rounded-tl-none'
                       }`}>
-                        {m.message}
+                        <p className="whitespace-pre-wrap">{m.message}</p>
+                        {!isUser && m.message.toLowerCase().includes('contact a live agent') && user.role !== 'admin' && (
+                          <div className="pt-2.5">
+                            <button
+                              type="button"
+                              onClick={() => openLiveAgentEmail(user, { amount: 2500, method: 'Payment Proof Verification' })}
+                              className="inline-flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>Contact Live Agent</span>
+                              <ExternalLink className="w-3 h-3 opacity-70" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -406,7 +462,12 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <h3 className="text-base font-bold text-white">Create New Support Inquiry</h3>
+            <div>
+              <h3 className="text-base font-bold text-white">Create New Support Inquiry</h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Official Support Desk: <span className="text-emerald-400 font-mono">{SUPPORT_EMAIL}</span>
+              </p>
+            </div>
 
             <form onSubmit={handleCreateTicket} className="space-y-3.5">
               <div>

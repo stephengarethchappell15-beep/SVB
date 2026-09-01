@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
+import { useNavigation } from '../context/NavigationContext';
+import { BackButton } from './BackButton';
 import { 
   Building2, 
   ShieldCheck, 
@@ -22,7 +24,8 @@ import {
   Sun,
   Moon,
   HelpCircle,
-  PhoneCall
+  PhoneCall,
+  ChevronLeft
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -49,22 +52,41 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleTheme,
 }) => {
   const [showSwitchMenu, setShowSwitchMenu] = useState(false);
+  const { canGoBack, goBack, previousState } = useNavigation();
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 text-slate-800 shadow-sm">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         
-        {/* Left: Official SVB Logo */}
-        <button 
-          onClick={() => setActiveTab(user ? 'dashboard' : 'home')}
-          className="flex items-center gap-3 group text-left transition-transform hover:opacity-95 focus:outline-none shrink-0"
-        >
-          <img 
-            src="/svb-logo-light.svg" 
-            alt="Silicon Valley Bank - A Division of First Citizens Bank" 
-            className="h-9 sm:h-10 w-auto object-contain"
-          />
-        </button>
+        {/* Left: Official SVB Logo + Back Button */}
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          {canGoBack && user && (
+            <button
+              type="button"
+              onClick={goBack}
+              title={previousState?.title ? `Go back to ${previousState.title}` : 'Go back to previous screen'}
+              aria-label={previousState?.title ? `Go back to ${previousState.title}` : 'Go back to previous screen'}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold text-[#002b49] bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-all cursor-pointer shadow-xs active:scale-95"
+            >
+              <ChevronLeft className="w-4 h-4 text-[#00a3e0]" />
+              <span className="hidden md:inline">
+                {previousState?.title ? `Back to ${previousState.title}` : 'Back'}
+              </span>
+              <span className="md:hidden">Back</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => setActiveTab(user ? 'dashboard' : 'home')}
+            className="flex items-center gap-3 group text-left transition-transform hover:opacity-95 focus:outline-none shrink-0"
+          >
+            <img 
+              src="/svb-logo-light.svg" 
+              alt="Silicon Valley Bank - A Division of First Citizens Bank" 
+              className="h-8 sm:h-10 w-auto object-contain"
+            />
+          </button>
+        </div>
 
         {/* Center: FDIC Insurance Banner */}
         <div className="hidden md:flex items-center gap-2 text-xs text-[#002b49] font-medium px-4 py-1 rounded-md bg-slate-50 border border-slate-200/80">

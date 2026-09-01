@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Shield, FileText, Info, Mail, AlertTriangle, Cookie, X, Building2, CheckCircle2 } from 'lucide-react';
+import { Shield, FileText, Info, Mail, AlertTriangle, Cookie, X, Building2, CheckCircle2, ArrowRight, ExternalLink } from 'lucide-react';
+import { SUPPORT_EMAIL, openSupportEmail } from '../utils/supportEmail';
 
 export type LegalDocType = 'privacy' | 'terms' | 'about' | 'contact' | 'disclaimer' | 'cookies';
 
@@ -176,11 +177,26 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, initialTab = 'pr
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-2">
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                  <p className="font-bold text-white">Client Support Desk</p>
-                  <p className="text-slate-400">Assigned Lead: Sarah Mitchell (Operations Specialist)</p>
-                  <p className="text-cyan-400 font-mono">siliconvalleybank51@gmail.com</p>
-                  <p className="text-slate-500 text-[11px]">Toll Free: 1-800-555-SVB-BANK</p>
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 flex flex-col justify-between">
+                  <div className="space-y-1.5">
+                    <p className="font-bold text-white">Client Support Desk</p>
+                    <p className="text-slate-400 text-xs">Assigned Lead: Sarah Mitchell (Operations Specialist)</p>
+                    <a
+                      href={`mailto:${SUPPORT_EMAIL}`}
+                      className="text-cyan-400 hover:text-cyan-300 font-mono text-sm font-semibold flex items-center gap-1.5 transition-colors block break-all"
+                    >
+                      {SUPPORT_EMAIL}
+                    </a>
+                    <p className="text-slate-500 text-[11px]">Toll Free: 1-800-555-SVB-BANK</p>
+                  </div>
+                  <button
+                    onClick={() => openSupportEmail()}
+                    className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl px-3 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Send Message to Support</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
                   <p className="font-bold text-white">Corporate Headquarters</p>

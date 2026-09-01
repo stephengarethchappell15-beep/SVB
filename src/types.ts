@@ -157,6 +157,7 @@ export interface SupportMessage {
 
 export interface SupportTicket {
   id: string;
+  ticketNumber?: string;
   userId: string;
   userEmail: string;
   userName: string;
@@ -166,6 +167,8 @@ export interface SupportTicket {
   status: 'Open' | 'In Progress' | 'Resolved' | 'Closed';
   priority: 'Low' | 'Medium' | 'High';
   messages: SupportMessage[];
+  adminRead?: boolean;
+  userRead?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -195,6 +198,7 @@ export interface UserNotification {
 }
 
 export interface DepositPayload {
+  userId?: string;
   userEmail: string;
   accountNumber: string;
   senderName?: string;

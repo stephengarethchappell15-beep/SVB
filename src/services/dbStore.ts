@@ -540,13 +540,18 @@ class LocalDBStore {
   // Support Tickets
   getSupportTickets(userId?: string, isAdmin?: boolean): SupportTicket[] {
     this.refresh();
-    if (isAdmin) return this.db.supportTickets;
-    return this.db.supportTickets.filter(t => t.userId === userId);
+    const list = isAdmin ? this.db.supportTickets : this.db.supportTickets.filter(t => t.userId === userId);
+    return [...list].sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
   }
 
   addSupportTicket(ticket: SupportTicket): SupportTicket {
     this.refresh();
-    this.db.supportTickets.unshift(ticket);
+    const idx = this.db.supportTickets.findIndex(t => t.id === ticket.id);
+    if (idx >= 0) {
+      this.db.supportTickets[idx] = { ...this.db.supportTickets[idx], ...ticket };
+    } else {
+      this.db.supportTickets.unshift(ticket);
+    }
     this.persist();
     return ticket;
   }
@@ -555,10 +560,28 @@ class LocalDBStore {
     this.refresh();
     const idx = this.db.supportTickets.findIndex(t => t.id === ticket.id);
     if (idx >= 0) {
-      this.db.supportTickets[idx] = ticket;
+      this.db.supportTickets[idx] = { ...this.db.supportTickets[idx], ...ticket };
+      this.persist();
+    } else {
+      this.db.supportTickets.unshift(ticket);
       this.persist();
     }
     return ticket;
+  }
+
+  markSupportTicketRead(ticketId: string, role: 'admin' | 'user'): SupportTicket | null {
+    this.refresh();
+    const idx = this.db.supportTickets.findIndex(t => t.id === ticketId);
+    if (idx >= 0) {
+      if (role === 'admin') {
+        this.db.supportTickets[idx].adminRead = true;
+      } else {
+        this.db.supportTickets[idx].userRead = true;
+      }
+      this.persist();
+      return this.db.supportTickets[idx];
+    }
+    return null;
   }
 
   // Virtual Cards

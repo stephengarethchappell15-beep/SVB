@@ -1,7 +1,7 @@
 import React from 'react';
 import { Mail, MessageSquare, ExternalLink, X, ShieldCheck, ArrowRight, Clock, AlertCircle } from 'lucide-react';
 import { User } from '../types';
-import { openLiveAgentEmail } from '../utils/supportEmail';
+import { openLiveAgentEmail, SUPPORT_EMAIL } from '../utils/supportEmail';
 
 interface PaymentProofOptionsModalProps {
   isOpen: boolean;
@@ -97,7 +97,7 @@ export const PaymentProofOptionsModal: React.FC<PaymentProofOptionsModalProps> =
             </div>
             
             <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-              <span className="text-emerald-400/90 font-mono text-[10px]">support@siliconvalleybank.com</span>
+              <span className="text-emerald-400/90 font-mono text-[10px]">{SUPPORT_EMAIL}</span>
               <span className="font-semibold text-emerald-400 flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
                 Open Email App <ArrowRight className="w-3 h-3" />
               </span>

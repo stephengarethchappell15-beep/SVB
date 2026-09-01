@@ -119,6 +119,17 @@ const handleAuthMe = async (req: express.Request, res: express.Response) => {
 app.get('/api/auth/me', handleAuthMe);
 app.get('/auth/me', handleAuthMe);
 
+// User: Get Profile
+const handleGetProfile = async (req: express.Request, res: express.Response) => {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.json({ user });
+};
+app.get('/api/user/profile', handleGetProfile);
+app.get('/user/profile', handleGetProfile);
+
 // User: Update Profile
 const handleProfileUpdate = async (req: express.Request, res: express.Response) => {
   const user = await getAuthUser(req);
@@ -330,14 +341,94 @@ app.post('/api/support/tickets/:id/reply', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
-    const { message } = req.body;
-    if (!message) {
+    const { message, images } = req.body;
+    if (!message && (!images || images.length === 0)) {
       return res.status(400).json({ error: 'Message content is required.' });
     }
-    const ticket = dbManager.replySupportTicket(req.params.id, user, message);
+    const ticket = dbManager.replySupportTicket(req.params.id, user, message || 'Attached file', images);
     res.json({ ticket });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reply to ticket.' });
+  }
+});
+
+// Support Tickets: Mark as Read
+app.post('/api/support/tickets/:id/read', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const role = user.role === 'admin' ? 'admin' : 'user';
+    const ticket = dbManager.markSupportTicketRead(req.params.id, role);
+    res.json({ ticket });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to mark ticket as read.' });
+  }
+});
+
+app.patch('/api/support/tickets/:id/read', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const role = user.role === 'admin' ? 'admin' : 'user';
+    const ticket = dbManager.markSupportTicketRead(req.params.id, role);
+    res.json({ ticket });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to mark ticket as read.' });
+  }
+});
+
+// Support Configuration Endpoint
+export const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'svbcustomerservice@outlook.com';
+
+app.get('/api/config/support', (req, res) => {
+  res.json({
+    supportEmail: SUPPORT_EMAIL,
+    phone: '1-800-555-SVB-BANK',
+    operatingHours: '24/7 Operations Desk',
+    headquarters: '3003 Tasman Drive, Santa Clara, CA 95054'
+  });
+});
+
+// General Contact Submission Endpoint
+app.post('/api/contact', async (req, res) => {
+  try {
+    const { name, email, subject, message, accountNumber } = req.body || {};
+    if (!message || (!email && !name)) {
+      return res.status(400).json({ error: 'Name, email, and message are required.' });
+    }
+
+    const authUser = await getAuthUser(req);
+    const senderUser = authUser || dbManager.findUserByEmail(email) || {
+      id: `guest-${Date.now()}`,
+      email: email || 'guest@client.svb',
+      fullName: name || 'Guest Client',
+      role: 'user' as const,
+      accountNumber: accountNumber || 'N/A',
+      balance: 0,
+      tier: 'Standard',
+      accountStatus: 'active' as const,
+      createdAt: new Date().toISOString()
+    };
+
+    const ticket = dbManager.createSupportTicket(senderUser as any, {
+      subject: subject || `Public Support Inquiry from ${name || email}`,
+      category: 'General',
+      priority: 'Medium',
+      message: `[Contact Form Submission via Website]\nSender: ${name || 'N/A'} <${email || 'N/A'}>\nAccount: ${accountNumber || senderUser.accountNumber || 'N/A'}\nDestination Desk: ${SUPPORT_EMAIL}\n\nMessage:\n${message}`
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Your message has been routed to our Official Support Desk at ${SUPPORT_EMAIL}. A compliance specialist will review your request promptly.`,
+      ticketNumber: ticket.ticketNumber,
+      destinationEmail: SUPPORT_EMAIL
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to process contact submission.' });
   }
 });
 
@@ -353,6 +444,64 @@ app.patch('/api/support/tickets/:id/status', async (req, res) => {
     res.json({ ticket });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to update ticket status.' });
+  }
+});
+
+// User: Submit Tier 3 Verification
+app.post('/api/user/verification', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const verif = dbManager.submitVerification(user, req.body);
+    res.status(201).json({ verification: verif });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to submit verification.' });
+  }
+});
+
+// Admin: Get Tier 3 VIP Verifications
+app.get('/api/admin/verifications', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
+  }
+  try {
+    const verifications = dbManager.getVerifications();
+    res.json({ verifications });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to get verifications.' });
+  }
+});
+
+// Admin: Approve Tier 3 Verification
+app.post('/api/admin/verifications/:id/approve', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
+  }
+  try {
+    const { notes } = req.body;
+    const result = dbManager.approveVerification(user, req.params.id, notes);
+    res.json({ message: 'Tier 3 verification approved.', ...result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to approve verification.' });
+  }
+});
+
+// Admin: Reject Tier 3 Verification
+app.post('/api/admin/verifications/:id/reject', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
+  }
+  try {
+    const { reason } = req.body;
+    const result = dbManager.rejectVerification(user, req.params.id, reason);
+    res.json({ message: 'Tier 3 verification rejected.', ...result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to reject verification.' });
   }
 });
 
@@ -429,7 +578,14 @@ app.post('/api/admin/deposit', async (req, res) => {
   }
 
   try {
-    const { userEmail, accountNumber, amount, currency, description, reference } = req.body;
+    let { userId, userEmail, accountNumber, amount, currency, description, reference } = req.body;
+    if (!userEmail && !accountNumber && userId) {
+      const u = dbManager.findUserById(userId);
+      if (u) {
+        userEmail = u.email;
+        accountNumber = u.accountNumber;
+      }
+    }
     if ((!userEmail && !accountNumber) || !amount) {
       return res.status(400).json({ error: 'User email or account number, and amount are required.' });
     }
@@ -441,6 +597,7 @@ app.post('/api/admin/deposit', async (req, res) => {
 
     const result = await dbManager.createDepositAsync(
       {
+        userId,
         userEmail,
         accountNumber,
         amount: numAmount,
@@ -454,6 +611,7 @@ app.post('/api/admin/deposit', async (req, res) => {
     res.status(200).json({
       message: 'Deposit processed successfully',
       updatedUser: result.user,
+      user: result.user,
       transaction: result.transaction
     });
   } catch (err: any) {
