@@ -1300,16 +1300,6 @@ class DatabaseManager {
     };
 
     const messages: SupportMessage[] = [firstMsg];
-    if (user.role !== 'admin') {
-      messages.push({
-        id: `msg-${Date.now() + 50}`,
-        senderId: 'svb-system-support',
-        senderName: 'SVB Live Support',
-        senderRole: 'admin',
-        message: 'We are unavailable right now. Kindly hold, or contact a live agent.',
-        createdAt: new Date(Date.now() + 100).toISOString()
-      });
-    }
 
     const newTicket: SupportTicket = {
       id: ticketId,
@@ -1326,7 +1316,7 @@ class DatabaseManager {
       adminRead: user.role === 'admin',
       userRead: user.role !== 'admin',
       createdAt: now,
-      updatedAt: user.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
+      updatedAt: now
     };
 
     this.db.supportTickets.unshift(newTicket);

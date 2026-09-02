@@ -32,6 +32,13 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
   // Chat Reply State
   const [replyText, setReplyText] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedTicket) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [selectedTicket?.id, selectedTicket?.messages?.length]);
 
   const fetchTickets = async () => {
     try {
@@ -429,6 +436,7 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
                     </div>
                   );
                 })}
+                <div ref={messagesEndRef} />
               </div>
 
               {/* Reply Input Box */}

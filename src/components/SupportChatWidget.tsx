@@ -28,6 +28,11 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
   const [selectedImageModal, setSelectedImageModal] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const isOpenRef = useRef(isOpen);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   useEffect(() => {
     const handleOpenChat = () => {
@@ -52,7 +57,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
 
         // Check if latest message is from support and created recently or unread
         const lastMsg = latest.messages[latest.messages.length - 1];
-        if (lastMsg && lastMsg.senderRole === 'admin' && !isOpen) {
+        if (lastMsg && lastMsg.senderRole === 'admin' && !isOpenRef.current) {
           setHasUnread(true);
         }
       }
@@ -64,7 +69,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
   };
 
   useEffect(() => {
-    fetchUserTickets();
+    fetchUserTickets(false);
 
     const unsub = subscribeSupportTicketsFromFirestore(user.id, false, (fsTickets) => {
       if (fsTickets && fsTickets.length > 0) {
@@ -73,21 +78,17 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
         const latest = fsTickets[0];
         setActiveTicket(latest);
         const lastMsg = latest.messages[latest.messages.length - 1];
-        if (lastMsg && lastMsg.senderRole === 'admin' && !isOpen) {
+        if (lastMsg && lastMsg.senderRole === 'admin' && !isOpenRef.current) {
           setHasUnread(true);
         }
+        setLoading(false);
       }
     });
 
-    const interval = setInterval(() => {
-      fetchUserTickets(true);
-    }, 5000);
-
     return () => {
       unsub();
-      clearInterval(interval);
     };
-  }, [user.id, isOpen]);
+  }, [user.id]);
 
   useEffect(() => {
     if (isOpen) {
@@ -98,7 +99,7 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
         setActiveTicket(prev => prev ? { ...prev, userRead: true } : null);
       }
     }
-  }, [isOpen, activeTicket?.id, activeTicket?.messages]);
+  }, [isOpen, activeTicket?.id, activeTicket?.messages?.length]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,32 +118,37 @@ export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ user }) =>
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageText.trim() && !attachedImage) return;
+    const textToSend = messageText.trim();
+    const imgToSend = attachedImage;
+    if (!textToSend && !imgToSend) return;
+
+    setMessageText('');
+    setAttachedImage('');
 
     try {
       setSending(true);
-      const images = attachedImage ? [attachedImage] : undefined;
+      const images = imgToSend ? [imgToSend] : undefined;
 
       if (activeTicket) {
-        const res = await api.replySupportTicket(activeTicket.id, messageText.trim() || 'Attached Image', images);
+        const res = await api.replySupportTicket(activeTicket.id, textToSend || 'Attached Image', images);
         setActiveTicket(res.ticket);
       } else {
         const res = await api.createSupportTicket({
           subject: 'Customer Support Consultation',
           category: 'General',
           priority: 'Medium',
-          message: messageText.trim() || 'Attached Image',
+          message: textToSend || 'Attached Image',
           images
         });
         setActiveTicket(res.ticket);
-        fetchUserTickets(true);
       }
-      setMessageText('');
-      setAttachedImage('');
     } catch (err: any) {
       alert(err.message || 'Failed to send message to Customer Support.');
     } finally {
       setSending(false);
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
   };
 

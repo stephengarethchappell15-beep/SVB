@@ -1931,25 +1931,16 @@ export const api = {
       createdAt: now
     }];
 
-    if (current.role !== 'admin') {
-      updatedMessages.push({
-        id: `MSG-${Date.now() + 50}`,
-        senderId: 'svb-system-support',
-        senderName: 'SVB Live Support',
-        senderRole: 'admin',
-        message: 'We are unavailable right now. Kindly hold, or contact a live agent.',
-        createdAt: new Date(Date.now() + 100).toISOString()
-      });
-    }
-
     const updatedTicket: SupportTicket = {
       ...ticket,
       messages: updatedMessages,
       status: current.role === 'admin' ? 'In Progress' : 'Open',
       adminRead: current.role === 'admin',
       userRead: current.role !== 'admin',
-      updatedAt: current.role !== 'admin' ? new Date(Date.now() + 100).toISOString() : now
+      updatedAt: now
     };
+
+    let resultTicket = updatedTicket;
 
     try {
       const backendRes = await requestApi<{ ticket: SupportTicket }>(`/support/tickets/${ticketId}/reply`, {
@@ -1957,16 +1948,14 @@ export const api = {
         body: JSON.stringify({ message, images })
       });
       if (backendRes && backendRes.ticket) {
-        dbStore.updateSupportTicket(backendRes.ticket);
-        syncSupportTicketToFirestore(backendRes.ticket);
-      } else {
-        dbStore.updateSupportTicket(updatedTicket);
-        syncSupportTicketToFirestore(updatedTicket);
+        resultTicket = backendRes.ticket;
       }
     } catch (e) {
-      dbStore.updateSupportTicket(updatedTicket);
-      syncSupportTicketToFirestore(updatedTicket);
+      console.warn('Backend replySupportTicket fallback:', e);
     }
+
+    dbStore.updateSupportTicket(resultTicket);
+    syncSupportTicketToFirestore(resultTicket);
 
     if (current.role !== 'admin') {
       dispatchAdminAlert({
