@@ -1839,17 +1839,6 @@ export const api = {
       createdAt: now
     }];
 
-    if (current.role !== 'admin') {
-      initialMessages.push({
-        id: `MSG-${Date.now() + 50}`,
-        senderId: 'svb-system-support',
-        senderName: 'SVB Live Support',
-        senderRole: 'admin',
-        message: 'We are unavailable right now. Kindly hold, or contact a live agent.',
-        createdAt: new Date(Date.now() + 100).toISOString()
-      });
-    }
-
     const ticket: SupportTicket = {
       id: ticketId,
       ticketNumber: `TK-${Date.now().toString().slice(-6)}`,

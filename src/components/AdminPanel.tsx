@@ -394,6 +394,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       senderName = input.trim();
     }
 
+    // Optimistically update local sysTxns status to Completed
+    setSysTxns(prev => prev.map(t => t.id === txnId ? { ...t, status: 'Completed', updatedAt: new Date().toISOString() } : t));
+
     try {
       await api.approveTransaction(txnId, senderName);
       alert('Transaction approved successfully! Account credited.');
@@ -402,11 +405,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       await fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Approval failed.');
+      await fetchSysTxns();
     }
   };
 
   const handleCancelTxn = async (txnId: string) => {
     if (!confirm('Are you sure you want to cancel this transfer/transaction? User funds will be adjusted.')) return;
+    
+    // Optimistically update local sysTxns status to Cancelled
+    setSysTxns(prev => prev.map(t => t.id === txnId ? { ...t, status: 'Cancelled', updatedAt: new Date().toISOString() } : t));
+
     try {
       await api.adminCancelTransaction(txnId);
       alert('Transaction cancelled successfully.');
@@ -415,12 +423,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       await fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Cancellation failed.');
+      await fetchSysTxns();
     }
   };
 
   const handleRejectTxn = async (txnId: string) => {
     const reason = prompt('Enter cancellation/rejection reason (optional):', 'Cancelled / Declined by SVB Review');
     if (reason === null) return; // user cancelled prompt
+
+    // Optimistically update local sysTxns status to Rejected
+    setSysTxns(prev => prev.map(t => t.id === txnId ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
+
     try {
       await api.rejectTransaction(txnId, reason.trim() || 'Cancelled / Declined by SVB Review');
       alert('Transaction cancelled / rejected successfully. Status updated.');
@@ -429,6 +442,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       await fetchCryptoDeposits();
     } catch (err: any) {
       alert(err.message || 'Rejection failed.');
+      await fetchSysTxns();
     }
   };
 
@@ -702,113 +716,188 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-3">Submission Date</th>
-                  <th className="py-3 px-3">Reference / ID</th>
-                  <th className="py-3 px-3">Client User</th>
-                  <th className="py-3 px-3">Type & Details</th>
-                  <th className="py-3 px-3">Amount</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3 text-right">Review Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                {loadingTxns ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-500">
-                      Loading pending transactions queue...
-                    </td>
-                  </tr>
-                ) : sysTxns.filter(t => t.status === 'Pending').length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-400">
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-400 opacity-60" />
-                        <p className="font-semibold text-slate-300">All caught up! No pending transactions in the queue.</p>
-                        <p className="text-[11px] text-slate-500">New user transfers and submissions will automatically appear here for approval.</p>
+          {loadingTxns ? (
+            <div className="text-center py-12 text-slate-500 text-xs">
+              Loading pending transactions queue...
+            </div>
+          ) : sysTxns.filter(t => t.status === 'Pending').length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <div className="flex flex-col items-center justify-center space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400 opacity-60" />
+                <p className="font-semibold text-slate-300 text-sm">All caught up! No pending transactions in the queue.</p>
+                <p className="text-xs text-slate-500">New user transfers and submissions will automatically appear here for approval.</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Mobile View: Clean Card Layout */}
+              <div className="block md:hidden space-y-4">
+                {sysTxns
+                  .filter(t => {
+                    if (t.status !== 'Pending') return false;
+                    if (!pendingQueueSearch.trim()) return true;
+                    const q = pendingQueueSearch.toLowerCase().trim();
+                    return (
+                      (t.reference && t.reference.toLowerCase().includes(q)) ||
+                      (t.id && t.id.toLowerCase().includes(q)) ||
+                      (t.senderName && t.senderName.toLowerCase().includes(q)) ||
+                      (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
+                      (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
+                      (t.type && t.type.toLowerCase().includes(q)) ||
+                      (t.description && t.description.toLowerCase().includes(q)) ||
+                      (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
+                      (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((t) => (
+                    <div key={t.id} className="bg-slate-950/80 border border-slate-800/90 rounded-2xl p-4 space-y-3 shadow-md">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                        <span className="font-mono text-xs text-amber-400 font-bold">{t.reference}</span>
+                        <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
+                          <Clock className="w-3 h-3 animate-spin text-amber-400" /> Pending Review
+                        </span>
                       </div>
-                    </td>
-                  </tr>
-                ) : (
-                  sysTxns
-                    .filter(t => {
-                      if (t.status !== 'Pending') return false;
-                      if (!pendingQueueSearch.trim()) return true;
-                      const q = pendingQueueSearch.toLowerCase().trim();
-                      return (
-                        (t.reference && t.reference.toLowerCase().includes(q)) ||
-                        (t.id && t.id.toLowerCase().includes(q)) ||
-                        (t.senderName && t.senderName.toLowerCase().includes(q)) ||
-                        (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
-                        (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
-                        (t.type && t.type.toLowerCase().includes(q)) ||
-                        (t.description && t.description.toLowerCase().includes(q)) ||
-                        (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
-                        (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
-                      );
-                    })
-                    .map((t) => (
-                      <tr key={t.id} className="hover:bg-slate-950/50 transition-colors">
-                        <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
-                          {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
 
-                        <td className="py-3 px-3 font-mono text-amber-400 font-semibold whitespace-nowrap">
-                          {t.reference}
-                        </td>
-
-                        <td className="py-3 px-3 font-medium">
-                          <div className="font-semibold text-white">{t.senderName || t.userEmail}</div>
-                          <div className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</div>
-                        </td>
-
-                        <td className="py-3 px-3">
-                          <div className="font-semibold text-white">{t.type}</div>
-                          <div className="text-[11px] text-slate-400">{t.description}</div>
-                          {t.recipientAccountNumber && (
-                            <div className="text-[10px] text-emerald-400 font-mono mt-0.5">Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}</div>
-                          )}
-                          {t.destinationBank && (
-                            <div className="text-[10px] text-cyan-400 mt-0.5">Bank: {t.destinationBank} ({t.destinationCountry || 'US'})</div>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-3 font-mono font-bold text-emerald-400 text-sm whitespace-nowrap">
-                          ${t.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit">
-                            <Clock className="w-3 h-3 animate-spin text-amber-400" /> Pending Review
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-white">{t.senderName || t.userEmail}</p>
+                          <p className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-base font-black font-mono text-emerald-400">
+                            ${t.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
-                        </td>
+                        </div>
+                      </div>
 
-                        <td className="py-3 px-3 text-right whitespace-nowrap space-x-2">
-                          <button
-                            onClick={() => handleApproveTxn(t.id, t.senderName)}
-                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
-                            title="Approve transaction and credit recipient account"
-                          >
-                            <CheckCircle2 className="w-4 h-4" /> Approve & Credit
-                          </button>
+                      <div className="bg-slate-900/60 rounded-xl p-2.5 text-[11px] space-y-1 border border-slate-800/50">
+                        <div className="text-slate-200 font-semibold">{t.type} • {t.description}</div>
+                        {t.recipientAccountNumber && (
+                          <div className="text-emerald-400 font-mono text-[10px]">
+                            Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}
+                          </div>
+                        )}
+                        {t.destinationBank && (
+                          <div className="text-cyan-400 text-[10px]">
+                            Bank: {t.destinationBank} ({t.destinationCountry || 'US'})
+                          </div>
+                        )}
+                        <div className="text-slate-500 text-[10px]">
+                          Submitted: {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
 
-                          <button
-                            onClick={() => handleRejectTxn(t.id)}
-                            className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-1 cursor-pointer"
-                            title="Reject transaction and refund user balance"
-                          >
-                            <XCircle className="w-4 h-4" /> Cancel / Reject & Refund
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          onClick={() => handleApproveTxn(t.id, t.senderName)}
+                          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> Approve & Credit
+                        </button>
+
+                        <button
+                          onClick={() => handleRejectTxn(t.id)}
+                          className="w-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <XCircle className="w-4 h-4" /> Cancel / Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Desktop View: Full Width Table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse min-w-[850px]">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
+                      <th className="py-3 px-3">Submission Date</th>
+                      <th className="py-3 px-3">Reference / ID</th>
+                      <th className="py-3 px-3">Client User</th>
+                      <th className="py-3 px-3">Type & Details</th>
+                      <th className="py-3 px-3">Amount</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3 text-right">Review Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-slate-200">
+                    {sysTxns
+                      .filter(t => {
+                        if (t.status !== 'Pending') return false;
+                        if (!pendingQueueSearch.trim()) return true;
+                        const q = pendingQueueSearch.toLowerCase().trim();
+                        return (
+                          (t.reference && t.reference.toLowerCase().includes(q)) ||
+                          (t.id && t.id.toLowerCase().includes(q)) ||
+                          (t.senderName && t.senderName.toLowerCase().includes(q)) ||
+                          (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
+                          (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
+                          (t.type && t.type.toLowerCase().includes(q)) ||
+                          (t.description && t.description.toLowerCase().includes(q)) ||
+                          (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
+                          (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-950/50 transition-colors">
+                          <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
+                            {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+
+                          <td className="py-3 px-3 font-mono text-amber-400 font-semibold whitespace-nowrap">
+                            {t.reference}
+                          </td>
+
+                          <td className="py-3 px-3 font-medium">
+                            <div className="font-semibold text-white">{t.senderName || t.userEmail}</div>
+                            <div className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</div>
+                          </td>
+
+                          <td className="py-3 px-3">
+                            <div className="font-semibold text-white">{t.type}</div>
+                            <div className="text-[11px] text-slate-400">{t.description}</div>
+                            {t.recipientAccountNumber && (
+                              <div className="text-[10px] text-emerald-400 font-mono mt-0.5">Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}</div>
+                            )}
+                            {t.destinationBank && (
+                              <div className="text-[10px] text-cyan-400 mt-0.5">Bank: {t.destinationBank} ({t.destinationCountry || 'US'})</div>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 font-mono font-bold text-emerald-400 text-sm whitespace-nowrap">
+                            ${t.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit">
+                              <Clock className="w-3 h-3 animate-spin text-amber-400" /> Pending Review
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-right whitespace-nowrap space-x-2">
+                            <button
+                              onClick={() => handleApproveTxn(t.id, t.senderName)}
+                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
+                              title="Approve transaction and credit recipient account"
+                            >
+                              <CheckCircle2 className="w-4 h-4" /> Approve & Credit
+                            </button>
+
+                            <button
+                              onClick={() => handleRejectTxn(t.id)}
+                              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-1 cursor-pointer"
+                              title="Reject transaction and refund user balance"
+                            >
+                              <XCircle className="w-4 h-4" /> Cancel / Reject & Refund
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
