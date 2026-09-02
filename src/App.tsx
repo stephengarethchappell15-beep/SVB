@@ -25,13 +25,13 @@ import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore } from '
 import { subscribeAdminAlerts, AdminAlert } from './services/adminAlerts';
 import { User, Transaction, UserNotification } from './types';
 import { ShieldCheck, Building2, ShieldAlert, Bell, ArrowUpRight, X } from 'lucide-react';
+import { NavigationProvider, useNavigation, MainTabType } from './context/NavigationContext';
 
-export default function App() {
+function AppContent() {
+  const { activeTab, navigateTo, resetHistory } = useNavigation();
+  const setActiveTab = (tab: MainTabType) => navigateTo(tab);
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
   const [user, setUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<
-    'home' | 'dashboard' | 'cards' | 'bills' | 'deposit' | 'withdraw' | 'send' | 'receive' | 'history' | 'profile' | 'settings' | 'support' | 'admin'
-  >('dashboard');
   
   // Data states
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -71,7 +71,9 @@ export default function App() {
           const res = await api.getMe();
           setUser(res.user);
           if (res.user.role === 'admin') {
-            setActiveTab(prev => prev === 'home' ? 'admin' : prev);
+            if (activeTab === 'home') setActiveTab('admin');
+          } else {
+            if (activeTab === 'home') setActiveTab('dashboard');
           }
         } catch (apiErr) {
           console.warn('api.getMe error, checking local fallback:', apiErr);
@@ -79,7 +81,9 @@ export default function App() {
           if (localUser) {
             setUser(localUser);
             if (localUser.role === 'admin') {
-              setActiveTab(prev => prev === 'home' ? 'admin' : prev);
+              if (activeTab === 'home') setActiveTab('admin');
+            } else {
+              if (activeTab === 'home') setActiveTab('dashboard');
             }
           } else {
             removeStoredToken();
@@ -95,7 +99,9 @@ export default function App() {
       if (localUser) {
         setUser(localUser);
         if (localUser.role === 'admin') {
-          setActiveTab(prev => prev === 'home' ? 'admin' : prev);
+          if (activeTab === 'home') setActiveTab('admin');
+        } else {
+          if (activeTab === 'home') setActiveTab('dashboard');
         }
       } else {
         removeStoredToken();
@@ -185,7 +191,7 @@ export default function App() {
   const handleLogout = async () => {
     await api.logout();
     setUser(null);
-    setActiveTab('home');
+    resetHistory('home');
     setShowAuthModal(true);
   };
 
@@ -478,6 +484,14 @@ export default function App() {
       />
 
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <NavigationProvider>
+      <AppContent />
+    </NavigationProvider>
   );
 }
 

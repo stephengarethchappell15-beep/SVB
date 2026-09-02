@@ -13,6 +13,7 @@ import {
   XCircle,
   Tag
 } from 'lucide-react';
+import { BackButton } from './BackButton';
 
 interface TransactionHistoryProps {
   transactions: Transaction[];
@@ -71,6 +72,10 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
       
       {/* Header & Controls */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">

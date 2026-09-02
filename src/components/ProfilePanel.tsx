@@ -3,6 +3,7 @@ import { User } from '../types';
 import { api } from '../services/api';
 import { Tier3VerificationPanel } from './Tier3VerificationPanel';
 import { User as UserIcon, Mail, Phone, MapPin, CreditCard, Calendar, Save, CheckCircle2, AlertCircle, Camera, Upload, Trash2, Image } from 'lucide-react';
+import { BackButton } from './BackButton';
 
 interface ProfilePanelProps {
   user: User;
@@ -134,6 +135,11 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ user, onUpdateUser }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Profile Header */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
         <div className="flex flex-col sm:flex-row items-center gap-6">

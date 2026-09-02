@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
 import { ShieldCheck, Lock, Bell, Key, CheckCircle2, AlertCircle, Smartphone, Mail, ToggleLeft, ToggleRight } from 'lucide-react';
+import { BackButton } from './BackButton';
 
 interface SettingsPanelProps {
   user: User;
@@ -71,6 +72,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ user, onUpdateUser
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Title Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
         <div className="flex items-center gap-4">

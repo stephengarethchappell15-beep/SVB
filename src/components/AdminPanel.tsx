@@ -19,6 +19,8 @@ import {
   requestAdminNotificationPermission 
 } from '../services/adminAlerts';
 import { ShieldAlert, Users, Sparkles, FileText, Headphones, Search, UserCheck, Shield, DollarSign, ArrowUpRight, CheckCircle2, XCircle, Clock, Key, ArrowDownRight, Ban, ShieldCheck, UserPlus, X, Plus, Bell, Volume2, VolumeX, Radio, Zap, Check } from 'lucide-react';
+import { BackButton } from './BackButton';
+import { useNavigation } from '../context/NavigationContext';
 
 interface AdminPanelProps {
   adminUser: User;
@@ -26,7 +28,19 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSuccess }) => {
-  const [subTab, setSubTab] = useState<'pending' | 'users' | 'funding' | 'crypto' | 'withdraw' | 'audit' | 'support' | 'verifications'>('pending');
+  const { currentSubTab, setSubTab: navSetSubTab } = useNavigation();
+  const [subTab, setSubTabState] = useState<'pending' | 'users' | 'funding' | 'crypto' | 'withdraw' | 'audit' | 'support' | 'verifications'>('pending');
+
+  const setSubTab = (newTab: 'pending' | 'users' | 'funding' | 'crypto' | 'withdraw' | 'audit' | 'support' | 'verifications') => {
+    setSubTabState(newTab);
+    navSetSubTab(newTab);
+  };
+
+  useEffect(() => {
+    if (currentSubTab && ['pending', 'users', 'funding', 'crypto', 'withdraw', 'audit', 'support', 'verifications'].includes(currentSubTab)) {
+      setSubTabState(currentSubTab as any);
+    }
+  }, [currentSubTab]);
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -442,6 +456,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
   return (
     <div className="space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton variant="admin" />
+      </div>
+
       {/* Admin Top Banner */}
       <div className="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />

@@ -3,6 +3,7 @@ import { User } from '../types';
 import { api } from '../services/api';
 import { subscribeCryptoAddressesFromFirestore } from '../lib/firebase';
 import { ArrowDownLeft, Copy, Check, QrCode, Building2, ShieldCheck, Share2, Globe2, Wallet, Coins } from 'lucide-react';
+import { BackButton } from './BackButton';
 
 interface ReceivePanelProps {
   user: User;
@@ -58,6 +59,11 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Top Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
         <div className="flex items-center justify-between gap-4">

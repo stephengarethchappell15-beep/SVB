@@ -65,8 +65,8 @@ interface NavigationContextType {
 
 const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
 
-export const NavigationProvider: React.FC<{ children: ReactNode; user: User | null }> = ({ children, user }) => {
-  const defaultTab: MainTabType = user ? (user.role === 'admin' ? 'admin' : 'dashboard') : 'home';
+export const NavigationProvider: React.FC<{ children: ReactNode; user?: User | null }> = ({ children, user = null }) => {
+  const defaultTab: MainTabType = user ? (user.role === 'admin' ? 'admin' : 'dashboard') : 'dashboard';
   
   const [historyStack, setHistoryStack] = useState<NavigationState[]>([
     { tab: defaultTab, title: TAB_TITLES[defaultTab] }
@@ -81,9 +81,12 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user: User | nu
 
   // Sync with browser history popstate (Back/Forward buttons)
   useEffect(() => {
-    // Initial state push so back button has something to pop
-    if (!window.history.state) {
-      window.history.replaceState({ tab: currentState.tab, subTab: currentState.subTab, index: 0 }, '');
+    try {
+      if (typeof window !== 'undefined' && window.history && !window.history.state) {
+        window.history.replaceState({ tab: currentState.tab, subTab: currentState.subTab, index: 0 }, '');
+      }
+    } catch (e) {
+      console.warn('History init warning:', e);
     }
 
     const handlePopState = (event: PopStateEvent) => {
@@ -95,20 +98,24 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user: User | nu
           : TAB_TITLES[targetTab] || targetTab;
 
         setHistoryStack(prev => {
-          // If we have history to pop back to
           if (prev.length > 1) {
             return prev.slice(0, prev.length - 1);
           }
           return [{ tab: targetTab, subTab: targetSubTab, title: targetTitle }];
         });
       } else {
-        // If state is empty, pop or fallback to default
         setHistoryStack(prev => (prev.length > 1 ? prev.slice(0, prev.length - 1) : prev));
       }
     };
 
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('popstate', handlePopState);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('popstate', handlePopState);
+      }
+    };
   }, []);
 
   const navigateTo = useCallback((
@@ -126,18 +133,26 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user: User | nu
     setHistoryStack(prev => {
       const current = prev[prev.length - 1];
       if (current && current.tab === tab && current.subTab === options?.subTab && !options?.replace) {
-        return prev; // Already on this tab/subTab
+        return prev;
       }
 
       if (options?.replace) {
         const updated = [...prev];
         updated[updated.length - 1] = newState;
-        window.history.replaceState({ tab, subTab: options?.subTab, index: updated.length - 1 }, '');
+        try {
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({ tab, subTab: options?.subTab, index: updated.length - 1 }, '');
+          }
+        } catch (e) {}
         return updated;
       }
 
       const nextStack = [...prev, newState];
-      window.history.pushState({ tab, subTab: options?.subTab, index: nextStack.length - 1 }, '');
+      try {
+        if (typeof window !== 'undefined') {
+          window.history.pushState({ tab, subTab: options?.subTab, index: nextStack.length - 1 }, '');
+        }
+      } catch (e) {}
       return nextStack;
     });
   }, []);
@@ -156,7 +171,11 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user: User | nu
       };
 
       const nextStack = [...prev, newState];
-      window.history.pushState({ tab: current.tab, subTab, index: nextStack.length - 1 }, '');
+      try {
+        if (typeof window !== 'undefined') {
+          window.history.pushState({ tab: current.tab, subTab, index: nextStack.length - 1 }, '');
+        }
+      } catch (e) {}
       return nextStack;
     });
   }, []);
@@ -165,19 +184,25 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user: User | nu
     setHistoryStack(prev => {
       if (prev.length > 1) {
         const nextStack = prev.slice(0, prev.length - 1);
-        const target = nextStack[nextStack.length - 1];
-        window.history.back();
+        try {
+          if (typeof window !== 'undefined') {
+            window.history.back();
+          }
+        } catch (e) {}
         return nextStack;
       }
       
-      // Fallback when stack is empty but we're not on dashboard/home
-      const fallbackTab: MainTabType = user ? (user.role === 'admin' ? 'admin' : 'dashboard') : 'home';
+      const fallbackTab: MainTabType = user ? (user.role === 'admin' ? 'admin' : 'dashboard') : 'dashboard';
       if (prev.length === 1 && prev[0].tab !== fallbackTab) {
         const fallbackState: NavigationState = {
           tab: fallbackTab,
           title: TAB_TITLES[fallbackTab]
         };
-        window.history.pushState({ tab: fallbackTab, index: 0 }, '');
+        try {
+          if (typeof window !== 'undefined') {
+            window.history.pushState({ tab: fallbackTab, index: 0 }, '');
+          }
+        } catch (e) {}
         return [fallbackState];
       }
 
@@ -188,7 +213,11 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user: User | nu
   const resetHistory = useCallback((initialTab: MainTabType) => {
     const title = TAB_TITLES[initialTab] || initialTab;
     setHistoryStack([{ tab: initialTab, title }]);
-    window.history.replaceState({ tab: initialTab, index: 0 }, '');
+    try {
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({ tab: initialTab, index: 0 }, '');
+      }
+    } catch (e) {}
   }, []);
 
   // Determine if user can go back

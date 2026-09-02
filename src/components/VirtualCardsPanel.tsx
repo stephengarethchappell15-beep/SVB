@@ -17,6 +17,7 @@ import {
   Sparkles,
   Check
 } from 'lucide-react';
+import { BackButton } from './BackButton';
 
 interface VirtualCardsPanelProps {
   user: User;
@@ -122,7 +123,12 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-12">
+    <div className="max-w-7xl mx-auto space-y-6 pb-12">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />

@@ -18,6 +18,7 @@ import {
   Mail,
   Lock
 } from 'lucide-react';
+import { BackButton } from './BackButton';
 
 interface AdminDepositPanelProps {
   currentUser: User;
@@ -144,6 +145,10 @@ export const AdminDepositPanel: React.FC<AdminDepositPanelProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton variant="admin" />
+      </div>
       
       {/* Header */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">

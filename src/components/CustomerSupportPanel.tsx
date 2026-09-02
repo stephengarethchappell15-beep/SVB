@@ -5,6 +5,7 @@ import { subscribeSupportTicketsFromFirestore } from '../lib/firebase';
 import { dbStore } from '../services/dbStore';
 import { Headphones, MessageSquare, Plus, Send, Clock, CheckCircle, AlertCircle, ShieldAlert, User as UserIcon, LifeBuoy, Search, Filter, RefreshCw, Hash, Mail, ArrowRight, ExternalLink } from 'lucide-react';
 import { openLiveAgentEmail, openSupportEmail, SUPPORT_EMAIL } from '../utils/supportEmail';
+import { BackButton } from './BackButton';
 
 interface CustomerSupportPanelProps {
   user: User;
@@ -152,6 +153,11 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {/* Top Navigation Row */}
+      <div className="flex items-center justify-between">
+        <BackButton />
+      </div>
+
       {/* Top Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
