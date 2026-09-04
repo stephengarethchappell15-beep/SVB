@@ -580,7 +580,7 @@ app.post('/api/admin/deposit', async (req, res) => {
   try {
     let { userId, userEmail, accountNumber, amount, currency, description, reference } = req.body;
     if (!userEmail && !accountNumber && userId) {
-      const u = dbManager.findUserById(userId);
+      const u = await dbManager.findUserByIdAsync(userId);
       if (u) {
         userEmail = u.email;
         accountNumber = u.accountNumber;

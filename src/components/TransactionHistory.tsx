@@ -32,11 +32,11 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const filtered = transactions.filter((t) => {
     const q = searchQuery.toLowerCase().trim();
     const matchesQuery = 
-      t.reference.toLowerCase().includes(q) ||
-      t.accountNumber.toLowerCase().includes(q) ||
-      t.description.toLowerCase().includes(q) ||
+      (t.reference || '').toLowerCase().includes(q) ||
+      (t.accountNumber || '').toLowerCase().includes(q) ||
+      (t.description || '').toLowerCase().includes(q) ||
       (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
-      (isAdmin && (t.userEmail.toLowerCase().includes(q) || (t.createdByAdminEmail && t.createdByAdminEmail.toLowerCase().includes(q))));
+      (isAdmin && (((t.userEmail || '').toLowerCase().includes(q)) || (t.createdByAdminEmail && t.createdByAdminEmail.toLowerCase().includes(q))));
 
     const matchesCurrency = currencyFilter === 'ALL' || t.currency === currencyFilter;
 
@@ -48,16 +48,16 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
     const headers = ['Date', 'Reference', 'User Email', 'Account Number', 'Amount', 'Currency', 'Type', 'Status', 'Description', 'Processed By SVB Review'];
     const rows = filtered.map(t => [
-      `"${new Date(t.createdAt).toLocaleString()}"`,
-      `"${t.reference}"`,
-      `"${t.userEmail}"`,
-      `"${t.accountNumber}"`,
-      t.amount,
-      `"${t.currency}"`,
-      `"${t.type}"`,
-      `"${t.status}"`,
-      `"${t.description.replace(/"/g, '""')}"`,
-      `"${t.createdByAdminEmail}"`
+      `"${new Date(t.createdAt || Date.now()).toLocaleString()}"`,
+      `"${t.reference || ''}"`,
+      `"${t.userEmail || ''}"`,
+      `"${t.accountNumber || ''}"`,
+      Number(t.amount) || 0,
+      `"${t.currency || 'USD'}"`,
+      `"${t.type || ''}"`,
+      `"${t.status || ''}"`,
+      `"${(t.description || '').replace(/"/g, '""')}"`,
+      `"${t.createdByAdminEmail || ''}"`
     ]);
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -164,7 +164,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 {filtered.map((txn) => (
                   <tr key={txn.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-3 text-slate-300 whitespace-nowrap">
-                      {new Date(txn.createdAt).toLocaleString()}
+                      {new Date(txn.createdAt || Date.now()).toLocaleString()}
                     </td>
                     <td className="py-3.5 px-3 font-mono text-emerald-400 font-semibold whitespace-nowrap">
                       {txn.reference}
@@ -186,7 +186,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                     <td className={`py-3.5 px-3 font-bold text-sm whitespace-nowrap ${
                       txn.type === 'Deposit' || txn.type === 'Credit' ? 'text-emerald-400' : 'text-slate-200'
                     }`}>
-                      {txn.type === 'Deposit' || txn.type === 'Credit' ? '+' : '-'}${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
+                      {txn.type === 'Deposit' || txn.type === 'Credit' ? '+' : '-'}${(Number(txn.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
                     </td>
                     <td className="py-3.5 px-3">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1.5 uppercase ${

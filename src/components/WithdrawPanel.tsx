@@ -221,7 +221,7 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
           <div>
             <p className="text-xs text-slate-400 font-medium">Available Balance</p>
             <p className="text-2xl font-bold text-emerald-400 mt-0.5">
-              ${user.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-slate-400">{user.currency}</span>
+              ${(Number(user.balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-slate-400">{user.currency}</span>
             </p>
           </div>
           <div className="text-right">
@@ -247,7 +247,7 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
             </p>
             <p className="flex justify-between text-slate-400">
               <span>Amount Withdrawn:</span>
-              <span className="text-white font-semibold">${successTxn.amount.toFixed(2)} USD</span>
+              <span className="text-white font-semibold">${(Number(successTxn.amount) || 0).toFixed(2)} USD</span>
             </p>
             <p className="flex justify-between text-slate-400">
               <span>Destination:</span>

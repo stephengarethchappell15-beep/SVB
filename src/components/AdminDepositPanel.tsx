@@ -120,6 +120,7 @@ export const AdminDepositPanel: React.FC<AdminDepositPanelProps> = ({
 
     try {
       const payload: DepositPayload = {
+        userId: selectedUser?.id,
         userEmail: userEmail.trim(),
         accountNumber: accountNumber.trim(),
         amount: numAmount,
@@ -237,7 +238,17 @@ export const AdminDepositPanel: React.FC<AdminDepositPanelProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-slate-300">
                   <span>Current Balance:</span>
-                  <span className="font-bold text-white">${selectedUser.balance.toFixed(2)}</span>
+                  <span className="font-bold text-white">${(Number(selectedUser.balance) || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-300">
+                  <span>Account Status:</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                    (selectedUser.status || 'Active') === 'Active'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                  }`}>
+                    {selectedUser.status || 'Active'}
+                  </span>
                 </div>
               </div>
             ) : (

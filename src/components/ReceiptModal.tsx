@@ -152,7 +152,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
               {isDeposit ? 'CREDIT TRANSACTION AMOUNT' : 'TOTAL SETTLEMENT AMOUNT'}
             </span>
             <div className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight font-mono print-dark-text">
-              {isDeposit ? '+' : ''}${transaction.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-sans text-slate-400 font-normal">{transaction.currency || 'USD'}</span>
+              {isDeposit ? '+' : ''}${(Number(transaction.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm font-sans text-slate-400 font-normal">{transaction.currency || 'USD'}</span>
             </div>
             <div className="pt-1">
               {getStatusBadge(transaction.status)}
@@ -177,13 +177,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
             {/* Date */}
             <div className="pt-3 flex justify-between items-center">
               <span className="text-slate-400 font-medium">Date:</span>
-              <span className="font-semibold text-slate-200 print-dark-text">{new Date(transaction.createdAt).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+              <span className="font-semibold text-slate-200 print-dark-text">{new Date(transaction.createdAt || Date.now()).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
             </div>
 
             {/* Time */}
             <div className="pt-3 flex justify-between items-center">
               <span className="text-slate-400 font-medium">Time:</span>
-              <span className="font-semibold text-slate-200 print-dark-text">{new Date(transaction.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="font-semibold text-slate-200 print-dark-text">{new Date(transaction.createdAt || Date.now()).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
             </div>
 
             {/* Status */}

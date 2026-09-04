@@ -18,7 +18,7 @@ import {
   playAdminAlertChime, 
   requestAdminNotificationPermission 
 } from '../services/adminAlerts';
-import { ShieldAlert, Users, Sparkles, FileText, Headphones, Search, UserCheck, Shield, DollarSign, ArrowUpRight, CheckCircle2, XCircle, Clock, Key, ArrowDownRight, Ban, ShieldCheck, UserPlus, X, Plus, Bell, Volume2, VolumeX, Radio, Zap, Check } from 'lucide-react';
+import { ShieldAlert, Users, Sparkles, FileText, Headphones, Search, UserCheck, Shield, DollarSign, ArrowUpRight, CheckCircle2, XCircle, Clock, Key, ArrowDownRight, Ban, ShieldCheck, UserPlus, X, Plus, Bell, Volume2, VolumeX, Radio, Zap, Check, AlertCircle } from 'lucide-react';
 import { BackButton } from './BackButton';
 import { useNavigation } from '../context/NavigationContext';
 
@@ -158,6 +158,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   const [loadingTxns, setLoadingTxns] = useState(false);
   const [pendingQueueSearch, setPendingQueueSearch] = useState('');
 
+  // Workflow Protection & Confirmation State
+  const [processingIds, setProcessingIds] = useState<Record<string, boolean>>({});
+  const [actionCompleteMsg, setActionCompleteMsg] = useState<{ id: string; text: string; type: 'success' | 'error' } | null>(null);
+
+  // Status Filter for Pending Queue
+  const [pendingFilter, setPendingFilter] = useState<'Pending' | 'Approved' | 'Rejected' | 'All'>('Pending');
+
+  // Status Filter for Crypto Deposits
+  const [cryptoFilter, setCryptoFilter] = useState<'Pending' | 'Approved' | 'Rejected' | 'All'>('Pending');
+
+  // Status Filter for Tier 3 Verifications
+  const [verifFilter, setVerifFilter] = useState<'Pending' | 'Approved' | 'Rejected' | 'All'>('Pending');
+
   // Real-Time Admin Alerts & Sound State
   const [liveAlerts, setLiveAlerts] = useState<AdminAlert[]>([]);
   const [soundMuted, setSoundMuted] = useState(false);
@@ -202,7 +215,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     try {
       setLoadingTxns(true);
       const res = await api.getAllTransactions();
-      setSysTxns(res.transactions);
+      setSysTxns(res.transactions || []);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -294,28 +307,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   }, [subTab]);
 
   const handleApproveVerif = async (verifId: string) => {
+    if (processingIds[verifId]) return;
+
+    const target = verifications.find(v => v.id === verifId);
+    if (target && target.status === 'Approved') {
+      alert('This Tier 3 verification has already been approved.');
+      return;
+    }
+    if (target && target.status === 'Rejected') {
+      alert('This Tier 3 verification has already been rejected.');
+      return;
+    }
+
     const notes = prompt('Enter compliance approval notes (optional):');
     if (notes === null) return;
+
+    setProcessingIds(prev => ({ ...prev, [verifId]: true }));
+    setVerifications(prev => prev.map(v => v.id === verifId ? { ...v, status: 'Approved', updatedAt: new Date().toISOString() } : v));
+
     try {
       await api.approveVerification(verifId, notes);
-      alert('Tier 3 Identity Verification approved successfully!');
-      fetchVerifications();
-      fetchUsers(searchQuery);
+      setActionCompleteMsg({
+        id: verifId,
+        text: `Action Complete: Tier 3 VIP Upgrade Approved for ${target?.userName || 'client'}.`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchVerifications(),
+        fetchUsers(searchQuery)
+      ]);
     } catch (err: any) {
       alert(err.message || 'Approval failed');
+      await fetchVerifications();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[verifId];
+        return next;
+      });
     }
   };
 
   const handleRejectVerif = async (verifId: string) => {
+    if (processingIds[verifId]) return;
+
+    const target = verifications.find(v => v.id === verifId);
+    if (target && (target.status === 'Approved' || target.status === 'Rejected')) {
+      alert(`This verification request has already been ${target.status.toLowerCase()}.`);
+      return;
+    }
+
     const notes = prompt('Enter rejection reason (optional):');
     if (notes === null) return;
+
+    setProcessingIds(prev => ({ ...prev, [verifId]: true }));
+    setVerifications(prev => prev.map(v => v.id === verifId ? { ...v, status: 'Rejected', updatedAt: new Date().toISOString() } : v));
+
     try {
       await api.rejectVerification(verifId, notes);
-      alert('Tier 3 Identity Verification rejected.');
-      fetchVerifications();
-      fetchUsers(searchQuery);
+      setActionCompleteMsg({
+        id: verifId,
+        text: `Action Complete: Tier 3 Verification Rejected.`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchVerifications(),
+        fetchUsers(searchQuery)
+      ]);
     } catch (err: any) {
       alert(err.message || 'Rejection failed');
+      await fetchVerifications();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[verifId];
+        return next;
+      });
     }
   };
 
@@ -332,25 +399,81 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   };
 
   const handleApproveCrypto = async (depId: string) => {
+    if (processingIds[depId]) return;
+
+    const target = cryptoDeposits.find(d => d.id === depId);
+    if (target && target.status === 'Approved') {
+      alert('This crypto deposit has already been approved.');
+      return;
+    }
+    if (target && target.status === 'Rejected') {
+      alert('This crypto deposit has already been rejected.');
+      return;
+    }
+
+    setProcessingIds(prev => ({ ...prev, [depId]: true }));
+    // Optimistically update crypto deposits state
+    setCryptoDeposits(prev => prev.map(d => d.id === depId ? { ...d, status: 'Approved', updatedAt: new Date().toISOString() } : d));
+
     try {
       const res = await api.approveCryptoActivationDeposit(depId);
-      alert(`Approved! 4-Digit Security Code [ ${res.code} ] has been issued to ${res.user.fullName}. $2,500 credited to balance.`);
-      fetchCryptoDeposits();
-      fetchUsers(searchQuery);
+      setActionCompleteMsg({
+        id: depId,
+        text: `Action Complete: Approved & Issued 4-Digit Code [ ${res.code} ] to ${res.user.fullName}. $2,500 credited to balance.`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchCryptoDeposits(),
+        fetchSysTxns(),
+        fetchUsers(searchQuery)
+      ]);
     } catch (err: any) {
       alert(err.message || 'Approval failed');
+      await fetchCryptoDeposits();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[depId];
+        return next;
+      });
     }
   };
 
   const handleRejectCrypto = async (depId: string) => {
-    const reason = prompt('Enter rejection reason or explanatory note for the client support inbox (optional):');
+    if (processingIds[depId]) return;
+
+    const target = cryptoDeposits.find(d => d.id === depId);
+    if (target && (target.status === 'Approved' || target.status === 'Rejected')) {
+      alert(`This deposit has already been ${target.status.toLowerCase()}.`);
+      return;
+    }
+
+    const reason = prompt('Enter rejection reason or explanatory note for client (optional):');
     if (reason === null) return;
+
+    setProcessingIds(prev => ({ ...prev, [depId]: true }));
+    setCryptoDeposits(prev => prev.map(d => d.id === depId ? { ...d, status: 'Rejected', updatedAt: new Date().toISOString() } : d));
+
     try {
       await api.rejectCryptoActivationDeposit(depId, reason || undefined);
-      alert('Deposit rejected. Rejection notice sent to user support inbox.');
-      fetchCryptoDeposits();
+      setActionCompleteMsg({
+        id: depId,
+        text: `Action Complete: Crypto activation deposit rejected. Notice dispatched to client.`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchCryptoDeposits(),
+        fetchSysTxns()
+      ]);
     } catch (err: any) {
       alert(err.message || 'Rejection failed');
+      await fetchCryptoDeposits();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[depId];
+        return next;
+      });
     }
   };
 
@@ -380,8 +503,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   };
 
   const handleApproveTxn = async (txnId: string, defaultSenderName?: string) => {
-    const txn = sysTxns.find(t => t.id === txnId);
-    const isDeposit = txn && (txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('verification'));
+    if (processingIds[txnId]) return;
+
+    const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
+    if (txn && (txn.status === 'Approved' || txn.status === 'Completed')) {
+      alert('This transaction has already been approved.');
+      return;
+    }
+    if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
+      alert('This transaction has already been rejected/cancelled.');
+      return;
+    }
+
+    const isDeposit = txn && (((txn.type || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('verification')));
     
     let senderName = defaultSenderName || (isDeposit ? "Silicon Valley Bank Treasury / Crypto Clearing" : "Federal Wire Transfer / SVB Treasury");
     if (!isDeposit && (!defaultSenderName || defaultSenderName.trim() === '')) {
@@ -394,55 +528,117 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       senderName = input.trim();
     }
 
-    // Optimistically update local sysTxns status to Completed
-    setSysTxns(prev => prev.map(t => t.id === txnId ? { ...t, status: 'Completed', updatedAt: new Date().toISOString() } : t));
+    setProcessingIds(prev => ({ ...prev, [txnId]: true }));
+
+    // Optimistically update local sysTxns status to Approved for all matching records immediately
+    const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Approved', senderName, updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.approveTransaction(txnId, senderName);
-      alert('Transaction approved successfully! Account credited.');
-      await fetchSysTxns();
-      await fetchUsers(searchQuery);
-      await fetchCryptoDeposits();
+      setActionCompleteMsg({
+        id: txnId,
+        text: `Action Complete: Reference ${txn?.reference || txnId} Approved & Credited successfully!`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchSysTxns(),
+        fetchUsers(searchQuery),
+        fetchCryptoDeposits()
+      ]);
     } catch (err: any) {
       alert(err.message || 'Approval failed.');
       await fetchSysTxns();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[txnId];
+        return next;
+      });
     }
   };
 
   const handleCancelTxn = async (txnId: string) => {
+    if (processingIds[txnId]) return;
     if (!confirm('Are you sure you want to cancel this transfer/transaction? User funds will be adjusted.')) return;
     
-    // Optimistically update local sysTxns status to Cancelled
-    setSysTxns(prev => prev.map(t => t.id === txnId ? { ...t, status: 'Cancelled', updatedAt: new Date().toISOString() } : t));
+    const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
+    if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
+      alert('This transaction has already been cancelled.');
+      return;
+    }
+
+    setProcessingIds(prev => ({ ...prev, [txnId]: true }));
+    const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Cancelled', updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.adminCancelTransaction(txnId);
-      alert('Transaction cancelled successfully.');
-      await fetchSysTxns();
-      await fetchUsers(searchQuery);
-      await fetchCryptoDeposits();
+      setActionCompleteMsg({
+        id: txnId,
+        text: `Action Complete: Transaction ${txn?.reference || txnId} Cancelled.`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchSysTxns(),
+        fetchUsers(searchQuery),
+        fetchCryptoDeposits()
+      ]);
     } catch (err: any) {
       alert(err.message || 'Cancellation failed.');
       await fetchSysTxns();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[txnId];
+        return next;
+      });
     }
   };
 
   const handleRejectTxn = async (txnId: string) => {
+    if (processingIds[txnId]) return;
+
+    const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
+    if (txn && (txn.status === 'Approved' || txn.status === 'Completed')) {
+      alert('This transaction has already been approved and cannot be rejected.');
+      return;
+    }
+    if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
+      alert('This transaction has already been rejected/cancelled.');
+      return;
+    }
+
     const reason = prompt('Enter cancellation/rejection reason (optional):', 'Cancelled / Declined by SVB Review');
     if (reason === null) return; // user cancelled prompt
 
-    // Optimistically update local sysTxns status to Rejected
-    setSysTxns(prev => prev.map(t => t.id === txnId ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
+    setProcessingIds(prev => ({ ...prev, [txnId]: true }));
+
+    // Optimistically update local sysTxns status to Rejected immediately
+    const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.rejectTransaction(txnId, reason.trim() || 'Cancelled / Declined by SVB Review');
-      alert('Transaction cancelled / rejected successfully. Status updated.');
-      await fetchSysTxns();
-      await fetchUsers(searchQuery);
-      await fetchCryptoDeposits();
+      setActionCompleteMsg({
+        id: txnId,
+        text: `Action Complete: Reference ${txn?.reference || txnId} Rejected / Cancelled.`,
+        type: 'success'
+      });
+      await Promise.all([
+        fetchSysTxns(),
+        fetchUsers(searchQuery),
+        fetchCryptoDeposits()
+      ]);
     } catch (err: any) {
       alert(err.message || 'Rejection failed.');
       await fetchSysTxns();
+    } finally {
+      setProcessingIds(prev => {
+        const next = { ...prev };
+        delete next[txnId];
+        return next;
+      });
     }
   };
 
@@ -674,13 +870,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       {/* Sub-Tab 0: Pending Transactions SVB Review Queue */}
       {subTab === 'pending' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
+          {actionCompleteMsg && (
+            <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 animate-in fade-in duration-200 ${
+              actionCompleteMsg.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                {actionCompleteMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                )}
+                <span className="text-xs font-semibold">{actionCompleteMsg.text}</span>
+              </div>
+              <button
+                onClick={() => setActionCompleteMsg(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-amber-400" />
                   <h3 className="text-base font-bold text-white">
-                    Pending Transactions SVB Review Queue
+                    Transaction Queue & Compliance Review
                   </h3>
                 </div>
                 <div className="bg-amber-500/20 text-amber-300 text-xs font-black uppercase px-3 py-1 rounded-full border border-amber-500/40 flex items-center gap-1.5 shadow-sm">
@@ -716,188 +936,326 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
             </div>
           </div>
 
+          {/* Workflow Filter Tabs */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-3">
+            <button
+              onClick={() => setPendingFilter('Pending')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                pendingFilter === 'Pending'
+                  ? 'bg-amber-500 text-slate-950 shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Pending Review</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                pendingFilter === 'Pending' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-400'
+              }`}>
+                {sysTxns.filter(t => t.status === 'Pending').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setPendingFilter('Approved')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                pendingFilter === 'Approved'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Approved History</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                pendingFilter === 'Approved' ? 'bg-slate-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-400'
+              }`}>
+                {sysTxns.filter(t => t.status === 'Approved' || t.status === 'Completed').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setPendingFilter('Rejected')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                pendingFilter === 'Rejected'
+                  ? 'bg-rose-500 text-white shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              <span>Rejected History</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                pendingFilter === 'Rejected' ? 'bg-white text-rose-600' : 'bg-rose-500/20 text-rose-400'
+              }`}>
+                {sysTxns.filter(t => t.status === 'Rejected' || t.status === 'Cancelled').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setPendingFilter('All')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                pendingFilter === 'All'
+                  ? 'bg-slate-700 text-white shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <span>All Records</span>
+              <span className="bg-slate-800 text-slate-300 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                {sysTxns.length}
+              </span>
+            </button>
+          </div>
+
           {loadingTxns ? (
             <div className="text-center py-12 text-slate-500 text-xs">
-              Loading pending transactions queue...
+              Loading transactions queue...
             </div>
-          ) : sysTxns.filter(t => t.status === 'Pending').length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
-              <div className="flex flex-col items-center justify-center space-y-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400 opacity-60" />
-                <p className="font-semibold text-slate-300 text-sm">All caught up! No pending transactions in the queue.</p>
-                <p className="text-xs text-slate-500">New user transfers and submissions will automatically appear here for approval.</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Mobile View: Clean Card Layout */}
-              <div className="block md:hidden space-y-4">
-                {sysTxns
-                  .filter(t => {
-                    if (t.status !== 'Pending') return false;
-                    if (!pendingQueueSearch.trim()) return true;
-                    const q = pendingQueueSearch.toLowerCase().trim();
+          ) : (() => {
+            const filtered = sysTxns.filter(t => {
+              // Status filter
+              if (pendingFilter === 'Pending' && t.status !== 'Pending') return false;
+              if (pendingFilter === 'Approved' && (t.status !== 'Approved' && t.status !== 'Completed')) return false;
+              if (pendingFilter === 'Rejected' && (t.status !== 'Rejected' && t.status !== 'Cancelled')) return false;
+
+              // Search query
+              if (!pendingQueueSearch.trim()) return true;
+              const q = pendingQueueSearch.toLowerCase().trim();
+              return (
+                (t.reference && t.reference.toLowerCase().includes(q)) ||
+                (t.id && t.id.toLowerCase().includes(q)) ||
+                (t.senderName && t.senderName.toLowerCase().includes(q)) ||
+                (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
+                (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
+                (t.type && t.type.toLowerCase().includes(q)) ||
+                (t.description && t.description.toLowerCase().includes(q)) ||
+                (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
+                (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
+              );
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div className="text-center py-12 text-slate-400">
+                  <div className="flex flex-col items-center justify-center space-y-2">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-400 opacity-60" />
+                    <p className="font-semibold text-slate-300 text-sm">
+                      {pendingFilter === 'Pending'
+                        ? 'All caught up! No pending transactions in the review queue.'
+                        : `No transactions found in ${pendingFilter} view.`}
+                    </p>
+                    <p className="text-xs text-slate-500">Items move automatically between tabs upon admin action.</p>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <>
+                {/* Mobile View: Clean Card Layout */}
+                <div className="block md:hidden space-y-4">
+                  {filtered.map((t) => {
+                    const isPending = t.status === 'Pending';
+                    const isApproved = t.status === 'Approved' || t.status === 'Completed';
+                    const isRejected = t.status === 'Rejected' || t.status === 'Cancelled';
+                    const isBusy = processingIds[t.id];
+
                     return (
-                      (t.reference && t.reference.toLowerCase().includes(q)) ||
-                      (t.id && t.id.toLowerCase().includes(q)) ||
-                      (t.senderName && t.senderName.toLowerCase().includes(q)) ||
-                      (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
-                      (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
-                      (t.type && t.type.toLowerCase().includes(q)) ||
-                      (t.description && t.description.toLowerCase().includes(q)) ||
-                      (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
-                      (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
-                    );
-                  })
-                  .map((t) => (
-                    <div key={t.id} className="bg-slate-950/80 border border-slate-800/90 rounded-2xl p-4 space-y-3 shadow-md">
-                      <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
-                        <span className="font-mono text-xs text-amber-400 font-bold">{t.reference}</span>
-                        <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
-                          <Clock className="w-3 h-3 animate-spin text-amber-400" /> Pending Review
-                        </span>
-                      </div>
-
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-bold text-white">{t.senderName || t.userEmail}</p>
-                          <p className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-base font-black font-mono text-emerald-400">
-                            ${t.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="bg-slate-900/60 rounded-xl p-2.5 text-[11px] space-y-1 border border-slate-800/50">
-                        <div className="text-slate-200 font-semibold">{t.type} • {t.description}</div>
-                        {t.recipientAccountNumber && (
-                          <div className="text-emerald-400 font-mono text-[10px]">
-                            Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}
-                          </div>
-                        )}
-                        {t.destinationBank && (
-                          <div className="text-cyan-400 text-[10px]">
-                            Bank: {t.destinationBank} ({t.destinationCountry || 'US'})
-                          </div>
-                        )}
-                        <div className="text-slate-500 text-[10px]">
-                          Submitted: {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <button
-                          onClick={() => handleApproveTxn(t.id, t.senderName)}
-                          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
-                        >
-                          <CheckCircle2 className="w-4 h-4" /> Approve & Credit
-                        </button>
-
-                        <button
-                          onClick={() => handleRejectTxn(t.id)}
-                          className="w-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <XCircle className="w-4 h-4" /> Cancel / Reject
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-
-              {/* Desktop View: Full Width Table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse min-w-[850px]">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                      <th className="py-3 px-3">Submission Date</th>
-                      <th className="py-3 px-3">Reference / ID</th>
-                      <th className="py-3 px-3">Client User</th>
-                      <th className="py-3 px-3">Type & Details</th>
-                      <th className="py-3 px-3">Amount</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3 text-right">Review Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                    {sysTxns
-                      .filter(t => {
-                        if (t.status !== 'Pending') return false;
-                        if (!pendingQueueSearch.trim()) return true;
-                        const q = pendingQueueSearch.toLowerCase().trim();
-                        return (
-                          (t.reference && t.reference.toLowerCase().includes(q)) ||
-                          (t.id && t.id.toLowerCase().includes(q)) ||
-                          (t.senderName && t.senderName.toLowerCase().includes(q)) ||
-                          (t.userEmail && t.userEmail.toLowerCase().includes(q)) ||
-                          (t.accountNumber && t.accountNumber.toLowerCase().includes(q)) ||
-                          (t.type && t.type.toLowerCase().includes(q)) ||
-                          (t.description && t.description.toLowerCase().includes(q)) ||
-                          (t.recipientName && t.recipientName.toLowerCase().includes(q)) ||
-                          (t.recipientAccountNumber && t.recipientAccountNumber.toLowerCase().includes(q))
-                        );
-                      })
-                      .map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-950/50 transition-colors">
-                          <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
-                            {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-
-                          <td className="py-3 px-3 font-mono text-amber-400 font-semibold whitespace-nowrap">
-                            {t.reference}
-                          </td>
-
-                          <td className="py-3 px-3 font-medium">
-                            <div className="font-semibold text-white">{t.senderName || t.userEmail}</div>
-                            <div className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</div>
-                          </td>
-
-                          <td className="py-3 px-3">
-                            <div className="font-semibold text-white">{t.type}</div>
-                            <div className="text-[11px] text-slate-400">{t.description}</div>
-                            {t.recipientAccountNumber && (
-                              <div className="text-[10px] text-emerald-400 font-mono mt-0.5">Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}</div>
-                            )}
-                            {t.destinationBank && (
-                              <div className="text-[10px] text-cyan-400 mt-0.5">Bank: {t.destinationBank} ({t.destinationCountry || 'US'})</div>
-                            )}
-                          </td>
-
-                          <td className="py-3 px-3 font-mono font-bold text-emerald-400 text-sm whitespace-nowrap">
-                            ${t.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-
-                          <td className="py-3 px-3 whitespace-nowrap">
-                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit">
+                      <div key={t.id} className="bg-slate-950/80 border border-slate-800/90 rounded-2xl p-4 space-y-3 shadow-md">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                          <span className="font-mono text-xs text-amber-400 font-bold">{t.reference}</span>
+                          {isPending && (
+                            <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
                               <Clock className="w-3 h-3 animate-spin text-amber-400" /> Pending Review
                             </span>
-                          </td>
+                          )}
+                          {isApproved && (
+                            <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Approved
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="bg-rose-500/15 text-rose-400 border border-rose-500/30 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
+                              <XCircle className="w-3 h-3 text-rose-400" /> Rejected / Cancelled
+                            </span>
+                          )}
+                        </div>
 
-                          <td className="py-3 px-3 text-right whitespace-nowrap space-x-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-white">{t.senderName || t.userEmail}</p>
+                            <p className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-base font-black font-mono text-emerald-400">
+                              ${(Number(t.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-900/60 rounded-xl p-2.5 text-[11px] space-y-1 border border-slate-800/50">
+                          <div className="text-slate-200 font-semibold">{t.type} • {t.description}</div>
+                          {t.recipientAccountNumber && (
+                            <div className="text-emerald-400 font-mono text-[10px]">
+                              Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}
+                            </div>
+                          )}
+                          {t.destinationBank && (
+                            <div className="text-cyan-400 text-[10px]">
+                              Bank: {t.destinationBank} ({t.destinationCountry || 'US'})
+                            </div>
+                          )}
+                          <div className="text-slate-500 text-[10px]">
+                            Submitted: {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+
+                        {isPending ? (
+                          <div className="grid grid-cols-2 gap-2 pt-1">
                             <button
                               onClick={() => handleApproveTxn(t.id, t.senderName)}
-                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
-                              title="Approve transaction and credit recipient account"
+                              disabled={isBusy}
+                              className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
                             >
-                              <CheckCircle2 className="w-4 h-4" /> Approve & Credit
+                              <CheckCircle2 className="w-4 h-4" />
+                              {isBusy ? 'Processing...' : 'Approve & Credit'}
                             </button>
 
                             <button
                               onClick={() => handleRejectTxn(t.id)}
-                              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-1 cursor-pointer"
-                              title="Reject transaction and refund user balance"
+                              disabled={isBusy}
+                              className="w-full bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 border border-rose-500/30 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
                             >
-                              <XCircle className="w-4 h-4" /> Cancel / Reject & Refund
+                              <XCircle className="w-4 h-4" />
+                              {isBusy ? 'Processing...' : 'Reject / Cancel'}
                             </button>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+                          </div>
+                        ) : isApproved ? (
+                          <div className="pt-1">
+                            <span className="w-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4" /> Action Complete: Approved
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="pt-1">
+                            <span className="w-full bg-rose-500/15 text-rose-400 border border-rose-500/30 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5">
+                              <XCircle className="w-4 h-4" /> Action Complete: Rejected
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop View: Full Width Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse min-w-[850px]">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
+                        <th className="py-3 px-3">Submission Date</th>
+                        <th className="py-3 px-3">Reference / ID</th>
+                        <th className="py-3 px-3">Client User</th>
+                        <th className="py-3 px-3">Type & Details</th>
+                        <th className="py-3 px-3">Amount</th>
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-3 text-right">Review Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-slate-200">
+                      {filtered.map((t) => {
+                        const isPending = t.status === 'Pending';
+                        const isApproved = t.status === 'Approved' || t.status === 'Completed';
+                        const isRejected = t.status === 'Rejected' || t.status === 'Cancelled';
+                        const isBusy = processingIds[t.id];
+
+                        return (
+                          <tr key={t.id} className="hover:bg-slate-950/50 transition-colors">
+                            <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
+                              {new Date(t.createdAt).toLocaleDateString()} {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+
+                            <td className="py-3 px-3 font-mono text-amber-400 font-semibold whitespace-nowrap">
+                              {t.reference}
+                            </td>
+
+                            <td className="py-3 px-3 font-medium">
+                              <div className="font-semibold text-white">{t.senderName || t.userEmail}</div>
+                              <div className="text-[11px] text-slate-400">Acc #{t.accountNumber} ({t.userEmail})</div>
+                            </td>
+
+                            <td className="py-3 px-3">
+                              <div className="font-semibold text-white">{t.type}</div>
+                              <div className="text-[11px] text-slate-400">{t.description}</div>
+                              {t.recipientAccountNumber && (
+                                <div className="text-[10px] text-emerald-400 font-mono mt-0.5">Recipient Acc: {t.recipientAccountNumber} {t.recipientName ? `(${t.recipientName})` : ''}</div>
+                              )}
+                              {t.destinationBank && (
+                                <div className="text-[10px] text-cyan-400 mt-0.5">Bank: {t.destinationBank} ({t.destinationCountry || 'US'})</div>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3 font-mono font-bold text-emerald-400 text-sm whitespace-nowrap">
+                              ${(Number(t.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              {isPending && (
+                                <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit">
+                                  <Clock className="w-3 h-3 animate-spin text-amber-400" /> Pending Review
+                                </span>
+                              )}
+                              {isApproved && (
+                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Approved
+                                </span>
+                              )}
+                              {isRejected && (
+                                <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit">
+                                  <XCircle className="w-3 h-3 text-rose-400" /> Rejected / Cancelled
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-3 text-right whitespace-nowrap space-x-2">
+                              {isPending ? (
+                                <>
+                                  <button
+                                    onClick={() => handleApproveTxn(t.id, t.senderName)}
+                                    disabled={isBusy}
+                                    className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 px-3 py-1.5 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1 shadow-md shadow-emerald-500/10 cursor-pointer"
+                                    title="Approve transaction and credit recipient account"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    {isBusy ? 'Processing...' : 'Approve & Credit'}
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleRejectTxn(t.id)}
+                                    disabled={isBusy}
+                                    className="bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-1 cursor-pointer"
+                                    title="Reject transaction and refund user balance"
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                    {isBusy ? 'Processing...' : 'Reject / Cancel'}
+                                  </button>
+                                </>
+                              ) : isApproved ? (
+                                <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Action Complete: Approved
+                                </span>
+                              ) : (
+                                <span className="bg-rose-500/15 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-bold inline-flex items-center gap-1">
+                                  <XCircle className="w-3.5 h-3.5" /> Action Complete: Rejected
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -976,7 +1334,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                       </td>
 
                       <td className="py-3 px-3 font-mono font-bold text-white">
-                        ${u.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${(Number(u.balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </td>
 
                       <td className="py-3 px-3 font-mono">
@@ -1136,104 +1494,201 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               </p>
             </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-3">Client</th>
-                  <th className="py-3 px-3">Account #</th>
-                  <th className="py-3 px-3">Crypto Method</th>
-                  <th className="py-3 px-3">Amount</th>
-                  <th className="py-3 px-3">Proof Screenshot & Tx Hash</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3 text-right">SVB Review Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                {loadingCrypto ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-500">Loading activation deposit requests...</td>
+            {/* Crypto Workflow Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-3">
+              <button
+                onClick={() => setCryptoFilter('Pending')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  cryptoFilter === 'Pending'
+                    ? 'bg-amber-500 text-slate-950 shadow-md'
+                    : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Pending Review</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  cryptoFilter === 'Pending' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-400'
+                }`}>
+                  {cryptoDeposits.filter(d => d.status === 'Pending').length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setCryptoFilter('Approved')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  cryptoFilter === 'Approved'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Approved History</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  cryptoFilter === 'Approved' ? 'bg-slate-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-400'
+                }`}>
+                  {cryptoDeposits.filter(d => d.status === 'Approved').length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setCryptoFilter('Rejected')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  cryptoFilter === 'Rejected'
+                    ? 'bg-rose-500 text-white shadow-md'
+                    : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Rejected History</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  cryptoFilter === 'Rejected' ? 'bg-white text-rose-600' : 'bg-rose-500/20 text-rose-400'
+                }`}>
+                  {cryptoDeposits.filter(d => d.status === 'Rejected').length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setCryptoFilter('All')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  cryptoFilter === 'All'
+                    ? 'bg-slate-700 text-white shadow-md'
+                    : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <span>All Requests</span>
+                <span className="bg-slate-800 text-slate-300 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                  {cryptoDeposits.length}
+                </span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-3">Client</th>
+                    <th className="py-3 px-3">Account #</th>
+                    <th className="py-3 px-3">Crypto Method</th>
+                    <th className="py-3 px-3">Amount</th>
+                    <th className="py-3 px-3">Proof Screenshot & Tx Hash</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3 text-right">SVB Review Actions</th>
                   </tr>
-                ) : cryptoDeposits.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-500">No crypto activation deposit requests found.</td>
-                  </tr>
-                ) : (
-                  cryptoDeposits.map((dep) => (
-                    <tr key={dep.id} className="hover:bg-slate-950/50 transition-colors">
-                      <td className="py-3 px-3">
-                        <div className="font-semibold text-white">{dep.userName}</div>
-                        <div className="text-[11px] text-slate-400">{dep.userEmail}</div>
-                      </td>
-
-                      <td className="py-3 px-3 font-mono text-emerald-400 font-semibold">
-                        {dep.accountNumber}
-                      </td>
-
-                      <td className="py-3 px-3 font-semibold text-amber-400">
-                        {dep.cryptoMethod} ({dep.network || 'Mainnet'})
-                      </td>
-
-                      <td className="py-3 px-3 font-bold text-white">
-                        ${dep.amountUSD}.00 USD
-                      </td>
-
-                      <td className="py-3 px-3 max-w-xs space-y-1">
-                        {dep.proofImage && (
-                          <a href={dep.proofImage} target="_blank" rel="noreferrer" className="block">
-                            <img src={dep.proofImage} alt="Payment Proof" className="w-16 h-12 object-cover rounded border border-slate-700 hover:border-amber-400 transition-all" />
-                          </a>
-                        )}
-                        <div className="font-mono text-[11px] truncate text-slate-400">
-                          {dep.txHash || dep.proofNote || 'No Tx hash provided'}
-                        </div>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        {dep.status === 'Pending' && (
-                          <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                            <Clock className="w-3 h-3" /> Pending Review
-                          </span>
-                        )}
-                        {dep.status === 'Approved' && (
-                          <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                            <CheckCircle2 className="w-3 h-3" /> Approved ({dep.generatedCode})
-                          </span>
-                        )}
-                        {dep.status === 'Rejected' && (
-                          <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                            <XCircle className="w-3 h-3" /> Rejected
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-3 text-right space-x-2">
-                        {dep.status === 'Pending' ? (
-                          <>
-                            <button
-                              onClick={() => handleApproveCrypto(dep.id)}
-                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-xl text-[11px] font-bold transition-all inline-flex items-center gap-1"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Approve & Issue Code
-                            </button>
-                            <button
-                              onClick={() => handleRejectCrypto(dep.id)}
-                              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                            >
-                              <XCircle className="w-3.5 h-3.5" /> Reject
-                            </button>
-                          </>
-                        ) : (
-                          <span className="text-[11px] text-slate-500 italic">Action Complete</span>
-                        )}
-                      </td>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-200">
+                  {loadingCrypto ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-8 text-slate-500">Loading activation deposit requests...</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (() => {
+                    const filteredCrypto = cryptoDeposits.filter(dep => {
+                      if (cryptoFilter === 'Pending') return dep.status === 'Pending';
+                      if (cryptoFilter === 'Approved') return dep.status === 'Approved';
+                      if (cryptoFilter === 'Rejected') return dep.status === 'Rejected';
+                      return true;
+                    });
+
+                    if (filteredCrypto.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="text-center py-8 text-slate-500">
+                            No {cryptoFilter.toLowerCase()} crypto activation deposit requests found.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filteredCrypto.map((dep) => {
+                      const isPending = dep.status === 'Pending';
+                      const isApproved = dep.status === 'Approved';
+                      const isBusy = processingIds[dep.id];
+
+                      return (
+                        <tr key={dep.id} className="hover:bg-slate-950/50 transition-colors">
+                          <td className="py-3 px-3">
+                            <div className="font-semibold text-white">{dep.userName}</div>
+                            <div className="text-[11px] text-slate-400">{dep.userEmail}</div>
+                          </td>
+
+                          <td className="py-3 px-3 font-mono text-emerald-400 font-semibold">
+                            {dep.accountNumber}
+                          </td>
+
+                          <td className="py-3 px-3 font-semibold text-amber-400">
+                            {dep.cryptoMethod} ({dep.network || 'Mainnet'})
+                          </td>
+
+                          <td className="py-3 px-3 font-bold text-white">
+                            ${dep.amountUSD}.00 USD
+                          </td>
+
+                          <td className="py-3 px-3 max-w-xs space-y-1">
+                            {dep.proofImage && (
+                              <a href={dep.proofImage} target="_blank" rel="noreferrer" className="block">
+                                <img src={dep.proofImage} alt="Payment Proof" className="w-16 h-12 object-cover rounded border border-slate-700 hover:border-amber-400 transition-all" />
+                              </a>
+                            )}
+                            <div className="font-mono text-[11px] truncate text-slate-400">
+                              {dep.txHash || dep.proofNote || 'No Tx hash provided'}
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3">
+                            {isPending && (
+                              <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <Clock className="w-3 h-3 animate-spin" /> Pending Review
+                              </span>
+                            )}
+                            {isApproved && (
+                              <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <CheckCircle2 className="w-3 h-3" /> Approved ({dep.generatedCode})
+                              </span>
+                            )}
+                            {dep.status === 'Rejected' && (
+                              <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <XCircle className="w-3 h-3" /> Rejected
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-right space-x-2">
+                            {isPending ? (
+                              <>
+                                <button
+                                  onClick={() => handleApproveCrypto(dep.id)}
+                                  disabled={isBusy}
+                                  className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 px-3 py-1 rounded-xl text-[11px] font-bold transition-all inline-flex items-center gap-1"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  {isBusy ? 'Processing...' : 'Approve & Issue Code'}
+                                </button>
+                                <button
+                                  onClick={() => handleRejectCrypto(dep.id)}
+                                  disabled={isBusy}
+                                  className="bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  {isBusy ? 'Processing...' : 'Reject / Cancel'}
+                                </button>
+                              </>
+                            ) : isApproved ? (
+                              <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold px-2.5 py-1 rounded-xl inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Action Complete: Code Issued
+                              </span>
+                            ) : (
+                              <span className="bg-rose-500/15 text-rose-400 border border-rose-500/30 text-[11px] font-bold px-2.5 py-1 rounded-xl inline-flex items-center gap-1">
+                                <XCircle className="w-3 h-3" /> Action Complete: Rejected
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
       </div>
       )}
 
@@ -1340,13 +1795,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                       <td colSpan={7} className="text-center py-8 text-slate-500">No transactions recorded.</td>
                     </tr>
                   ) : (
-                    sysTxns.map((t) => (
+                    sysTxns.map((t) => {
+                      const isBusy = processingIds[t.id];
+                      return (
                       <tr key={t.id} className="hover:bg-slate-950/50 transition-colors">
                         <td className="py-3 px-3 text-slate-400">{new Date(t.createdAt).toLocaleDateString()}</td>
                         <td className="py-3 px-3 font-mono text-amber-400">{t.reference}</td>
                         <td className="py-3 px-3">{t.userEmail}</td>
                         <td className="py-3 px-3 font-semibold">{t.type}</td>
-                        <td className="py-3 px-3 font-bold text-white">${t.amount.toFixed(2)}</td>
+                        <td className="py-3 px-3 font-bold text-white">${(Number(t.amount) || 0).toFixed(2)}</td>
                         <td className="py-3 px-3">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             t.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
@@ -1360,31 +1817,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                             <>
                               <button
                                 onClick={() => handleApproveTxn(t.id, t.senderName)}
-                                className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center gap-1 shadow-sm"
+                                disabled={isBusy}
+                                className="bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center gap-1 shadow-sm"
                                 title="Approve & Credit Recipient (Requires Sender Name)"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Approve & Credit
+                                <CheckCircle2 className="w-3.5 h-3.5" /> {isBusy ? 'Processing...' : 'Approve & Credit'}
                               </button>
                               <button
                                 onClick={() => handleRejectTxn(t.id)}
-                                className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                                disabled={isBusy}
+                                className="bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
                                 title="Reject & Refund Sender"
                               >
-                                <XCircle className="w-3 h-3" /> Reject & Refund
+                                <XCircle className="w-3 h-3" /> {isBusy ? 'Processing...' : 'Reject & Refund'}
                               </button>
                             </>
                           ) : t.status !== 'Cancelled' && t.status !== 'Rejected' ? (
                             <>
                               <button
                                 onClick={() => handleRejectTxn(t.id)}
-                                className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                                disabled={isBusy}
+                                className="bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
                                 title="Reject & Refund User"
                               >
                                 <XCircle className="w-3 h-3" /> Reject & Refund
                               </button>
                               <button
                                 onClick={() => handleCancelTxn(t.id)}
-                                className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors"
+                                disabled={isBusy}
+                                className="bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors"
                               >
                                 Cancel
                               </button>
@@ -1394,7 +1855,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                           )}
                         </td>
                       </tr>
-                    ))
+                    );
+                    })
                   )}
                 </tbody>
               </table>
@@ -1424,6 +1886,74 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
             </button>
           </div>
 
+          {/* Verifications Workflow Filter Tabs */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-3">
+            <button
+              onClick={() => setVerifFilter('Pending')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                verifFilter === 'Pending'
+                  ? 'bg-amber-500 text-slate-950 shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Pending Review</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                verifFilter === 'Pending' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-400'
+              }`}>
+                {verifications.filter(v => v.status === 'Pending').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setVerifFilter('Approved')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                verifFilter === 'Approved'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Approved History</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                verifFilter === 'Approved' ? 'bg-slate-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-400'
+              }`}>
+                {verifications.filter(v => v.status === 'Approved').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setVerifFilter('Rejected')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                verifFilter === 'Rejected'
+                  ? 'bg-rose-500 text-white shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              <span>Rejected History</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                verifFilter === 'Rejected' ? 'bg-white text-rose-600' : 'bg-rose-500/20 text-rose-400'
+              }`}>
+                {verifications.filter(v => v.status === 'Rejected').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setVerifFilter('All')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                verifFilter === 'All'
+                  ? 'bg-slate-700 text-white shadow-md'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <span>All Requests</span>
+              <span className="bg-slate-800 text-slate-300 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                {verifications.length}
+              </span>
+            </button>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
@@ -1442,85 +1972,114 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                   <tr>
                     <td colSpan={7} className="text-center py-8 text-slate-500">Loading verification requests...</td>
                   </tr>
-                ) : verifications.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-500">No Tier 3 verification requests submitted yet.</td>
-                  </tr>
-                ) : (
-                  verifications.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-950/50 transition-colors">
-                      <td className="py-3 px-3 text-slate-400">{new Date(v.createdAt).toLocaleDateString()}</td>
-                      <td className="py-3 px-3">
-                        <div className="font-bold text-white">{v.userName}</div>
-                        <div className="text-[11px] text-slate-400">{v.userEmail}</div>
-                      </td>
-                      <td className="py-3 px-3 font-mono text-emerald-400 font-semibold">{v.accountNumber}</td>
-                      <td className="py-3 px-3 font-semibold text-cyan-400">{v.documentType}</td>
-                      <td className="py-3 px-3 text-slate-300">{v.country}</td>
-                      <td className="py-3 px-3">
-                        {v.status === 'Pending' && (
-                          <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                            <Clock className="w-3 h-3" /> Pending Review
-                          </span>
-                        )}
-                        {v.status === 'Approved' && (
-                          <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                            <CheckCircle2 className="w-3 h-3" /> Approved Tier 3
-                          </span>
-                        )}
-                        {v.status === 'Rejected' && (
-                          <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                            <XCircle className="w-3 h-3" /> Rejected
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-right space-x-2">
-                        <div className="flex items-center justify-end gap-1.5 mb-1.5">
-                          {v.documentUrl && (
-                            <a
-                              href={v.documentUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                              title="View Identity Document"
-                            >
-                              <FileText className="w-3 h-3 text-cyan-400" /> ID Card
-                            </a>
+                ) : (() => {
+                  const filteredVerifs = verifications.filter(v => {
+                    if (verifFilter === 'Pending') return v.status === 'Pending';
+                    if (verifFilter === 'Approved') return v.status === 'Approved';
+                    if (verifFilter === 'Rejected') return v.status === 'Rejected';
+                    return true;
+                  });
+
+                  if (filteredVerifs.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 text-slate-500">
+                          No {verifFilter.toLowerCase()} Tier 3 verification requests found.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filteredVerifs.map((v) => {
+                    const isPending = v.status === 'Pending';
+                    const isApproved = v.status === 'Approved';
+                    const isBusy = processingIds[v.id];
+
+                    return (
+                      <tr key={v.id} className="hover:bg-slate-950/50 transition-colors">
+                        <td className="py-3 px-3 text-slate-400">{new Date(v.createdAt).toLocaleDateString()}</td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-white">{v.userName}</div>
+                          <div className="text-[11px] text-slate-400">{v.userEmail}</div>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-emerald-400 font-semibold">{v.accountNumber}</td>
+                        <td className="py-3 px-3 font-semibold text-cyan-400">{v.documentType}</td>
+                        <td className="py-3 px-3 text-slate-300">{v.country}</td>
+                        <td className="py-3 px-3">
+                          {isPending && (
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                              <Clock className="w-3 h-3 animate-spin" /> Pending Review
+                            </span>
                           )}
-                          {v.paymentSlipUrl && (
-                            <a
-                              href={v.paymentSlipUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center gap-1 shadow-sm"
-                              title="View $5,000 Payment Slip"
-                            >
-                              <DollarSign className="w-3 h-3 text-emerald-400" /> $5k Slip
-                            </a>
+                          {isApproved && (
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                              <CheckCircle2 className="w-3 h-3" /> Approved Tier 3
+                            </span>
                           )}
-                        </div>
-                        {v.status === 'Pending' ? (
-                          <>
-                            <button
-                              onClick={() => handleApproveVerif(v.id)}
-                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-xl text-[11px] font-bold transition-all inline-flex items-center gap-1 shadow-sm"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Approve Tier 3
-                            </button>
-                            <button
-                              onClick={() => handleRejectVerif(v.id)}
-                              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
-                            >
-                              <XCircle className="w-3.5 h-3.5" /> Reject
-                            </button>
-                          </>
-                        ) : (
-                          <span className="text-[11px] text-slate-500 italic">{v.adminNotes || v.status}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
+                          {v.status === 'Rejected' && (
+                            <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                              <XCircle className="w-3 h-3" /> Rejected
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right space-x-2">
+                          <div className="flex items-center justify-end gap-1.5 mb-1.5">
+                            {v.documentUrl && (
+                              <a
+                                href={v.documentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                                title="View Identity Document"
+                              >
+                                <FileText className="w-3 h-3 text-cyan-400" /> ID Card
+                              </a>
+                            )}
+                            {v.paymentSlipUrl && (
+                              <a
+                                href={v.paymentSlipUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-colors inline-flex items-center gap-1 shadow-sm"
+                                title="View $5,000 Payment Slip"
+                              >
+                                <DollarSign className="w-3 h-3 text-emerald-400" /> $5k Slip
+                              </a>
+                            )}
+                          </div>
+                          {isPending ? (
+                            <>
+                              <button
+                                onClick={() => handleApproveVerif(v.id)}
+                                disabled={isBusy}
+                                className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 px-3 py-1 rounded-xl text-[11px] font-bold transition-all inline-flex items-center gap-1 shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {isBusy ? 'Processing...' : 'Upgrade Approval'}
+                              </button>
+                              <button
+                                onClick={() => handleRejectVerif(v.id)}
+                                disabled={isBusy}
+                                className="bg-rose-500/20 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 border border-rose-500/30 px-3 py-1 rounded-xl text-[11px] font-semibold transition-colors inline-flex items-center gap-1"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                {isBusy ? 'Processing...' : 'Reject / Cancel'}
+                              </button>
+                            </>
+                          ) : isApproved ? (
+                            <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold px-2.5 py-1 rounded-xl inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Action Complete: Approved
+                            </span>
+                          ) : (
+                            <span className="bg-rose-500/15 text-rose-400 border border-rose-500/30 text-[11px] font-bold px-2.5 py-1 rounded-xl inline-flex items-center gap-1">
+                              <XCircle className="w-3 h-3" /> Action Complete: Rejected
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>

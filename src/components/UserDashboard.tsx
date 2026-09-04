@@ -113,7 +113,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const formattedBalance = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: user.currency || 'USD'
-  }).format(user.balance);
+  }).format(Number(user.balance) || 0);
 
   // Pending items count for Task List widget
   const pendingTxns = transactions.filter(t => t.status === 'Pending');
@@ -661,7 +661,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="text-[10px] text-slate-400">
-                          {new Date(t.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md ${
                           t.status === 'Completed' 
@@ -677,7 +677,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     </div>
                     <div className="text-right">
                       <span className="font-bold text-slate-900 block">
-                        {t.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                        {(Number(t.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                       </span>
                     </div>
                   </div>

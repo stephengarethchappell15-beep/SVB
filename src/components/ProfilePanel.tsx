@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
 import { Tier3VerificationPanel } from './Tier3VerificationPanel';
-import { User as UserIcon, Mail, Phone, MapPin, CreditCard, Calendar, Save, CheckCircle2, AlertCircle, Camera, Upload, Trash2, Image } from 'lucide-react';
+import { User as UserIcon, Mail, Phone, MapPin, CreditCard, Calendar, Save, CheckCircle2, AlertCircle, Camera, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import { BackButton } from './BackButton';
 
 interface ProfilePanelProps {
@@ -15,7 +15,7 @@ function compressImage(file: File, maxWidth = 300, maxHeight = 300, quality = 0.
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Failed to read image file'));
     reader.onload = (event) => {
-      const img = new Image();
+      const img = new window.Image();
       img.onerror = () => reject(new Error('Failed to load image format'));
       img.onload = () => {
         let width = img.width;

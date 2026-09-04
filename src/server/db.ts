@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest } from '../types';
-import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore } from '../lib/firebase';
+import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, syncCryptoDepositToFirestore } from '../lib/firebase';
 
 interface DatabaseSchema {
   users: User[];
@@ -373,6 +373,18 @@ const seedSupportTickets: SupportTicket[] = [
 
 class DatabaseManager {
   private db: DatabaseSchema;
+  private processingOperations: Set<string> = new Set<string>();
+
+  public acquireLock(operationKey: string): void {
+    if (this.processingOperations.has(operationKey)) {
+      throw new Error(`Operation [${operationKey}] is already being processed. Please wait.`);
+    }
+    this.processingOperations.add(operationKey);
+  }
+
+  public releaseLock(operationKey: string): void {
+    this.processingOperations.delete(operationKey);
+  }
 
   constructor() {
     this.db = this.loadDB();
@@ -794,12 +806,17 @@ class DatabaseManager {
     const cleanQ = rawQ.replace(/[^a-z0-9]/g, '');
 
     try {
-      const fsUsers = await getAllUsersFromFirestore();
+      // Race Firestore lookup with a fast 600ms timeout to avoid network delays
+      const fsPromise = getAllUsersFromFirestore();
+      const timeoutPromise = new Promise<User[]>((resolve) => setTimeout(() => resolve([]), 600));
+      const fsUsers = await Promise.race([fsPromise, timeoutPromise]);
+
       const userMap = new Map<string, User>();
+      // Memory matches always take highest precedence
       memoryMatches.forEach(u => userMap.set(u.id, u));
 
-      // Also try direct lookup if query is non-empty (direct email or account number lookup)
-      if (rawQ) {
+      // Also try direct lookup if query is non-empty
+      if (rawQ && fsUsers.length === 0) {
         try {
           const directUser = await getUserFromFirestore(query.trim());
           if (directUser && directUser.id) {
@@ -831,7 +848,9 @@ class DatabaseManager {
             (cleanQ.length > 0 && acc.includes(cleanQ)) ||
             (cleanQ.length > 0 && phone.includes(cleanQ))
           ) {
-            userMap.set(u.id, u);
+            if (!userMap.has(u.id)) {
+              userMap.set(u.id, u);
+            }
           }
         }
       });
@@ -839,7 +858,6 @@ class DatabaseManager {
       this.saveDB(this.db);
       return Array.from(userMap.values());
     } catch (err) {
-      console.warn('searchUsersAsync Firestore query warning:', err);
       return memoryMatches;
     }
   }
@@ -894,8 +912,9 @@ class DatabaseManager {
     const emailQuery = deposit.userEmail ? deposit.userEmail.trim() : '';
     const accQuery = deposit.accountNumber ? deposit.accountNumber.trim() : '';
 
-    const targetUser = this.findUserByEmailOrAccount(emailQuery) ||
-                       this.findUserByEmailOrAccount(accQuery);
+    const targetUser = (deposit.userId ? this.findUserById(deposit.userId) : undefined) ||
+                       (emailQuery ? this.findUserByEmailOrAccount(emailQuery) : undefined) ||
+                       (accQuery ? this.findUserByEmailOrAccount(accQuery) : undefined);
 
     if (!targetUser) {
       throw new Error(`Target user account not found for '${emailQuery || accQuery}'. Please verify the email or account number.`);
@@ -909,78 +928,91 @@ class DatabaseManager {
       ? deposit.reference.trim()
       : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    targetUser.balance += Number(deposit.amount);
+    const lockKey = `deposit:${targetUser.id}:${ref}`;
+    this.acquireLock(lockKey);
 
-    // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
-    let isNewCodeGenerated = false;
-    if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
-      const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
-      targetUser.fourDigitCode = generatedCode;
-      targetUser.transferCodeApproved = true;
-      isNewCodeGenerated = true;
-    }
-
-    const now = new Date().toISOString();
-    const newTxn: Transaction = {
-      id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: targetUser.id,
-      userEmail: targetUser.email,
-      accountNumber: targetUser.accountNumber,
-      senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
-      amount: Number(deposit.amount),
-      currency: deposit.currency || 'USD',
-      type: 'Deposit',
-      status: 'Completed',
-      reference: ref,
-      description: isNewCodeGenerated 
-        ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
-        : (deposit.description || 'Admin Balance Deposit'),
-      createdByAdminEmail: adminUser.email,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    this.db.transactions.unshift(newTxn);
-
-    const notifMsg = isNewCodeGenerated
-      ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
-      : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
-
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: targetUser.id,
-      title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
-      message: notifMsg,
-      amount: Number(deposit.amount),
-      currency: deposit.currency || 'USD',
-      reference: ref,
-      read: false,
-      createdAt: now
-    };
-
-    this.db.notifications.unshift(notif);
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'DEPOSIT_CREATED',
-      targetEmail: targetUser.email,
-      targetAccountNumber: targetUser.accountNumber,
-      description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
-      details: {
-        amount: deposit.amount,
-        currency: deposit.currency,
-        reference: ref,
-        description: deposit.description,
-        newBalance: targetUser.balance
+    try {
+      const existingTxn = this.db.transactions.find(t => t.reference === ref);
+      if (existingTxn) {
+        return { user: targetUser, transaction: existingTxn };
       }
-    });
 
-    this.saveDB(this.db);
-    syncUserToFirestore(targetUser).catch(err => console.warn('Firestore sync user error in createDeposit:', err));
-    syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore sync txn error in createDeposit:', err));
+      targetUser.balance += Number(deposit.amount);
+      targetUser.ledgerBalance = (targetUser.ledgerBalance ?? targetUser.balance) + Number(deposit.amount);
 
-    return { user: targetUser, transaction: newTxn };
+      // Conditional 4-Digit Code Generation: Generate/activate code on deposit/payment if user doesn't have one
+      let isNewCodeGenerated = false;
+      if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
+        const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+        targetUser.fourDigitCode = generatedCode;
+        targetUser.transferCodeApproved = true;
+        isNewCodeGenerated = true;
+      }
+
+      const now = new Date().toISOString();
+      const newTxn: Transaction = {
+        id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        userId: targetUser.id,
+        userEmail: targetUser.email,
+        accountNumber: targetUser.accountNumber,
+        senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
+        amount: Number(deposit.amount),
+        currency: deposit.currency || 'USD',
+        type: 'Deposit',
+        status: 'Approved',
+        reference: ref,
+        description: isNewCodeGenerated 
+          ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
+          : (deposit.description || 'Admin Balance Deposit'),
+        createdByAdminEmail: adminUser.email,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      this.db.transactions.unshift(newTxn);
+
+      const notifMsg = isNewCodeGenerated
+        ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
+        : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
+
+      const notif: UserNotification = {
+        id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        userId: targetUser.id,
+        title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
+        message: notifMsg,
+        amount: Number(deposit.amount),
+        currency: deposit.currency || 'USD',
+        reference: ref,
+        read: false,
+        createdAt: now
+      };
+
+      this.db.notifications.unshift(notif);
+
+      this.addAuditLog({
+        adminId: adminUser.id,
+        adminEmail: adminUser.email,
+        action: 'DEPOSIT_CREATED',
+        targetEmail: targetUser.email,
+        targetAccountNumber: targetUser.accountNumber,
+        description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
+        details: {
+          amount: deposit.amount,
+          currency: deposit.currency,
+          reference: ref,
+          description: deposit.description,
+          newBalance: targetUser.balance
+        }
+      });
+
+      this.saveDB(this.db);
+      syncUserToFirestore(targetUser).catch(err => console.warn('Firestore sync user error in createDeposit:', err));
+      syncTransactionToFirestore(newTxn).catch(err => console.warn('Firestore sync txn error in createDeposit:', err));
+
+      return { user: targetUser, transaction: newTxn };
+    } finally {
+      this.releaseLock(lockKey);
+    }
   }
 
   public async createDepositAsync(deposit: DepositPayload, adminUser: User): Promise<{ user: User; transaction: Transaction }> {
@@ -991,7 +1023,8 @@ class DatabaseManager {
     const emailQuery = deposit.userEmail ? deposit.userEmail.trim() : '';
     const accQuery = deposit.accountNumber ? deposit.accountNumber.trim() : '';
 
-    const targetUser = (emailQuery ? await this.findUserByEmailOrAccountAsync(emailQuery) : undefined) ||
+    const targetUser = (deposit.userId ? await this.findUserByIdAsync(deposit.userId) : undefined) ||
+                       (emailQuery ? await this.findUserByEmailOrAccountAsync(emailQuery) : undefined) ||
                        (accQuery ? await this.findUserByEmailOrAccountAsync(accQuery) : undefined);
 
     if (!targetUser) {
@@ -1006,83 +1039,95 @@ class DatabaseManager {
       ? deposit.reference.trim()
       : `TXN-DEP-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    targetUser.balance += Number(deposit.amount);
-    targetUser.ledgerBalance = (targetUser.ledgerBalance ?? 0) + Number(deposit.amount);
-
-    let isNewCodeGenerated = false;
-    if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
-      const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
-      targetUser.fourDigitCode = generatedCode;
-      targetUser.transferCodeApproved = true;
-      isNewCodeGenerated = true;
-    }
-
-    const now = new Date().toISOString();
-    const newTxn: Transaction = {
-      id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: targetUser.id,
-      userEmail: targetUser.email,
-      accountNumber: targetUser.accountNumber,
-      senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
-      amount: Number(deposit.amount),
-      currency: deposit.currency || 'USD',
-      type: 'Deposit',
-      status: 'Completed',
-      reference: ref,
-      description: isNewCodeGenerated 
-        ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
-        : (deposit.description || 'Admin Balance Deposit'),
-      createdByAdminEmail: adminUser.email,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    this.db.transactions.unshift(newTxn);
-
-    const notifMsg = isNewCodeGenerated
-      ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
-      : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
-
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: targetUser.id,
-      title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
-      message: notifMsg,
-      amount: Number(deposit.amount),
-      currency: deposit.currency || 'USD',
-      reference: ref,
-      read: false,
-      createdAt: now
-    };
-
-    this.db.notifications.unshift(notif);
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'DEPOSIT_CREATED',
-      targetEmail: targetUser.email,
-      targetAccountNumber: targetUser.accountNumber,
-      description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
-      details: {
-        amount: deposit.amount,
-        currency: deposit.currency,
-        reference: ref,
-        description: deposit.description,
-        newBalance: targetUser.balance
-      }
-    });
-
-    this.saveDB(this.db);
+    const lockKey = `deposit:${targetUser.id}:${ref}`;
+    this.acquireLock(lockKey);
 
     try {
-      await syncUserToFirestore(targetUser);
-      await syncTransactionToFirestore(newTxn);
-    } catch (fsErr) {
-      console.warn('Firestore sync error in createDepositAsync:', fsErr);
-    }
+      const existingTxn = this.db.transactions.find(t => t.reference === ref);
+      if (existingTxn) {
+        return { user: targetUser, transaction: existingTxn };
+      }
 
-    return { user: targetUser, transaction: newTxn };
+      targetUser.balance += Number(deposit.amount);
+      targetUser.ledgerBalance = (targetUser.ledgerBalance ?? targetUser.balance) + Number(deposit.amount);
+
+      let isNewCodeGenerated = false;
+      if (!targetUser.fourDigitCode || !targetUser.transferCodeApproved) {
+        const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+        targetUser.fourDigitCode = generatedCode;
+        targetUser.transferCodeApproved = true;
+        isNewCodeGenerated = true;
+      }
+
+      const now = new Date().toISOString();
+      const newTxn: Transaction = {
+        id: `txn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        userId: targetUser.id,
+        userEmail: targetUser.email,
+        accountNumber: targetUser.accountNumber,
+        senderName: deposit.senderName || 'Federal Wire Transfer / SVB Treasury',
+        amount: Number(deposit.amount),
+        currency: deposit.currency || 'USD',
+        type: 'Deposit',
+        status: 'Approved',
+        reference: ref,
+        description: isNewCodeGenerated 
+          ? `${deposit.description || 'Admin Balance Deposit'} (4-Digit Code Activated: ${targetUser.fourDigitCode})`
+          : (deposit.description || 'Admin Balance Deposit'),
+        createdByAdminEmail: adminUser.email,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      this.db.transactions.unshift(newTxn);
+
+      const notifMsg = isNewCodeGenerated
+        ? `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Your official 4-Digit Outgoing Transfer Code is now active: [ ${targetUser.fourDigitCode} ]. Ref: ${ref}`
+        : `Your account ${targetUser.accountNumber} was credited with ${deposit.currency || 'USD'} ${Number(deposit.amount).toFixed(2)}. Ref: ${ref}`;
+
+      const notif: UserNotification = {
+        id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        userId: targetUser.id,
+        title: isNewCodeGenerated ? 'Deposit Credited & 4-Digit Code Activated!' : 'New Deposit Received',
+        message: notifMsg,
+        amount: Number(deposit.amount),
+        currency: deposit.currency || 'USD',
+        reference: ref,
+        read: false,
+        createdAt: now
+      };
+
+      this.db.notifications.unshift(notif);
+
+      this.addAuditLog({
+        adminId: adminUser.id,
+        adminEmail: adminUser.email,
+        action: 'DEPOSIT_CREATED',
+        targetEmail: targetUser.email,
+        targetAccountNumber: targetUser.accountNumber,
+        description: `Admin ${adminUser.email} credited ${deposit.currency} ${deposit.amount} to account ${targetUser.accountNumber} (${targetUser.email})`,
+        details: {
+          amount: deposit.amount,
+          currency: deposit.currency,
+          reference: ref,
+          description: deposit.description,
+          newBalance: targetUser.balance
+        }
+      });
+
+      this.saveDB(this.db);
+
+      try {
+        await syncUserToFirestore(targetUser);
+        await syncTransactionToFirestore(newTxn);
+      } catch (fsErr) {
+        console.warn('Firestore sync error in createDepositAsync:', fsErr);
+      }
+
+      return { user: targetUser, transaction: newTxn };
+    } finally {
+      this.releaseLock(lockKey);
+    }
   }
 
   // Transfer Processing (User to User & International Banks)
@@ -1545,135 +1590,164 @@ class DatabaseManager {
   public approveTransaction(adminUser: User, transactionId: string, senderNameInput?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const senderTxn = this.db.transactions.find(t => t.id === transactionId);
+    const senderTxn = this.db.transactions.find(t => t.id === transactionId || t.reference === transactionId);
     if (!senderTxn) throw new Error('Transaction not found.');
 
-    if (senderTxn.status !== 'Pending') {
-      throw new Error(`Transaction is not pending review. Current status: ${senderTxn.status}`);
+    if ((senderTxn.status as string) === 'Completed' || (senderTxn.status as string) === 'Approved') {
+      return { transaction: senderTxn };
     }
 
-    const sender = this.findUserById(senderTxn.userId);
-    const finalSenderName = senderNameInput && senderNameInput.trim() !== '' 
-      ? senderNameInput.trim() 
-      : (sender ? sender.fullName : 'Federal Wire Transfer / SVB Treasury');
+    if (senderTxn.status === 'Rejected' || senderTxn.status === 'Cancelled') {
+      throw new Error(`This transaction has already been ${senderTxn.status.toLowerCase()} and cannot be approved.`);
+    }
 
-    senderTxn.status = 'Completed';
-    senderTxn.senderName = finalSenderName;
-    senderTxn.updatedAt = new Date().toISOString();
+    const lockKey = `txn:${senderTxn.id}`;
+    this.acquireLock(lockKey);
 
-    // Check if it's a deposit (Payment Verification Deposit or Direct Deposit to user)
-    const isDepositType = senderTxn.type.toLowerCase().includes('deposit') || 
-                          senderTxn.description.toLowerCase().includes('deposit') ||
-                          senderTxn.description.toLowerCase().includes('verification');
+    try {
+      const sender = this.findUserById(senderTxn.userId);
+      const finalSenderName = senderNameInput && senderNameInput.trim() !== '' 
+        ? senderNameInput.trim() 
+        : (sender ? sender.fullName : 'Federal Wire Transfer / SVB Treasury');
 
-    if (isDepositType && sender) {
-      sender.balance += senderTxn.amount;
-      sender.ledgerBalance = sender.balance;
+      const now = new Date().toISOString();
+      senderTxn.status = 'Approved';
+      senderTxn.senderName = finalSenderName;
+      senderTxn.updatedAt = now;
 
-      // If it's a payment verification deposit or code activation, activate 4-digit code
-      if (!sender.fourDigitCode || !sender.transferCodeApproved) {
-        const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
-        sender.fourDigitCode = generatedCode;
-        sender.transferCodeApproved = true;
-      }
-
-      // Update matching crypto activation deposit if present
-      if (this.db.cryptoActivationDeposits) {
-        const matchingDep = this.db.cryptoActivationDeposits.find(d => d.userId === sender.id && d.status === 'Pending');
-        if (matchingDep) {
-          matchingDep.status = 'Approved';
-          matchingDep.generatedCode = sender.fourDigitCode;
-          matchingDep.updatedAt = new Date().toISOString();
+      // Also update any matching duplicate transactions with same ID or reference
+      this.db.transactions.forEach(t => {
+        if ((t.id === senderTxn.id || (t.reference && t.reference === senderTxn.reference)) && t.status === 'Pending') {
+          t.status = 'Approved';
+          t.senderName = finalSenderName;
+          t.updatedAt = now;
+          try { syncTransactionToFirestore(t); } catch (_) {}
         }
-      }
+      });
 
-      const depNotif: UserNotification = {
-        id: `notif-${Date.now()}-depapp`,
-        userId: sender.id,
-        title: 'Deposit Approved & Funds Credited',
-        message: `Your deposit of $${senderTxn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (Ref: ${senderTxn.reference}) has been APPROVED and credited to your account.`,
-        amount: senderTxn.amount,
-        currency: senderTxn.currency || 'USD',
-        reference: senderTxn.reference,
-        read: false,
-        createdAt: new Date().toISOString()
-      };
-      this.db.notifications.unshift(depNotif);
-    } else if (senderTxn.recipientAccountNumber || senderTxn.recipientEmail) {
-      // Find recipient and credit balance + create recipient transaction record
-      const recipient = this.findUserByAccountNumber(senderTxn.recipientAccountNumber || '') || 
-                        this.findUserByEmail(senderTxn.recipientEmail || '');
-      if (recipient) {
-        recipient.balance += senderTxn.amount;
-        recipient.ledgerBalance = recipient.balance;
+      // Check if it's a deposit (Payment Verification Deposit or Direct Deposit to user)
+      const isDepositType = senderTxn.type.toLowerCase().includes('deposit') || 
+                            senderTxn.description.toLowerCase().includes('deposit') ||
+                            senderTxn.description.toLowerCase().includes('verification');
 
-        if (!recipient.fourDigitCode || !recipient.transferCodeApproved) {
+      if (isDepositType && sender) {
+        sender.balance += senderTxn.amount;
+        sender.ledgerBalance = sender.balance;
+
+        // If it's a payment verification deposit or code activation, activate 4-digit code
+        if (!sender.fourDigitCode || !sender.transferCodeApproved) {
           const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
-          recipient.fourDigitCode = generatedCode;
-          recipient.transferCodeApproved = true;
+          sender.fourDigitCode = generatedCode;
+          sender.transferCodeApproved = true;
         }
 
-        const recipientTxn: Transaction = {
-          id: `txn-${Date.now()}-in`,
-          userId: recipient.id,
-          userEmail: recipient.email,
-          accountNumber: recipient.accountNumber,
-          senderName: finalSenderName,
-          amount: senderTxn.amount,
-          currency: senderTxn.currency || 'USD',
-          type: 'Transfer',
-          status: 'Completed',
-          reference: senderTxn.reference,
-          description: `Received transfer from ${finalSenderName}`,
-          createdByAdminEmail: adminUser.email,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        this.db.transactions.unshift(recipientTxn);
+        // Update matching crypto activation deposit if present
+        if (this.db.cryptoActivationDeposits) {
+          const matchingDep = this.db.cryptoActivationDeposits.find(d => d.userId === sender.id && d.status === 'Pending');
+          if (matchingDep) {
+            matchingDep.status = 'Approved';
+            matchingDep.generatedCode = sender.fourDigitCode;
+            matchingDep.updatedAt = now;
+            try { syncCryptoDepositToFirestore(matchingDep); } catch (_) {}
+          }
+        }
 
-        const recNotif: UserNotification = {
-          id: `notif-${Date.now()}-rec`,
-          userId: recipient.id,
-          title: 'Funds Credited to Account',
-          message: `Your account received ${senderTxn.currency} ${senderTxn.amount.toFixed(2)} from ${finalSenderName}. Ref: ${senderTxn.reference}`,
+        try { syncUserToFirestore(sender); } catch (_) {}
+
+        const depNotif: UserNotification = {
+          id: `notif-${Date.now()}-depapp`,
+          userId: sender.id,
+          title: 'Deposit Approved & Funds Credited',
+          message: `Your deposit of $${senderTxn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (Ref: ${senderTxn.reference}) has been APPROVED and credited to your account.`,
           amount: senderTxn.amount,
           currency: senderTxn.currency || 'USD',
           reference: senderTxn.reference,
           read: false,
-          createdAt: new Date().toISOString()
+          createdAt: now
         };
-        this.db.notifications.unshift(recNotif);
+        this.db.notifications.unshift(depNotif);
+      } else if (senderTxn.recipientAccountNumber || senderTxn.recipientEmail) {
+        // Find recipient and credit balance + create recipient transaction record
+        const recipient = this.findUserByAccountNumber(senderTxn.recipientAccountNumber || '') || 
+                          this.findUserByEmail(senderTxn.recipientEmail || '');
+        if (recipient) {
+          recipient.balance += senderTxn.amount;
+          recipient.ledgerBalance = recipient.balance;
+
+          if (!recipient.fourDigitCode || !recipient.transferCodeApproved) {
+            const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+            recipient.fourDigitCode = generatedCode;
+            recipient.transferCodeApproved = true;
+          }
+
+          try { syncUserToFirestore(recipient); } catch (_) {}
+
+          const recipientTxn: Transaction = {
+            id: `txn-${Date.now()}-in`,
+            userId: recipient.id,
+            userEmail: recipient.email,
+            accountNumber: recipient.accountNumber,
+            senderName: finalSenderName,
+            amount: senderTxn.amount,
+            currency: senderTxn.currency || 'USD',
+            type: 'Transfer',
+            status: 'Approved',
+            reference: senderTxn.reference,
+            description: `Received transfer from ${finalSenderName}`,
+            createdByAdminEmail: adminUser.email,
+            createdAt: now,
+            updatedAt: now
+          };
+          this.db.transactions.unshift(recipientTxn);
+          try { syncTransactionToFirestore(recipientTxn); } catch (_) {}
+
+          const recNotif: UserNotification = {
+            id: `notif-${Date.now()}-rec`,
+            userId: recipient.id,
+            title: 'Funds Credited to Account',
+            message: `Your account received ${senderTxn.currency} ${senderTxn.amount.toFixed(2)} from ${finalSenderName}. Ref: ${senderTxn.reference}`,
+            amount: senderTxn.amount,
+            currency: senderTxn.currency || 'USD',
+            reference: senderTxn.reference,
+            read: false,
+            createdAt: now
+          };
+          this.db.notifications.unshift(recNotif);
+        }
       }
+
+      // Send notification to sender if it was a transfer/wire/withdrawal
+      if (sender && !isDepositType) {
+        const sendNotif: UserNotification = {
+          id: `notif-${Date.now()}-snd`,
+          userId: sender.id,
+          title: 'Outgoing Transfer Processed',
+          message: `Your outgoing transfer of $${senderTxn.amount.toFixed(2)} (Ref: ${senderTxn.reference}) has been successfully processed.`,
+          amount: senderTxn.amount,
+          currency: senderTxn.currency || 'USD',
+          reference: senderTxn.reference,
+          read: false,
+          createdAt: now
+        };
+        this.db.notifications.unshift(sendNotif);
+      }
+
+      this.addAuditLog({
+        adminId: adminUser.id,
+        adminEmail: adminUser.email,
+        action: 'TRANSFER_EXECUTED',
+        targetEmail: senderTxn.userEmail,
+        targetAccountNumber: senderTxn.accountNumber,
+        description: `Admin ${adminUser.email} approved transaction ${senderTxn.reference} of $${senderTxn.amount} (${senderTxn.type}) with sender/source name "${finalSenderName}"`,
+        details: { transactionId, senderName: finalSenderName, type: senderTxn.type }
+      });
+
+      try { syncTransactionToFirestore(senderTxn); } catch (_) {}
+      this.saveDB(this.db);
+      return { transaction: senderTxn };
+    } finally {
+      this.releaseLock(lockKey);
     }
-
-    // Send notification to sender if it was a transfer/wire/withdrawal
-    if (sender && !isDepositType) {
-      const sendNotif: UserNotification = {
-        id: `notif-${Date.now()}-snd`,
-        userId: sender.id,
-        title: 'Outgoing Transfer Processed',
-        message: `Your outgoing transfer of $${senderTxn.amount.toFixed(2)} (Ref: ${senderTxn.reference}) has been successfully processed.`,
-        amount: senderTxn.amount,
-        currency: senderTxn.currency || 'USD',
-        reference: senderTxn.reference,
-        read: false,
-        createdAt: new Date().toISOString()
-      };
-      this.db.notifications.unshift(sendNotif);
-    }
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'TRANSFER_EXECUTED',
-      targetEmail: senderTxn.userEmail,
-      targetAccountNumber: senderTxn.accountNumber,
-      description: `Admin ${adminUser.email} approved transaction ${senderTxn.reference} of $${senderTxn.amount} (${senderTxn.type}) with sender/source name "${finalSenderName}"`,
-      details: { transactionId, senderName: finalSenderName, type: senderTxn.type }
-    });
-
-    this.saveDB(this.db);
-    return { transaction: senderTxn };
   }
 
   // Regenerate 4-Digit Security Code (Admin Action)
@@ -1717,64 +1791,89 @@ class DatabaseManager {
   public rejectTransaction(adminUser: User, transactionId: string, reason?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const txn = this.db.transactions.find(t => t.id === transactionId);
+    const txn = this.db.transactions.find(t => t.id === transactionId || t.reference === transactionId);
     if (!txn) throw new Error('Transaction not found.');
 
     if (txn.status === 'Rejected' || txn.status === 'Cancelled') {
-      throw new Error(`Transaction is already ${txn.status.toLowerCase()}.`);
+      return { transaction: txn };
     }
 
-    txn.status = 'Rejected';
-    txn.updatedAt = new Date().toISOString();
-
-    const targetUser = this.findUserById(txn.userId);
-    if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
-      targetUser.balance += txn.amount;
-      targetUser.ledgerBalance = targetUser.balance;
+    if ((txn.status as string) === 'Approved' || (txn.status as string) === 'Completed') {
+      throw new Error('This transaction has already been approved and cannot be rejected.');
     }
 
-    // Update matching crypto activation deposit if present
-    if (this.db.cryptoActivationDeposits && targetUser) {
-      const matchingDep = this.db.cryptoActivationDeposits.find(d => d.userId === targetUser.id && d.status === 'Pending');
-      if (matchingDep) {
-        matchingDep.status = 'Rejected';
-        matchingDep.adminNotes = reason || 'Declined by SVB Review';
-        matchingDep.updatedAt = new Date().toISOString();
+    const lockKey = `txn:${txn.id}`;
+    this.acquireLock(lockKey);
+
+    try {
+      const now = new Date().toISOString();
+      txn.status = 'Rejected';
+      txn.updatedAt = now;
+
+      // Also update any matching duplicate transactions with same ID or reference
+      this.db.transactions.forEach(t => {
+        if ((t.id === txn.id || (t.reference && t.reference === txn.reference)) && t.status === 'Pending') {
+          t.status = 'Rejected';
+          t.updatedAt = now;
+          try { syncTransactionToFirestore(t); } catch (_) {}
+        }
+      });
+
+      const targetUser = this.findUserById(txn.userId);
+      if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
+        targetUser.balance += txn.amount;
+        targetUser.ledgerBalance = targetUser.balance;
+        try { syncUserToFirestore(targetUser); } catch (_) {}
       }
-      if (targetUser.pendingCryptoDeposit) {
-        targetUser.pendingCryptoDeposit.status = 'Rejected';
-        targetUser.pendingCryptoDeposit.adminNotes = reason || 'Declined by SVB Review';
+
+      // Update matching crypto activation deposit if present
+      if (this.db.cryptoActivationDeposits && targetUser) {
+        const matchingDep = this.db.cryptoActivationDeposits.find(d => (d.userId === targetUser.id || d.id === txn.id || d.id === txn.reference) && d.status === 'Pending');
+        if (matchingDep) {
+          matchingDep.status = 'Rejected';
+          matchingDep.adminNotes = reason || 'Declined by SVB Review';
+          matchingDep.updatedAt = now;
+          try { syncCryptoDepositToFirestore(matchingDep); } catch (_) {}
+        }
+        if (targetUser.pendingCryptoDeposit) {
+          targetUser.pendingCryptoDeposit.status = 'Rejected';
+          targetUser.pendingCryptoDeposit.adminNotes = reason || 'Declined by SVB Review';
+          try { syncUserToFirestore(targetUser); } catch (_) {}
+        }
       }
+
+      const isDeposit = txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit');
+      const notif: UserNotification = {
+        id: `notif-${Date.now()}-rej`,
+        userId: txn.userId,
+        title: isDeposit ? 'Deposit Request Declined' : 'Transaction Declined & Refunded',
+        message: isDeposit
+          ? `Deposit request ${txn.reference} of $${txn.amount.toFixed(2)} was declined by Silicon Valley Bank.${reason ? ` Reason: ${reason}` : ''}`
+          : `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was declined. Funds of $${txn.amount.toFixed(2)} have been returned to your account balance.${reason ? ` Reason: ${reason}` : ''}`,
+        amount: txn.amount,
+        currency: txn.currency,
+        reference: txn.reference,
+        read: false,
+        createdAt: now
+      };
+      this.db.notifications.unshift(notif);
+
+      this.addAuditLog({
+        adminId: adminUser.id,
+        adminEmail: adminUser.email,
+        action: 'TRANSFER_EXECUTED',
+        targetEmail: txn.userEmail,
+        targetAccountNumber: txn.accountNumber,
+        description: `Admin ${adminUser.email} rejected transaction ${txn.reference} and refunded $${txn.amount}`,
+        details: { transactionId: txn.id, type: txn.type, amount: txn.amount, reason }
+      });
+
+      try { syncTransactionToFirestore(txn); } catch (_) {}
+      this.saveDB(this.db);
+      return { transaction: txn };
+    } finally {
+      this.releaseLock(lockKey);
     }
-
-    const isDeposit = txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit');
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-rej`,
-      userId: txn.userId,
-      title: isDeposit ? 'Deposit Request Declined' : 'Transaction Declined & Refunded',
-      message: isDeposit
-        ? `Deposit request ${txn.reference} of $${txn.amount.toFixed(2)} was declined by Silicon Valley Bank.${reason ? ` Reason: ${reason}` : ''}`
-        : `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was declined. Funds of $${txn.amount.toFixed(2)} have been returned to your account balance.${reason ? ` Reason: ${reason}` : ''}`,
-      amount: txn.amount,
-      currency: txn.currency,
-      reference: txn.reference,
-      read: false,
-      createdAt: new Date().toISOString()
-    };
-    this.db.notifications.unshift(notif);
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'TRANSFER_EXECUTED',
-      targetEmail: txn.userEmail,
-      targetAccountNumber: txn.accountNumber,
-      description: `Admin ${adminUser.email} rejected transaction ${txn.reference} and refunded $${txn.amount}`,
-      details: { transactionId: txn.id, type: txn.type, amount: txn.amount, reason }
-    });
-
-    this.saveDB(this.db);
-    return { transaction: txn };
   }
 
   // Notifications
@@ -1927,109 +2026,135 @@ class DatabaseManager {
     const deposit = (this.db.cryptoActivationDeposits || []).find(d => d.id === depositId);
     if (!deposit) throw new Error('Activation deposit request not found.');
 
-    const targetUser = this.findUserById(deposit.userId);
-    if (!targetUser) throw new Error('Associated user profile not found.');
-
-    const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
-    const now = new Date().toISOString();
-
-    deposit.status = 'Approved';
-    deposit.generatedCode = generatedCode;
-    deposit.updatedAt = now;
-
-    targetUser.fourDigitCode = generatedCode;
-    targetUser.transferCodeApproved = true;
-    targetUser.balance += (deposit.amountUSD || 2500); // Credit $2500 to user account
-    targetUser.pendingCryptoDeposit = deposit;
-
-    // Update existing pending transaction if found, otherwise create completed record
-    const pendingTxn = this.db.transactions.find(
-      t => t.userId === targetUser.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
-    );
-    if (pendingTxn) {
-      pendingTxn.status = 'Completed';
-      pendingTxn.senderName = 'Silicon Valley Bank Treasury / Crypto Clearing';
-      pendingTxn.updatedAt = now;
-    } else {
-      const txn: Transaction = {
-        id: `txn-${Date.now()}-actdep`,
-        userId: targetUser.id,
-        userEmail: targetUser.email,
-        userName: targetUser.fullName,
-        accountNumber: targetUser.accountNumber,
-        amount: deposit.amountUSD || 2500,
-        currency: 'USD',
-        type: 'Deposit',
-        status: 'Completed',
-        reference: `ACT-DEP-${deposit.cryptoMethod}-${deposit.id.slice(-6)}`,
-        description: `$${deposit.amountUSD || 2500} ${deposit.cryptoMethod} Activation Deposit (4-Digit Code Authorized)`,
-        createdByAdminEmail: adminUser.email,
-        createdAt: now,
-        updatedAt: now
-      };
-      this.db.transactions.unshift(txn);
+    if (deposit.status === 'Approved') {
+      const targetUser = this.findUserById(deposit.userId);
+      return { deposit, user: targetUser!, code: deposit.generatedCode || targetUser?.fourDigitCode || '0000' };
     }
 
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-code`,
-      userId: targetUser.id,
-      title: '4-Digit Transfer Code Approved & Issued!',
-      message: `Your $2,500 ${deposit.cryptoMethod} deposit was APPROVED by Silicon Valley Bank! Your official 4-Digit Outgoing Transfer Code is: [ ${generatedCode} ]. Keep this code confidential.`,
-      amount: 2500,
-      currency: 'USD',
-      reference: deposit.id,
-      read: false,
-      createdAt: now
-    };
-    this.db.notifications.unshift(notif);
+    if (deposit.status === 'Rejected') {
+      throw new Error('This activation deposit has already been rejected and cannot be approved.');
+    }
 
-    // Auto update/create support ticket with 4-digit code
+    const lockKey = `crypto_dep:${deposit.id}`;
+    this.acquireLock(lockKey);
+
     try {
-      if (!this.db.supportTickets) this.db.supportTickets = [];
-      let ticket = this.db.supportTickets.find(t => t.userId === targetUser.id);
-      if (!ticket) {
-        ticket = {
-          id: `ticket-${Date.now()}`,
+      const targetUser = this.findUserById(deposit.userId);
+      if (!targetUser) throw new Error('Associated user profile not found.');
+
+      const generatedCode = Math.floor(1000 + Math.random() * 9000).toString();
+      const now = new Date().toISOString();
+
+      deposit.status = 'Approved';
+      deposit.generatedCode = generatedCode;
+      deposit.updatedAt = now;
+
+      targetUser.fourDigitCode = generatedCode;
+      targetUser.transferCodeApproved = true;
+      targetUser.balance += (deposit.amountUSD || 2500); // Credit $2500 to user account
+      targetUser.ledgerBalance = targetUser.balance;
+      targetUser.pendingCryptoDeposit = deposit;
+
+      // Update existing pending transaction if found, otherwise create completed record
+      const pendingTxns = this.db.transactions.filter(
+        t => t.userId === targetUser.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
+      );
+      if (pendingTxns.length > 0) {
+        pendingTxns.forEach(pendingTxn => {
+          pendingTxn.status = 'Approved';
+          pendingTxn.senderName = 'Silicon Valley Bank Treasury / Crypto Clearing';
+          pendingTxn.updatedAt = now;
+          try { syncTransactionToFirestore(pendingTxn); } catch (_) {}
+        });
+      } else {
+        const txn: Transaction = {
+          id: `txn-${Date.now()}-actdep`,
           userId: targetUser.id,
           userEmail: targetUser.email,
           userName: targetUser.fullName,
           accountNumber: targetUser.accountNumber,
-          subject: `Payment Verification & 4-Digit Security Code Request`,
-          category: 'Deposit',
-          status: 'Resolved',
-          priority: 'High',
-          messages: [],
+          amount: deposit.amountUSD || 2500,
+          currency: 'USD',
+          type: 'Deposit',
+          status: 'Approved',
+          reference: `ACT-DEP-${deposit.cryptoMethod}-${deposit.id.slice(-6)}`,
+          description: `$${deposit.amountUSD || 2500} ${deposit.cryptoMethod} Activation Deposit (4-Digit Code Authorized)`,
+          createdByAdminEmail: adminUser.email,
           createdAt: now,
           updatedAt: now
         };
-        this.db.supportTickets.unshift(ticket);
+        this.db.transactions.unshift(txn);
+        try { syncTransactionToFirestore(txn); } catch (_) {}
       }
-      ticket.messages.push({
-        id: `msg-${Date.now()}-approval`,
-        senderId: adminUser.id,
-        senderName: 'Silicon Valley Bank Client Support',
-        senderRole: 'admin',
-        message: `Silicon Valley Bank Support: Your $2,500 ${deposit.cryptoMethod} payment verification request has been APPROVED!\n\nYour official 4-Digit Outgoing Transfer Code is: [ ${generatedCode} ]\n\n$2,500.00 USD has been credited to your available account balance. Keep your code confidential.`,
+
+      try {
+        syncCryptoDepositToFirestore(deposit);
+        syncUserToFirestore(targetUser);
+      } catch (_) {}
+
+      const notif: UserNotification = {
+        id: `notif-${Date.now()}-code`,
+        userId: targetUser.id,
+        title: '4-Digit Transfer Code Approved & Issued!',
+        message: `Your $2,500 ${deposit.cryptoMethod} deposit was APPROVED by Silicon Valley Bank! Your official 4-Digit Outgoing Transfer Code is: [ ${generatedCode} ]. Keep this code confidential.`,
+        amount: 2500,
+        currency: 'USD',
+        reference: deposit.id,
+        read: false,
         createdAt: now
+      };
+      this.db.notifications.unshift(notif);
+
+      // Auto update/create support ticket with 4-digit code
+      try {
+        if (!this.db.supportTickets) this.db.supportTickets = [];
+        let ticket = this.db.supportTickets.find(t => t.userId === targetUser.id);
+        if (!ticket) {
+          ticket = {
+            id: `ticket-${Date.now()}`,
+            userId: targetUser.id,
+            userEmail: targetUser.email,
+            userName: targetUser.fullName,
+            accountNumber: targetUser.accountNumber,
+            subject: `Payment Verification & 4-Digit Security Code Request`,
+            category: 'Deposit',
+            status: 'Resolved',
+            priority: 'High',
+            messages: [],
+            createdAt: now,
+            updatedAt: now
+          };
+          this.db.supportTickets.unshift(ticket);
+        }
+        ticket.messages.push({
+          id: `msg-${Date.now()}-approval`,
+          senderId: adminUser.id,
+          senderName: 'Silicon Valley Bank Client Support',
+          senderRole: 'admin',
+          message: `Silicon Valley Bank Support: Your $2,500 ${deposit.cryptoMethod} payment verification request has been APPROVED!\n\nYour official 4-Digit Outgoing Transfer Code is: [ ${generatedCode} ]\n\n$2,500.00 USD has been credited to your available account balance. Keep your code confidential.`,
+          createdAt: now
+        });
+        ticket.status = 'Resolved';
+        ticket.updatedAt = now;
+      } catch (e) {
+        console.error('Support ticket post on approval error:', e);
+      }
+
+      this.addAuditLog({
+        adminId: adminUser.id,
+        adminEmail: adminUser.email,
+        action: 'DEPOSIT_CREATED',
+        targetEmail: targetUser.email,
+        targetAccountNumber: targetUser.accountNumber,
+        description: `Approved $2,500 ${deposit.cryptoMethod} activation deposit & generated 4-Digit Code (${generatedCode}) for ${targetUser.email}`,
+        details: { depositId, generatedCode, method: deposit.cryptoMethod }
       });
-      ticket.status = 'Resolved';
-      ticket.updatedAt = now;
-    } catch (e) {
-      console.error('Support ticket post on approval error:', e);
+
+      this.saveDB(this.db);
+      return { deposit, user: targetUser, code: generatedCode };
+    } finally {
+      this.releaseLock(lockKey);
     }
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'DEPOSIT_CREATED',
-      targetEmail: targetUser.email,
-      targetAccountNumber: targetUser.accountNumber,
-      description: `Approved $2,500 ${deposit.cryptoMethod} activation deposit & generated 4-Digit Code (${generatedCode}) for ${targetUser.email}`,
-      details: { depositId, generatedCode, method: deposit.cryptoMethod }
-    });
-
-    this.saveDB(this.db);
-    return { deposit, user: targetUser, code: generatedCode };
   }
 
   public rejectCryptoActivationDeposit(adminUser: User, depositId: string, notes?: string): { deposit: CryptoActivationDeposit; user: User } {
@@ -2038,85 +2163,107 @@ class DatabaseManager {
     const deposit = (this.db.cryptoActivationDeposits || []).find(d => d.id === depositId);
     if (!deposit) throw new Error('Activation deposit request not found.');
 
-    const targetUser = this.findUserById(deposit.userId);
-    if (!targetUser) throw new Error('Associated user profile not found.');
-
-    const now = new Date().toISOString();
-    deposit.status = 'Rejected';
-    deposit.updatedAt = now;
-
-    targetUser.transferCodeApproved = false;
-    targetUser.pendingCryptoDeposit = deposit;
-
-    // Update existing pending transaction if found to Rejected
-    const pendingTxn = this.db.transactions.find(
-      t => t.userId === targetUser.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
-    );
-    if (pendingTxn) {
-      pendingTxn.status = 'Rejected';
-      pendingTxn.updatedAt = now;
+    if (deposit.status === 'Rejected') {
+      const targetUser = this.findUserById(deposit.userId);
+      return { deposit, user: targetUser! };
     }
 
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-rej`,
-      userId: targetUser.id,
-      title: '$2,500 Activation Deposit Rejected',
-      message: `Your $2,500 ${deposit.cryptoMethod} activation deposit was rejected by Silicon Valley Bank. ${notes ? 'Reason: ' + notes : '4-Digit Transfer Code has not been issued. Please contact support.'}`,
-      amount: 0,
-      currency: 'USD',
-      reference: deposit.id,
-      read: false,
-      createdAt: now
-    };
-    this.db.notifications.unshift(notif);
+    if (deposit.status === 'Approved') {
+      throw new Error('This activation deposit has already been approved and cannot be rejected.');
+    }
 
-    // Auto update/create support ticket with rejection message
+    const lockKey = `crypto_dep:${deposit.id}`;
+    this.acquireLock(lockKey);
+
     try {
-      if (!this.db.supportTickets) this.db.supportTickets = [];
-      let ticket = this.db.supportTickets.find(t => t.userId === targetUser.id);
-      if (!ticket) {
-        ticket = {
-          id: `ticket-${Date.now()}`,
-          userId: targetUser.id,
-          userEmail: targetUser.email,
-          userName: targetUser.fullName,
-          accountNumber: targetUser.accountNumber,
-          subject: `Payment Verification & 4-Digit Security Code Request`,
-          category: 'Deposit',
-          status: 'Open',
-          priority: 'High',
-          messages: [],
-          createdAt: now,
-          updatedAt: now
-        };
-        this.db.supportTickets.unshift(ticket);
-      }
-      ticket.messages.push({
-        id: `msg-${Date.now()}-rejection`,
-        senderId: adminUser.id,
-        senderName: 'Silicon Valley Bank Client Support',
-        senderRole: 'admin',
-        message: `Silicon Valley Bank Support: Your $2,500 ${deposit.cryptoMethod} payment verification request was NOT APPROVED.\n\nReason / Explanatory Note:\n${notes || 'The submitted deposit could not be verified on the blockchain network ledger. Please reach out to customer support if you need further assistance.'}`,
-        createdAt: now
+      const targetUser = this.findUserById(deposit.userId);
+      if (!targetUser) throw new Error('Associated user profile not found.');
+
+      const now = new Date().toISOString();
+      deposit.status = 'Rejected';
+      deposit.updatedAt = now;
+
+      targetUser.transferCodeApproved = false;
+      targetUser.pendingCryptoDeposit = deposit;
+
+      // Update existing pending transactions if found to Rejected
+      const pendingTxns = this.db.transactions.filter(
+        t => t.userId === targetUser.id && (t.type === 'Code Activation Deposit' || t.description.toLowerCase().includes('activation deposit')) && t.status === 'Pending'
+      );
+      pendingTxns.forEach(pendingTxn => {
+        pendingTxn.status = 'Rejected';
+        pendingTxn.updatedAt = now;
+        try { syncTransactionToFirestore(pendingTxn); } catch (_) {}
       });
-      ticket.status = 'Open';
-      ticket.updatedAt = now;
-    } catch (e) {
-      console.error('Support ticket post on rejection error:', e);
+
+      try {
+        syncCryptoDepositToFirestore(deposit);
+        syncUserToFirestore(targetUser);
+      } catch (_) {}
+
+      const notif: UserNotification = {
+        id: `notif-${Date.now()}-rej`,
+        userId: targetUser.id,
+        title: '$2,500 Activation Deposit Rejected',
+        message: `Your $2,500 ${deposit.cryptoMethod} activation deposit was rejected by Silicon Valley Bank. ${notes ? 'Reason: ' + notes : '4-Digit Transfer Code has not been issued. Please contact support.'}`,
+        amount: 0,
+        currency: 'USD',
+        reference: deposit.id,
+        read: false,
+        createdAt: now
+      };
+      this.db.notifications.unshift(notif);
+
+      // Auto update/create support ticket with rejection message
+      try {
+        if (!this.db.supportTickets) this.db.supportTickets = [];
+        let ticket = this.db.supportTickets.find(t => t.userId === targetUser.id);
+        if (!ticket) {
+          ticket = {
+            id: `ticket-${Date.now()}`,
+            userId: targetUser.id,
+            userEmail: targetUser.email,
+            userName: targetUser.fullName,
+            accountNumber: targetUser.accountNumber,
+            subject: `Payment Verification & 4-Digit Security Code Request`,
+            category: 'Deposit',
+            status: 'Open',
+            priority: 'High',
+            messages: [],
+            createdAt: now,
+            updatedAt: now
+          };
+          this.db.supportTickets.unshift(ticket);
+        }
+        ticket.messages.push({
+          id: `msg-${Date.now()}-rejection`,
+          senderId: adminUser.id,
+          senderName: 'Silicon Valley Bank Client Support',
+          senderRole: 'admin',
+          message: `Silicon Valley Bank Support: Your $2,500 ${deposit.cryptoMethod} payment verification request was NOT APPROVED.\n\nReason / Explanatory Note:\n${notes || 'The submitted deposit could not be verified on the blockchain network ledger. Please reach out to customer support if you need further assistance.'}`,
+          createdAt: now
+        });
+        ticket.status = 'Open';
+        ticket.updatedAt = now;
+      } catch (e) {
+        console.error('Support ticket post on rejection error:', e);
+      }
+
+      this.addAuditLog({
+        adminId: adminUser.id,
+        adminEmail: adminUser.email,
+        action: 'PROFILE_UPDATED',
+        targetEmail: targetUser.email,
+        targetAccountNumber: targetUser.accountNumber,
+        description: `Rejected $2,500 ${deposit.cryptoMethod} activation deposit for ${targetUser.email}`,
+        details: { depositId }
+      });
+
+      this.saveDB(this.db);
+      return { deposit, user: targetUser };
+    } finally {
+      this.releaseLock(lockKey);
     }
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'PROFILE_UPDATED',
-      targetEmail: targetUser.email,
-      targetAccountNumber: targetUser.accountNumber,
-      description: `Rejected $2,500 ${deposit.cryptoMethod} activation deposit for ${targetUser.email}`,
-      details: { depositId }
-    });
-
-    this.saveDB(this.db);
-    return { deposit, user: targetUser };
   }
 
   // Admin Account Withdrawal
@@ -2186,19 +2333,35 @@ class DatabaseManager {
   public adminCancelTransaction(adminUser: User, transactionId: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const txn = this.db.transactions.find(t => t.id === transactionId);
+    const txn = this.db.transactions.find(t => t.id === transactionId || t.reference === transactionId);
     if (!txn) throw new Error('Transaction not found.');
 
-    if (txn.status === 'Cancelled') throw new Error('Transaction is already cancelled.');
+    if (txn.status === 'Cancelled' || txn.status === 'Rejected') {
+      return { transaction: txn };
+    }
 
+    const now = new Date().toISOString();
     txn.status = 'Cancelled';
-    txn.updatedAt = new Date().toISOString();
+    txn.updatedAt = now;
+
+    // Also update any matching duplicate transactions with same ID or reference
+    this.db.transactions.forEach(t => {
+      if ((t.id === txn.id || (t.reference && t.reference === txn.reference)) && t.status === 'Pending') {
+        t.status = 'Cancelled';
+        t.updatedAt = now;
+        try { syncTransactionToFirestore(t); } catch (_) {}
+      }
+    });
 
     const targetUser = this.findUserById(txn.userId);
     if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
       targetUser.balance += txn.amount;
+      targetUser.ledgerBalance = targetUser.balance;
+      try { syncUserToFirestore(targetUser); } catch (_) {}
     } else if (targetUser && txn.type === 'Deposit') {
       targetUser.balance = Math.max(0, targetUser.balance - txn.amount);
+      targetUser.ledgerBalance = targetUser.balance;
+      try { syncUserToFirestore(targetUser); } catch (_) {}
     }
 
     const notif: UserNotification = {
