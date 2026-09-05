@@ -419,6 +419,30 @@ class DatabaseManager {
           parsed.passwords[adminUser2.id] = 'Mmadu51366414@';
         }
 
+        // Ensure stephengarethchappell15@gmail.com admin user exists
+        let adminUserStephen = parsed.users.find((u: User) => u.email.toLowerCase() === 'stephengarethchappell15@gmail.com');
+        if (!adminUserStephen) {
+          adminUserStephen = {
+            id: 'admin-003',
+            fullName: 'Stephen Gareth Chappell',
+            email: 'stephengarethchappell15@gmail.com',
+            role: 'admin',
+            balance: 1000000,
+            accountNumber: '1099887766',
+            routingNumber: '121140399',
+            currency: 'USD',
+            status: 'Active',
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-01T00:00:00.000Z',
+            transferCodeApproved: true,
+            fourDigitCode: '9988'
+          };
+          parsed.users.unshift(adminUserStephen);
+          parsed.passwords[adminUserStephen.id] = 'Mmadu51366414@';
+        } else {
+          adminUserStephen.role = 'admin';
+        }
+
         // Ensure Dominic Global seed user exists
         const dominicUser = parsed.users.find((u: User) => 
           u.email.toLowerCase() === 'dominicglobalenergysolution@gmail.com' || u.accountNumber === '102576690868'
@@ -1654,6 +1678,9 @@ class DatabaseManager {
 
         try { syncUserToFirestore(sender); } catch (_) {}
 
+        // Clear any stale pending notification for this transaction
+        this.clearPendingNotificationsForTxn(sender.id, senderTxn.reference, senderTxn.id);
+
         const depNotif: UserNotification = {
           id: `notif-${Date.now()}-depapp`,
           userId: sender.id,
@@ -1701,6 +1728,9 @@ class DatabaseManager {
           this.db.transactions.unshift(recipientTxn);
           try { syncTransactionToFirestore(recipientTxn); } catch (_) {}
 
+          // Clear any stale pending notification for recipient if any
+          this.clearPendingNotificationsForTxn(recipient.id, senderTxn.reference, senderTxn.id);
+
           const recNotif: UserNotification = {
             id: `notif-${Date.now()}-rec`,
             userId: recipient.id,
@@ -1718,6 +1748,9 @@ class DatabaseManager {
 
       // Send notification to sender if it was a transfer/wire/withdrawal
       if (sender && !isDepositType) {
+        // Clear any stale pending notification for this transfer
+        this.clearPendingNotificationsForTxn(sender.id, senderTxn.reference, senderTxn.id);
+
         const sendNotif: UserNotification = {
           id: `notif-${Date.now()}-snd`,
           userId: sender.id,
@@ -1843,6 +1876,10 @@ class DatabaseManager {
       }
 
       const isDeposit = txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit');
+      
+      // Clear any stale pending notification for this transaction
+      this.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
+
       const notif: UserNotification = {
         id: `notif-${Date.now()}-rej`,
         userId: txn.userId,
@@ -1874,6 +1911,33 @@ class DatabaseManager {
     } finally {
       this.releaseLock(lockKey);
     }
+  }
+
+  // Pending Transactions specifically (status == 'Pending')
+  public getPendingTransactions(): Transaction[] {
+    return this.db.transactions.filter(t => t.status === 'Pending');
+  }
+
+  // Clear or remove any stale pending notifications for a transaction
+  public clearPendingNotificationsForTxn(userId: string, txnRef?: string, txnId?: string): void {
+    const isMatchingPending = (n: UserNotification) => {
+      if (n.userId !== userId) return false;
+      const refMatch = Boolean(
+        (txnRef && n.reference && (n.reference === txnRef || n.reference.includes(txnRef) || txnRef.includes(n.reference))) ||
+        (txnId && n.reference && (n.reference === txnId || n.reference.includes(txnId) || txnId.includes(n.reference)))
+      );
+      const msgMatch = Boolean(
+        (txnRef && n.message && n.message.includes(txnRef)) ||
+        (txnId && n.message && n.message.includes(txnId))
+      );
+      const isPendingTitleOrMsg = Boolean(
+        (n.title && n.title.toLowerCase().includes('pending')) ||
+        (n.message && n.message.toLowerCase().includes('pending'))
+      );
+      return (refMatch || msgMatch) && isPendingTitleOrMsg;
+    };
+    this.db.notifications = this.db.notifications.filter(n => !isMatchingPending(n));
+    this.saveDB(this.db);
   }
 
   // Notifications
@@ -1950,7 +2014,7 @@ class DatabaseManager {
     user.pendingCryptoDeposit = deposit;
 
     const depTxn: Transaction = {
-      id: `TXN-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      id: depId,
       userId: user.id,
       userEmail: user.email,
       userName: user.fullName,
@@ -1960,7 +2024,7 @@ class DatabaseManager {
       currency: 'USD',
       type: 'Code Activation Deposit',
       status: 'Pending',
-      reference: `DEP-${depId.slice(-6)}`,
+      reference: depId,
       description: `$2,500 Crypto Activation Deposit (${cryptoMethod}) - Pending SVB Review`,
       createdAt: now,
       updatedAt: now

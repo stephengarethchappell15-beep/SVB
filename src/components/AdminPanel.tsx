@@ -570,7 +570,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
-    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Cancelled', updatedAt: new Date().toISOString() } : t));
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.adminCancelTransaction(txnId);
@@ -1343,7 +1343,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                             {u.fourDigitCode}
                           </span>
                         ) : (
-                          <span className="text-slate-500 italic text-[11px]">Not Issued ($200 Req)</span>
+                          <span className="text-slate-500 italic text-[11px]">Not Issued (Activation Req)</span>
                         )}
                       </td>
 
@@ -1806,7 +1806,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                         <td className="py-3 px-3 font-bold text-white">${(Number(t.amount) || 0).toFixed(2)}</td>
                         <td className="py-3 px-3">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            t.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            (t.status === 'Completed' || t.status === 'Approved') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
                             (t.status === 'Cancelled' || t.status === 'Rejected') ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-amber-500/10 text-amber-400'
                           }`}>
                             {t.status}

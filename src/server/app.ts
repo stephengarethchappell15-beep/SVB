@@ -54,11 +54,16 @@ app.get('/sitemap.xml', (req, res) => {
 const getAuthUser = async (req: express.Request) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return null;
-  let token = authHeader.replace('Bearer ', '').trim();
-  if (token.startsWith('token-')) {
-    token = token.replace('token-', '');
-  }
-  return (await dbManager.findUserByIdAsync(token)) || (await dbManager.findUserByEmailAsync(token)) || null;
+  let token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return null;
+  const cleanToken = token.replace(/^token-+/, '');
+  return (
+    (await dbManager.findUserByIdAsync(cleanToken)) ||
+    (await dbManager.findUserByIdAsync(token)) ||
+    (await dbManager.findUserByEmailAsync(cleanToken)) ||
+    (await dbManager.findUserByEmailAsync(token)) ||
+    null
+  );
 };
 
 // --- API ROUTES ---
@@ -635,6 +640,15 @@ app.get('/api/admin/transactions', async (req, res) => {
     return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
   }
   res.json({ transactions: dbManager.getAllTransactions() });
+});
+
+// Admin: Get Pending Transactions specifically (status == 'Pending')
+app.get('/api/admin/pending-transactions', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
+  }
+  res.json({ transactions: dbManager.getPendingTransactions() });
 });
 
 // User & Admin: Get Crypto Wallet Deposit Addresses

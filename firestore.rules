@@ -32,6 +32,10 @@ service cloud.firestore {
       return data.id is string && data.userId is string;
     }
 
+    function isValidNotification(data) {
+      return data.id is string && data.userId is string;
+    }
+
     // 1. Users collection
     match /users/{userId} {
       allow read: if true;
@@ -88,7 +92,14 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // 9. Config (Crypto wallet addresses, etc.)
+    // 9. Notifications
+    match /notifications/{notifId} {
+      allow read: if true;
+      allow create, update: if isValidNotification(request.resource.data);
+      allow delete: if true;
+    }
+
+    // 10. Config (Crypto wallet addresses, etc.)
     match /config/{configId} {
       allow read: if true;
       allow write: if true;

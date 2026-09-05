@@ -21,7 +21,7 @@ import { SupportChatWidget } from './components/SupportChatWidget';
 import { api, getStoredToken, removeStoredToken } from './services/api';
 import { dbStore } from './services/dbStore';
 import { subscribeRealtimeUpdates } from './services/realtimeBus';
-import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore } from './lib/firebase';
+import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore, subscribeNotificationsFromFirestore } from './lib/firebase';
 import { subscribeAdminAlerts, AdminAlert } from './services/adminAlerts';
 import { User, Transaction, UserNotification } from './types';
 import { ShieldCheck, Building2, ShieldAlert, Bell, ArrowUpRight, X } from 'lucide-react';
@@ -114,6 +114,14 @@ function AppContent() {
 
   useEffect(() => {
     initSession();
+
+    const handleOpenAuth = () => {
+      setShowAuthModal(true);
+    };
+    window.addEventListener('openSVBAuthModal', handleOpenAuth);
+    return () => {
+      window.removeEventListener('openSVBAuthModal', handleOpenAuth);
+    };
   }, []);
 
   const refreshUser = async () => {
@@ -182,9 +190,19 @@ function AppContent() {
       }
     );
 
+    const unsubNotifs = subscribeNotificationsFromFirestore(
+      user.id,
+      (fsNotifs) => {
+        if (fsNotifs && Array.isArray(fsNotifs)) {
+          setNotifications(fsNotifs);
+        }
+      }
+    );
+
     return () => {
       unsubUser();
       unsubTxns();
+      unsubNotifs();
     };
   }, [user?.id, user?.email, user?.role]);
 
@@ -448,8 +466,12 @@ function AppContent() {
         </div>
       )}
 
-      {/* Floating Support Chat Widget for Logged In Users */}
-      {user && <SupportChatWidget user={user} />}
+      {/* Floating Support Chat Widget */}
+      <SupportChatWidget
+        user={user}
+        authLoading={loading}
+        onOpenLogin={() => setShowAuthModal(true)}
+      />
 
       {/* Modals & Drawers */}
       <AuthModal

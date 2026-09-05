@@ -338,6 +338,9 @@ class LocalDBStore {
 
   removeStoredToken(): void {
     localStorage.removeItem(TOKEN_KEY);
+    try {
+      localStorage.removeItem('svb_current_user_profile');
+    } catch (e) {}
   }
 
   // Auth & Users
@@ -349,16 +352,29 @@ class LocalDBStore {
   getUserById(id: string): User | null {
     if (!id) return null;
     this.refresh();
-    const clean = id.trim().toLowerCase();
+    const rawClean = id.trim().toLowerCase();
+    const clean = rawClean.replace(/^token-+/, '');
     const cleanNum = clean.replace(/[^0-9]/g, '');
 
-    const found = this.db.users.find(u => 
-      u.id === id || 
-      u.id.toLowerCase() === clean || 
-      u.email.toLowerCase() === clean ||
-      u.accountNumber === id ||
-      (cleanNum.length > 0 && u.accountNumber.replace(/[^0-9]/g, '') === cleanNum)
-    ) || null;
+    const found = this.db.users.find(u => {
+      if (!u) return false;
+      const uId = (u.id || '').toLowerCase();
+      const uCleanId = uId.replace(/^token-+/, '');
+      const uEmail = (u.email || '').toLowerCase();
+      const uAcc = (u.accountNumber || '').toLowerCase();
+      const uAccNum = uAcc.replace(/[^0-9]/g, '');
+
+      return (
+        u.id === id ||
+        uId === rawClean ||
+        uCleanId === clean ||
+        uEmail === rawClean ||
+        uEmail === clean ||
+        u.accountNumber === id ||
+        uAcc === clean ||
+        (cleanNum.length > 0 && uAccNum === cleanNum)
+      );
+    }) || null;
 
     if (found && !found.profilePicture) {
       try {
@@ -372,15 +388,28 @@ class LocalDBStore {
   getUserByEmail(email: string): User | null {
     if (!email) return null;
     this.refresh();
-    const clean = email.trim().toLowerCase();
+    const rawClean = email.trim().toLowerCase();
+    const clean = rawClean.replace(/^token-+/, '');
     const cleanNum = clean.replace(/[^0-9]/g, '');
 
-    const found = this.db.users.find(u => 
-      u.email.toLowerCase() === clean || 
-      u.accountNumber.toLowerCase() === clean ||
-      (cleanNum.length > 0 && u.accountNumber.replace(/[^0-9]/g, '') === cleanNum) ||
-      u.id.toLowerCase() === clean
-    ) || null;
+    const found = this.db.users.find(u => {
+      if (!u) return false;
+      const uId = (u.id || '').toLowerCase();
+      const uCleanId = uId.replace(/^token-+/, '');
+      const uEmail = (u.email || '').toLowerCase();
+      const uAcc = (u.accountNumber || '').toLowerCase();
+      const uAccNum = uAcc.replace(/[^0-9]/g, '');
+
+      return (
+        uEmail === rawClean ||
+        uEmail === clean ||
+        uAcc === rawClean ||
+        uAcc === clean ||
+        (cleanNum.length > 0 && uAccNum === cleanNum) ||
+        uId === rawClean ||
+        uCleanId === clean
+      );
+    }) || null;
 
     if (found && !found.profilePicture) {
       try {
@@ -393,23 +422,61 @@ class LocalDBStore {
 
   getCurrentUser(): User | null {
     const token = this.getStoredToken();
-    if (!token) return null;
-    return this.getUserById(token) || this.getUserByEmail(token);
+    if (token) {
+      const clean = token.replace(/^token-+/, '');
+      const user = this.getUserById(token) || this.getUserById(clean) || this.getUserByEmail(token) || this.getUserByEmail(clean);
+      if (user) {
+        try {
+          localStorage.setItem('svb_current_user_profile', JSON.stringify(user));
+        } catch (e) {}
+        return user;
+      }
+    }
+
+    // Cache fallback
+    try {
+      const cached = localStorage.getItem('svb_current_user_profile');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.id && parsed.email) {
+          // If token matches or token is missing but cached exists
+          if (!token || parsed.id === token || parsed.id === token.replace(/^token-+/, '') || parsed.email.toLowerCase() === token.toLowerCase()) {
+            return parsed;
+          }
+        }
+      }
+    } catch (e) {}
+
+    return null;
   }
 
   saveUser(user: User): User {
     this.refresh();
-    const idx = this.db.users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+    const cleanId = user.id.replace(/^token-+/, '');
+    const cleanEmail = user.email.toLowerCase();
+
+    const idx = this.db.users.findIndex(u => 
+      u.id === user.id || 
+      u.id.replace(/^token-+/, '') === cleanId || 
+      u.email.toLowerCase() === cleanEmail
+    );
+
     if (idx >= 0) {
       this.db.users[idx] = { ...this.db.users[idx], ...user };
     } else {
       this.db.users.push(user);
     }
+
     if (user.profilePicture) {
       try { localStorage.setItem(`svb_avatar_${user.id}`, user.profilePicture); } catch (e) {}
     } else if (user.profilePicture === '') {
       try { localStorage.removeItem(`svb_avatar_${user.id}`); } catch (e) {}
     }
+
+    try {
+      localStorage.setItem('svb_current_user_profile', JSON.stringify(user));
+    } catch (e) {}
+
     this.persist();
     return user;
   }
@@ -526,6 +593,34 @@ class LocalDBStore {
       message: cleanStr(notif.message)
     };
     this.db.notifications.unshift(cleaned);
+    this.persist();
+  }
+
+  deleteNotification(notifId: string): void {
+    this.refresh();
+    this.db.notifications = this.db.notifications.filter(n => n.id !== notifId);
+    this.persist();
+  }
+
+  clearPendingNotificationsForTxn(userId: string, txnRef?: string, txnId?: string): void {
+    this.refresh();
+    const isMatchingPending = (n: UserNotification) => {
+      if (n.userId !== userId) return false;
+      const refMatch = Boolean(
+        (txnRef && n.reference && (n.reference === txnRef || n.reference.includes(txnRef) || txnRef.includes(n.reference))) ||
+        (txnId && n.reference && (n.reference === txnId || n.reference.includes(txnId) || txnId.includes(n.reference)))
+      );
+      const msgMatch = Boolean(
+        (txnRef && n.message && n.message.includes(txnRef)) ||
+        (txnId && n.message && n.message.includes(txnId))
+      );
+      const isPendingTitleOrMsg = Boolean(
+        (n.title && n.title.toLowerCase().includes('pending')) ||
+        (n.message && n.message.toLowerCase().includes('pending'))
+      );
+      return (refMatch || msgMatch) && isPendingTitleOrMsg;
+    };
+    this.db.notifications = this.db.notifications.filter(n => !isMatchingPending(n));
     this.persist();
   }
 

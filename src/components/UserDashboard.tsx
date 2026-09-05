@@ -664,7 +664,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           {new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md ${
-                          t.status === 'Completed' 
+                          (t.status === 'Completed' || t.status === 'Approved')
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                             : t.status === 'Pending'
                             ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'

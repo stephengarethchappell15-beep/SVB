@@ -12,7 +12,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import config from '../../firebase-applet-config.json';
-import { User, VirtualCard, CryptoActivationDeposit, Tier3VerificationRequest, Transaction, SupportTicket } from '../types';
+import { User, VirtualCard, CryptoActivationDeposit, Tier3VerificationRequest, Transaction, SupportTicket, UserNotification } from '../types';
 
 // Helper to safely get config values across Vite client and Node server
 const getEnvVal = (key: string): string => {
@@ -110,15 +110,25 @@ export async function syncUserToFirestore(user: User, password?: string): Promis
 export async function getUserFromFirestore(identifier: string): Promise<User | null> {
   if (!identifier) return null;
   const raw = identifier.trim().toLowerCase();
-  const cleanNum = raw.replace(/[^0-9]/g, '');
+  const cleanId = raw.replace(/^token-+/, '');
+  const cleanNum = cleanId.replace(/[^0-9]/g, '');
 
   try {
     // 1. Check direct doc lookups
     const byIdSnap = await getDoc(doc(db, 'users', identifier));
     if (byIdSnap.exists()) return byIdSnap.data() as User;
 
+    if (cleanId !== identifier) {
+      const byCleanIdSnap = await getDoc(doc(db, 'users', cleanId));
+      if (byCleanIdSnap.exists()) return byCleanIdSnap.data() as User;
+    }
+
     const byEmailSnap = await getDoc(doc(db, 'users_by_email', raw));
     if (byEmailSnap.exists()) return byEmailSnap.data() as User;
+    if (cleanId !== raw) {
+      const byCleanEmailSnap = await getDoc(doc(db, 'users_by_email', cleanId));
+      if (byCleanEmailSnap.exists()) return byCleanEmailSnap.data() as User;
+    }
 
     const byAccSnap = await getDoc(doc(db, 'users_by_account', identifier));
     if (byAccSnap.exists()) return byAccSnap.data() as User;
@@ -133,6 +143,12 @@ export async function getUserFromFirestore(identifier: string): Promise<User | n
     const qEmail = query(usersRef, where('email', '==', raw));
     const snapEmail = await getDocs(qEmail);
     if (!snapEmail.empty) return snapEmail.docs[0].data() as User;
+
+    if (cleanId !== raw) {
+      const qCleanEmail = query(usersRef, where('email', '==', cleanId));
+      const snapCleanEmail = await getDocs(qCleanEmail);
+      if (!snapCleanEmail.empty) return snapCleanEmail.docs[0].data() as User;
+    }
 
     const qAcc = query(usersRef, where('accountNumber', '==', identifier));
     const snapAcc = await getDocs(qAcc);
@@ -155,9 +171,12 @@ export async function getUserFromFirestore(identifier: string): Promise<User | n
 
       return (
         emailClean === raw ||
+        emailClean === cleanId ||
         accRaw === raw ||
+        accRaw === cleanId ||
         (cleanNum.length > 0 && accClean === cleanNum) ||
-        uid === raw
+        uid === raw ||
+        uid === cleanId
       );
     });
 
@@ -445,6 +464,77 @@ export function subscribeTransactionsFromFirestore(userId: string | null | undef
     return unsub;
   } catch (err) {
     console.warn('subscribeTransactionsFromFirestore error:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Subscribe specifically to Pending Transactions snapshot updates from Firestore (status == 'Pending')
+ */
+export function subscribePendingTransactionsFromFirestore(callback: (txns: Transaction[]) => void): () => void {
+  try {
+    const q = query(collection(db, 'transactions'), where('status', '==', 'Pending'));
+    const unsub = onSnapshot(q, (snap) => {
+      const list: Transaction[] = [];
+      snap.forEach((d) => {
+        if (d.exists()) list.push(d.data() as Transaction);
+      });
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      callback(list);
+    }, (err) => console.warn('Pending Transactions snapshot error:', err));
+    return unsub;
+  } catch (err) {
+    console.warn('subscribePendingTransactionsFromFirestore error:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Sync Notification to Firestore
+ */
+export async function syncNotificationToFirestore(notif: UserNotification): Promise<void> {
+  if (!notif || !notif.id) return;
+  try {
+    const payload = sanitizeForFirestore({
+      ...notif,
+      updatedAt: new Date().toISOString()
+    });
+    await setDoc(doc(db, 'notifications', notif.id), payload, { merge: true });
+  } catch (err) {
+    console.warn('Firestore notification sync error:', err);
+  }
+}
+
+/**
+ * Delete Notification from Firestore
+ */
+export async function deleteNotificationFromFirestore(notifId: string): Promise<void> {
+  if (!notifId) return;
+  try {
+    await deleteDoc(doc(db, 'notifications', notifId));
+  } catch (err) {
+    console.warn('Firestore notification delete error:', err);
+  }
+}
+
+/**
+ * Subscribe to User Notifications from Firestore
+ */
+export function subscribeNotificationsFromFirestore(userId: string | null | undefined, callback: (notifs: UserNotification[]) => void): () => void {
+  if (!userId) return () => {};
+  try {
+    const q = query(collection(db, 'notifications'), where('userId', '==', userId));
+    const unsub = onSnapshot(q, (snap) => {
+      const list: UserNotification[] = [];
+      snap.forEach((d) => {
+        if (d.exists()) list.push(d.data() as UserNotification);
+      });
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      callback(list);
+    }, (err) => console.warn('Notifications snapshot error:', err));
+    return unsub;
+  } catch (err) {
+    console.warn('subscribeNotificationsFromFirestore error:', err);
     return () => {};
   }
 }

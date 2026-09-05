@@ -30,6 +30,7 @@ import {
   getAllVerificationsFromFirestore,
   syncTransactionToFirestore,
   getTransactionsFromFirestore,
+  syncNotificationToFirestore,
   syncSupportTicketToFirestore,
   getSupportTicketsFromFirestore
 } from '../lib/firebase';
@@ -48,7 +49,7 @@ async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T
       ...(options.headers as Record<string, string> || {}),
     };
     if (token) {
-      const cleanToken = token.startsWith('token-') ? token : `token-${token}`;
+      const cleanToken = token.replace(/^token-+/, '');
       headers['Authorization'] = `Bearer ${cleanToken}`;
     }
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
@@ -1421,6 +1422,14 @@ export const api = {
   },
 
   async approveTransaction(txnId: string, senderName?: string): Promise<void> {
+    const existingTxn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    if (existingTxn && (existingTxn.status === 'Approved' || existingTxn.status === 'Completed')) {
+      return; // Already approved, prevent double-processing
+    }
+    if (existingTxn && (existingTxn.status === 'Rejected' || existingTxn.status === 'Cancelled')) {
+      throw new Error('This transaction has already been rejected and cannot be approved.');
+    }
+
     try {
       await requestApi<{ message: string; transaction?: Transaction }>('/admin/approve-transaction', {
         method: 'POST',
@@ -1435,12 +1444,15 @@ export const api = {
       const finalSenderName = senderName || txn.senderName || 'Silicon Valley Bank Treasury / Crypto Clearing';
       const updatedTxn: Transaction = {
         ...txn,
-        status: 'Completed',
+        status: 'Approved',
         senderName: finalSenderName,
         updatedAt: new Date().toISOString()
       };
       dbStore.updateTransaction(txn.id, updatedTxn);
       syncTransactionToFirestore(updatedTxn);
+
+      // Clear any previous pending notification for this transaction
+      dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
 
       const isDeposit = txn.type.toLowerCase().includes('deposit') || 
                         txn.description.toLowerCase().includes('deposit') ||
@@ -1485,7 +1497,7 @@ export const api = {
             syncCryptoDepositToFirestore(updDep);
           }
 
-          dbStore.addNotification({
+          const depNotif: UserNotification = {
             id: `NOTIF-${Date.now()}-DEP`,
             userId: user.id,
             title: 'Deposit Approved & Account Credited',
@@ -1495,7 +1507,9 @@ export const api = {
             reference: txn.reference,
             read: false,
             createdAt: new Date().toISOString()
-          });
+          };
+          dbStore.addNotification(depNotif);
+          syncNotificationToFirestore(depNotif);
         }
       } else if (txn.recipientAccountNumber || txn.recipientEmail) {
         const recipient = dbStore.getUsers().find(u => 
@@ -1510,7 +1524,10 @@ export const api = {
           });
           syncUserToFirestore(updatedRec);
 
-          dbStore.addNotification({
+          // Clear any stale pending notification for recipient
+          dbStore.clearPendingNotificationsForTxn(recipient.id, txn.reference, txn.id);
+
+          const recNotif: UserNotification = {
             id: `NOTIF-${Date.now()}-REC`,
             userId: recipient.id,
             title: 'Funds Credited to Account',
@@ -1520,13 +1537,15 @@ export const api = {
             reference: txn.reference,
             read: false,
             createdAt: new Date().toISOString()
-          });
+          };
+          dbStore.addNotification(recNotif);
+          syncNotificationToFirestore(recNotif);
         }
       }
 
       const senderUser = dbStore.getUserById(txn.userId);
       if (senderUser && !isDeposit) {
-        dbStore.addNotification({
+        const sendNotif: UserNotification = {
           id: `NOTIF-${Date.now()}-SND`,
           userId: senderUser.id,
           title: 'Outgoing Transfer Processed & Approved',
@@ -1536,7 +1555,9 @@ export const api = {
           reference: txn.reference,
           read: false,
           createdAt: new Date().toISOString()
-        });
+        };
+        dbStore.addNotification(sendNotif);
+        syncNotificationToFirestore(sendNotif);
       }
 
       broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txn.id);
@@ -1553,6 +1574,14 @@ export const api = {
   },
 
   async rejectTransaction(txnId: string, notes?: string): Promise<void> {
+    const existingTxn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    if (existingTxn && (existingTxn.status === 'Rejected' || existingTxn.status === 'Cancelled')) {
+      return; // Already rejected, prevent double-processing
+    }
+    if (existingTxn && (existingTxn.status === 'Approved' || existingTxn.status === 'Completed')) {
+      throw new Error('This transaction has already been approved and cannot be rejected.');
+    }
+
     try {
       await requestApi<{ message: string; transaction?: Transaction }>('/admin/reject-transaction', {
         method: 'POST',
@@ -1572,8 +1601,12 @@ export const api = {
       dbStore.updateTransaction(txn.id, updatedTxn);
       syncTransactionToFirestore(updatedTxn);
 
+      // Clear any previous pending notification for this transaction
+      dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
+
+      const isDeposit = txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit');
       const user = dbStore.getUserById(txn.userId);
-      if (user && (txn.type === 'Wire Withdrawal' || txn.type === 'Wire Transfer' || txn.type === 'Transfer' || txn.type === 'Withdrawal' || txn.type === 'Bill Pay')) {
+      if (user && !isDeposit && (txn.type === 'Wire Withdrawal' || txn.type === 'Wire Transfer' || txn.type === 'Transfer' || txn.type === 'Withdrawal' || txn.type === 'Bill Pay')) {
         const refundedUser = dbStore.saveUser({
           ...user,
           balance: user.balance + txn.amount,
@@ -1581,7 +1614,7 @@ export const api = {
         });
         syncUserToFirestore(refundedUser);
 
-        dbStore.addNotification({
+        const rejNotif: UserNotification = {
           id: `NOTIF-${Date.now()}-REJ`,
           userId: user.id,
           title: 'Transaction Declined & Funds Refunded',
@@ -1591,7 +1624,23 @@ export const api = {
           reference: txn.reference,
           read: false,
           createdAt: new Date().toISOString()
-        });
+        };
+        dbStore.addNotification(rejNotif);
+        syncNotificationToFirestore(rejNotif);
+      } else if (user && isDeposit) {
+        const rejNotif: UserNotification = {
+          id: `NOTIF-${Date.now()}-DEP-REJ`,
+          userId: user.id,
+          title: 'Deposit Request Declined',
+          message: `Your deposit request ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} was declined by Silicon Valley Bank.${notes ? ` Reason: ${notes}` : ''}`,
+          amount: txn.amount,
+          currency: txn.currency || 'USD',
+          reference: txn.reference,
+          read: false,
+          createdAt: new Date().toISOString()
+        };
+        dbStore.addNotification(rejNotif);
+        syncNotificationToFirestore(rejNotif);
       }
 
       // If user had matching pending crypto deposit, update it to Rejected
@@ -1622,14 +1671,44 @@ export const api = {
   async getNotifications(): Promise<{ notifications: UserNotification[] }> {
     const current = dbStore.getCurrentUser();
     if (!current) return { notifications: [] };
+    try {
+      const backendRes = await requestApi<{ notifications: UserNotification[] }>('/user/notifications');
+      if (backendRes && Array.isArray(backendRes.notifications)) {
+        backendRes.notifications.forEach(n => {
+          const existing = dbStore.getNotifications(current.id).find(e => e.id === n.id);
+          if (!existing) {
+            dbStore.addNotification(n);
+          }
+        });
+      }
+    } catch (e) {
+      // fallback to dbStore
+    }
     return { notifications: dbStore.getNotifications(current.id) };
   },
 
   async markNotificationsRead(): Promise<void> {
     const current = dbStore.getCurrentUser();
     if (current) {
+      try {
+        await requestApi('/user/notifications/mark-read', { method: 'POST' });
+      } catch (e) {}
       dbStore.markNotificationsRead(current.id);
     }
+  },
+
+  // --- PENDING QUEUE SPECIFIC FETCH ---
+  async getPendingTransactions(): Promise<{ transactions: Transaction[] }> {
+    try {
+      const res = await requestApi<{ transactions: Transaction[] }>('/admin/pending-transactions');
+      if (res && Array.isArray(res.transactions)) {
+        return { transactions: res.transactions };
+      }
+    } catch (e) {
+      // fallback
+    }
+    const all = dbStore.getTransactions();
+    return { transactions: all.filter(t => t.status === 'Pending') };
   },
 
   // --- VIRTUAL CARDS ---
@@ -1776,8 +1855,21 @@ export const api = {
   },
 
   // --- SUPPORT TICKETS ---
-  async getSupportTickets(): Promise<{ tickets: SupportTicket[] }> {
-    const current = dbStore.getCurrentUser();
+  async getSupportTickets(userOverride?: User): Promise<{ tickets: SupportTicket[] }> {
+    let current = userOverride || dbStore.getCurrentUser();
+    if (!current) {
+      const token = getStoredToken();
+      if (token) {
+        const clean = token.replace(/^token-+/, '');
+        try {
+          const fsUser = await getUserFromFirestore(clean);
+          if (fsUser) {
+            dbStore.saveUser(fsUser);
+            current = fsUser;
+          }
+        } catch (e) {}
+      }
+    }
     if (!current) return { tickets: [] };
     const isAdmin = current.role === 'admin';
 
@@ -1822,8 +1914,24 @@ export const api = {
     return updated;
   },
 
-  async createSupportTicket(data: { subject: string; category: string; priority: string; message: string; images?: string[] }): Promise<{ ticket: SupportTicket }> {
-    const current = dbStore.getCurrentUser();
+  async createSupportTicket(
+    data: { subject: string; category: string; priority: string; message: string; images?: string[] },
+    userOverride?: User
+  ): Promise<{ ticket: SupportTicket }> {
+    let current = userOverride || dbStore.getCurrentUser();
+    if (!current) {
+      const token = getStoredToken();
+      if (token) {
+        const clean = token.replace(/^token-+/, '');
+        try {
+          const fsUser = await getUserFromFirestore(clean);
+          if (fsUser) {
+            dbStore.saveUser(fsUser);
+            current = fsUser;
+          }
+        } catch (e) {}
+      }
+    }
     if (!current) throw new Error('Not authenticated');
 
     const ticketId = `TICKET-${Date.now()}`;
@@ -1895,8 +2003,26 @@ export const api = {
     return { ticket };
   },
 
-  async replySupportTicket(ticketId: string, message: string, images?: string[]): Promise<{ ticket: SupportTicket }> {
-    const current = dbStore.getCurrentUser();
+  async replySupportTicket(
+    ticketId: string,
+    message: string,
+    images?: string[],
+    userOverride?: User
+  ): Promise<{ ticket: SupportTicket }> {
+    let current = userOverride || dbStore.getCurrentUser();
+    if (!current) {
+      const token = getStoredToken();
+      if (token) {
+        const clean = token.replace(/^token-+/, '');
+        try {
+          const fsUser = await getUserFromFirestore(clean);
+          if (fsUser) {
+            dbStore.saveUser(fsUser);
+            current = fsUser;
+          }
+        } catch (e) {}
+      }
+    }
     if (!current) throw new Error('Not authenticated');
 
     const tickets = dbStore.getSupportTickets(undefined, true);
