@@ -141,6 +141,12 @@ export interface Transaction {
   reference: string;
   description: string;
   createdByAdminEmail?: string;
+  cancelledAt?: string;
+  cancelledByAdminEmail?: string;
+  cancelReason?: string;
+  adminNotes?: string;
+  approvedAt?: string;
+  approvedByAdminEmail?: string;
   createdAt: string;
   updatedAt: string;
 }
