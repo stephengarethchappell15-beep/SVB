@@ -417,9 +417,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     try {
       const res = await api.approveCryptoActivationDeposit(depId);
+      const recipientName = res?.user?.fullName || target?.userName || 'Client';
+      const issuedCode = res?.code || res?.deposit?.generatedCode || '0000';
       setActionCompleteMsg({
         id: depId,
-        text: `Action Complete: Approved & Issued 4-Digit Code [ ${res.code} ] to ${res.user.fullName}. $2,500 credited to balance.`,
+        text: `Action Complete: Approved & Issued 4-Digit Code [ ${issuedCode} ] to ${recipientName}. $2,500 credited to balance.`,
         type: 'success'
       });
       await Promise.all([

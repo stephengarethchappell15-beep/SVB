@@ -488,7 +488,7 @@ app.post('/api/admin/verifications/:id/approve', async (req, res) => {
   }
   try {
     const { notes } = req.body;
-    const result = dbManager.approveVerification(user, req.params.id, notes);
+    const result = await dbManager.approveVerificationAsync(user, req.params.id, notes);
     res.json({ message: 'Tier 3 verification approved.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to approve verification.' });
@@ -503,7 +503,7 @@ app.post('/api/admin/verifications/:id/reject', async (req, res) => {
   }
   try {
     const { reason } = req.body;
-    const result = dbManager.rejectVerification(user, req.params.id, reason);
+    const result = await dbManager.rejectVerificationAsync(user, req.params.id, reason);
     res.json({ message: 'Tier 3 verification rejected.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reject verification.' });
@@ -722,7 +722,7 @@ app.post('/api/admin/approve-crypto-activation-deposit', async (req, res) => {
     const { depositId } = req.body;
     if (!depositId) return res.status(400).json({ error: 'Deposit ID is required.' });
 
-    const result = dbManager.approveCryptoActivationDeposit(user, depositId);
+    const result = await dbManager.approveCryptoActivationDepositAsync(user, depositId);
     res.json({ message: 'Deposit approved and 4-Digit Code generated successfully.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to approve deposit.' });
@@ -740,7 +740,7 @@ app.post('/api/admin/reject-crypto-activation-deposit', async (req, res) => {
     const { depositId, reason, notes } = req.body;
     if (!depositId) return res.status(400).json({ error: 'Deposit ID is required.' });
 
-    const result = dbManager.rejectCryptoActivationDeposit(user, depositId, reason || notes);
+    const result = await dbManager.rejectCryptoActivationDepositAsync(user, depositId, reason || notes);
     res.json({ message: 'Deposit rejected.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reject deposit.' });
