@@ -1212,7 +1212,32 @@ export const api = {
 
     const isPending = current.role !== 'admin';
 
-    const txn: Transaction = {
+    let backendTxn: Transaction | undefined;
+    let backendSender: User | undefined;
+
+    try {
+      const backendRes = await requestApi<{ message: string; updatedUser: User; transaction: Transaction }>('/user/transfer', {
+        method: 'POST',
+        body: JSON.stringify({
+          destinationCountry: payload.destinationCountry,
+          destinationBank: payload.destinationBank,
+          recipientInput: payload.recipientInput,
+          recipientName: payload.recipientName,
+          amount: payload.amount,
+          fourDigitCode: payload.fourDigitCode,
+          note: payload.note
+        }),
+      });
+
+      if (backendRes && backendRes.updatedUser && backendRes.transaction) {
+        backendTxn = backendRes.transaction;
+        backendSender = backendRes.updatedUser;
+      }
+    } catch (apiErr) {
+      console.warn('Backend transfer fallback:', apiErr);
+    }
+
+    const txn: Transaction = backendTxn || {
       id: `TXN-${Date.now()}`,
       userId: current.id,
       userEmail: current.email,
@@ -1230,6 +1255,12 @@ export const api = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+
+    const finalSender = backendSender || updatedSender;
+    if (backendSender) {
+      dbStore.saveUser(backendSender);
+      syncUserToFirestore(backendSender);
+    }
 
     dbStore.addTransaction(txn);
     syncTransactionToFirestore(txn);
@@ -1430,23 +1461,34 @@ export const api = {
       throw new Error('This transaction has already been rejected and cannot be approved.');
     }
 
+    let serverTxn: Transaction | undefined;
     try {
-      await requestApi<{ message: string; transaction?: Transaction }>('/admin/approve-transaction', {
+      const backendRes = await requestApi<{ message: string; transaction?: Transaction }>('/admin/approve-transaction', {
         method: 'POST',
-        body: JSON.stringify({ transactionId: txnId, senderName }),
+        body: JSON.stringify({ transactionId: txnId, senderName, transaction: existingTxn }),
       });
-    } catch (e) {
+      if (backendRes && backendRes.transaction) {
+        serverTxn = backendRes.transaction;
+      }
+    } catch (e: any) {
       console.warn('Backend approveTransaction fallback:', e);
+      if (e && e.status === 403) {
+        throw new Error('Access denied. Administrator privilege required.');
+      }
     }
 
-    const txn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    const txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
     if (txn) {
+      const now = new Date().toISOString();
+      const currentAdmin = dbStore.getCurrentUser();
       const finalSenderName = senderName || txn.senderName || 'Silicon Valley Bank Treasury / Crypto Clearing';
       const updatedTxn: Transaction = {
         ...txn,
         status: 'Approved',
         senderName: finalSenderName,
-        updatedAt: new Date().toISOString()
+        approvedAt: now,
+        approvedByAdminEmail: currentAdmin?.email,
+        updatedAt: now
       };
       dbStore.updateTransaction(txn.id, updatedTxn);
       syncTransactionToFirestore(updatedTxn);
@@ -1582,21 +1624,35 @@ export const api = {
       throw new Error('This transaction has already been approved and cannot be rejected.');
     }
 
+    let serverTxn: Transaction | undefined;
     try {
-      await requestApi<{ message: string; transaction?: Transaction }>('/admin/reject-transaction', {
+      const backendRes = await requestApi<{ message: string; transaction?: Transaction }>('/admin/reject-transaction', {
         method: 'POST',
-        body: JSON.stringify({ transactionId: txnId, reason: notes }),
+        body: JSON.stringify({ transactionId: txnId, reason: notes, transaction: existingTxn }),
       });
-    } catch (e) {
+      if (backendRes && backendRes.transaction) {
+        serverTxn = backendRes.transaction;
+      }
+    } catch (e: any) {
       console.warn('Backend rejectTransaction fallback:', e);
+      if (e && e.status === 403) {
+        throw new Error('Access denied. Administrator privilege required.');
+      }
     }
 
-    const txn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    const txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
     if (txn) {
+      const now = new Date().toISOString();
+      const currentAdmin = dbStore.getCurrentUser();
+      const finalReason = notes || 'Cancelled / Declined by SVB Review';
       const updatedTxn: Transaction = {
         ...txn,
         status: 'Rejected',
-        updatedAt: new Date().toISOString()
+        updatedAt: now,
+        cancelledAt: now,
+        cancelledByAdminEmail: currentAdmin?.email,
+        cancelReason: finalReason,
+        adminNotes: finalReason
       };
       dbStore.updateTransaction(txn.id, updatedTxn);
       syncTransactionToFirestore(updatedTxn);

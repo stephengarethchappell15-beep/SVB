@@ -651,6 +651,20 @@ app.get('/api/admin/pending-transactions', async (req, res) => {
   res.json({ transactions: dbManager.getPendingTransactions() });
 });
 
+// Admin: Get single transaction by ID or reference
+app.get('/api/admin/transactions/:id', async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
+  }
+  const txnId = req.params.id;
+  const transaction = await dbManager.getTransactionByIdAsync(txnId);
+  if (!transaction) {
+    return res.status(404).json({ error: 'Transaction not found.' });
+  }
+  res.json({ transaction });
+});
+
 // User & Admin: Get Crypto Wallet Deposit Addresses
 app.get('/api/crypto-addresses', (req, res) => {
   res.json({ addresses: dbManager.getCryptoWalletAddresses() });
@@ -769,10 +783,10 @@ app.post('/api/admin/cancel-transaction', async (req, res) => {
   }
 
   try {
-    const { transactionId } = req.body;
+    const { transactionId, reason, transaction } = req.body;
     if (!transactionId) return res.status(400).json({ error: 'Transaction ID is required.' });
 
-    const result = dbManager.adminCancelTransaction(user, transactionId);
+    const result = await dbManager.adminCancelTransactionAsync(user, transactionId, reason, transaction);
     res.json({ message: 'Transaction cancelled successfully.', transaction: result.transaction });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to cancel transaction.' });
@@ -787,10 +801,10 @@ app.post('/api/admin/approve-transaction', async (req, res) => {
   }
 
   try {
-    const { transactionId, senderName } = req.body;
+    const { transactionId, senderName, transaction } = req.body;
     if (!transactionId) return res.status(400).json({ error: 'Transaction ID is required.' });
 
-    const result = dbManager.approveTransaction(user, transactionId, senderName);
+    const result = await dbManager.approveTransactionAsync(user, transactionId, senderName, transaction);
     res.json({ message: 'Transaction approved and recipient credited successfully.', transaction: result.transaction });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to approve transaction.' });
@@ -805,10 +819,10 @@ app.post('/api/admin/reject-transaction', async (req, res) => {
   }
 
   try {
-    const { transactionId, reason } = req.body;
+    const { transactionId, reason, transaction } = req.body;
     if (!transactionId) return res.status(400).json({ error: 'Transaction ID is required.' });
 
-    const result = dbManager.rejectTransaction(user, transactionId, reason);
+    const result = await dbManager.rejectTransactionAsync(user, transactionId, reason, transaction);
     res.json({ message: 'Transaction rejected and funds returned to user.', transaction: result.transaction });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reject transaction.' });

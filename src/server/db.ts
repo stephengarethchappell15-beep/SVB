@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest } from '../types';
-import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, syncCryptoDepositToFirestore } from '../lib/firebase';
+import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, syncCryptoDepositToFirestore } from '../lib/firebase';
 
 interface DatabaseSchema {
   users: User[];
@@ -530,6 +530,22 @@ class DatabaseManager {
 
     this.saveDB(initialDB);
     return initialDB;
+  }
+
+  public reloadFromDisk(): void {
+    if (fs.existsSync(DB_FILE)) {
+      try {
+        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed) {
+          if (Array.isArray(parsed.transactions)) this.db.transactions = parsed.transactions;
+          if (Array.isArray(parsed.users)) this.db.users = parsed.users;
+          if (Array.isArray(parsed.tier3Verifications)) this.db.tier3Verifications = parsed.tier3Verifications;
+          if (Array.isArray(parsed.auditLogs)) this.db.auditLogs = parsed.auditLogs;
+          if (Array.isArray(parsed.notifications)) this.db.notifications = parsed.notifications;
+        }
+      } catch (_) {}
+    }
   }
 
   private saveDB(data: DatabaseSchema) {
@@ -1607,14 +1623,35 @@ class DatabaseManager {
   }
 
   public getAllTransactions(): Transaction[] {
+    this.reloadFromDisk();
     return this.db.transactions;
+  }
+
+  public addTransaction(txn: Transaction): void {
+    const existingIndex = this.db.transactions.findIndex(t => t.id === txn.id);
+    if (existingIndex >= 0) {
+      this.db.transactions[existingIndex] = txn;
+    } else {
+      this.db.transactions.unshift(txn);
+    }
+    this.saveDB(this.db);
+  }
+
+  public removeTransaction(txnId: string): void {
+    this.db.transactions = this.db.transactions.filter(t => t.id !== txnId && t.reference !== txnId);
+    this.saveDB(this.db);
   }
 
   // Admin Approve Pending Transaction (credits recipient or user with manual sender name)
   public approveTransaction(adminUser: User, transactionId: string, senderNameInput?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const senderTxn = this.db.transactions.find(t => t.id === transactionId || t.reference === transactionId);
+    this.reloadFromDisk();
+    const cleanId = transactionId.trim().toLowerCase();
+    const senderTxn = this.db.transactions.find(t => 
+      t.id.toLowerCase() === cleanId || 
+      (t.reference && t.reference.toLowerCase() === cleanId)
+    );
     if (!senderTxn) throw new Error('Transaction not found.');
 
     if ((senderTxn.status as string) === 'Completed' || (senderTxn.status as string) === 'Approved') {
@@ -1638,6 +1675,8 @@ class DatabaseManager {
       senderTxn.status = 'Approved';
       senderTxn.senderName = finalSenderName;
       senderTxn.updatedAt = now;
+      senderTxn.approvedAt = now;
+      senderTxn.approvedByAdminEmail = adminUser.email;
 
       // Also update any matching duplicate transactions with same ID or reference
       this.db.transactions.forEach(t => {
@@ -1645,6 +1684,8 @@ class DatabaseManager {
           t.status = 'Approved';
           t.senderName = finalSenderName;
           t.updatedAt = now;
+          t.approvedAt = now;
+          t.approvedByAdminEmail = adminUser.email;
           try { syncTransactionToFirestore(t); } catch (_) {}
         }
       });
@@ -1824,7 +1865,12 @@ class DatabaseManager {
   public rejectTransaction(adminUser: User, transactionId: string, reason?: string): { transaction: Transaction } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
 
-    const txn = this.db.transactions.find(t => t.id === transactionId || t.reference === transactionId);
+    this.reloadFromDisk();
+    const cleanId = transactionId.trim().toLowerCase();
+    const txn = this.db.transactions.find(t => 
+      t.id.toLowerCase() === cleanId || 
+      (t.reference && t.reference.toLowerCase() === cleanId)
+    );
     if (!txn) throw new Error('Transaction not found.');
 
     if (txn.status === 'Rejected' || txn.status === 'Cancelled') {
@@ -1840,14 +1886,23 @@ class DatabaseManager {
 
     try {
       const now = new Date().toISOString();
+      const finalReason = reason || 'Cancelled / Declined by SVB Review';
       txn.status = 'Rejected';
       txn.updatedAt = now;
+      txn.cancelledAt = now;
+      txn.cancelledByAdminEmail = adminUser.email;
+      txn.cancelReason = finalReason;
+      txn.adminNotes = finalReason;
 
       // Also update any matching duplicate transactions with same ID or reference
       this.db.transactions.forEach(t => {
         if ((t.id === txn.id || (t.reference && t.reference === txn.reference)) && t.status === 'Pending') {
           t.status = 'Rejected';
           t.updatedAt = now;
+          t.cancelledAt = now;
+          t.cancelledByAdminEmail = adminUser.email;
+          t.cancelReason = finalReason;
+          t.adminNotes = finalReason;
           try { syncTransactionToFirestore(t); } catch (_) {}
         }
       });
@@ -1864,13 +1919,13 @@ class DatabaseManager {
         const matchingDep = this.db.cryptoActivationDeposits.find(d => (d.userId === targetUser.id || d.id === txn.id || d.id === txn.reference) && d.status === 'Pending');
         if (matchingDep) {
           matchingDep.status = 'Rejected';
-          matchingDep.adminNotes = reason || 'Declined by SVB Review';
+          matchingDep.adminNotes = finalReason;
           matchingDep.updatedAt = now;
           try { syncCryptoDepositToFirestore(matchingDep); } catch (_) {}
         }
         if (targetUser.pendingCryptoDeposit) {
           targetUser.pendingCryptoDeposit.status = 'Rejected';
-          targetUser.pendingCryptoDeposit.adminNotes = reason || 'Declined by SVB Review';
+          targetUser.pendingCryptoDeposit.adminNotes = finalReason;
           try { syncUserToFirestore(targetUser); } catch (_) {}
         }
       }
@@ -1902,7 +1957,7 @@ class DatabaseManager {
         targetEmail: txn.userEmail,
         targetAccountNumber: txn.accountNumber,
         description: `Admin ${adminUser.email} rejected transaction ${txn.reference} and refunded $${txn.amount}`,
-        details: { transactionId: txn.id, type: txn.type, amount: txn.amount, reason }
+        details: { transactionId: txn.id, type: txn.type, amount: txn.amount, reason: finalReason }
       });
 
       try { syncTransactionToFirestore(txn); } catch (_) {}
@@ -1913,8 +1968,107 @@ class DatabaseManager {
     }
   }
 
+  public async rejectTransactionAsync(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
+    const cleanId = transactionId.trim().toLowerCase();
+    let existing = this.db.transactions.find(t => 
+      t.id.toLowerCase() === cleanId || 
+      (t.reference && t.reference.toLowerCase() === cleanId)
+    );
+
+    if (!existing) {
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const found = fsTxns.find(t => 
+          (t.id && t.id.toLowerCase() === cleanId) || 
+          (t.reference && t.reference.toLowerCase() === cleanId)
+        );
+        if (found) {
+          this.db.transactions.push(found);
+          this.saveDB(this.db);
+          existing = found;
+        }
+      } catch (err) {
+        console.warn('Firestore fallback lookup in rejectTransactionAsync failed:', err);
+      }
+    }
+
+    if (!existing && rawTxnFallback) {
+      this.db.transactions.push(rawTxnFallback);
+      this.saveDB(this.db);
+      existing = rawTxnFallback;
+    }
+
+    return this.rejectTransaction(adminUser, transactionId, reason);
+  }
+
+  public async approveTransactionAsync(adminUser: User, transactionId: string, senderNameInput?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
+    const cleanId = transactionId.trim().toLowerCase();
+    let existing = this.db.transactions.find(t => 
+      t.id.toLowerCase() === cleanId || 
+      (t.reference && t.reference.toLowerCase() === cleanId)
+    );
+
+    if (!existing) {
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const found = fsTxns.find(t => 
+          (t.id && t.id.toLowerCase() === cleanId) || 
+          (t.reference && t.reference.toLowerCase() === cleanId)
+        );
+        if (found) {
+          this.db.transactions.push(found);
+          this.saveDB(this.db);
+          existing = found;
+        }
+      } catch (err) {
+        console.warn('Firestore fallback lookup in approveTransactionAsync failed:', err);
+      }
+    }
+
+    if (!existing && rawTxnFallback) {
+      this.db.transactions.push(rawTxnFallback);
+      this.saveDB(this.db);
+      existing = rawTxnFallback;
+    }
+
+    return this.approveTransaction(adminUser, transactionId, senderNameInput);
+  }
+
+  // Get single transaction by ID or reference
+  public getTransactionById(id: string): Transaction | undefined {
+    this.reloadFromDisk();
+    const cleanId = id.trim().toLowerCase();
+    return this.db.transactions.find(t => 
+      t.id.toLowerCase() === cleanId || 
+      (t.reference && t.reference.toLowerCase() === cleanId)
+    );
+  }
+
+  public async getTransactionByIdAsync(id: string): Promise<Transaction | undefined> {
+    const local = this.getTransactionById(id);
+    if (local) return local;
+
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      const cleanId = id.trim().toLowerCase();
+      const found = fsTxns.find(t => 
+        (t.id && t.id.toLowerCase() === cleanId) || 
+        (t.reference && t.reference.toLowerCase() === cleanId)
+      );
+      if (found) {
+        this.db.transactions.push(found);
+        this.saveDB(this.db);
+        return found;
+      }
+    } catch (err) {
+      console.warn('Firestore getTransactionByIdAsync lookup error:', err);
+    }
+    return undefined;
+  }
+
   // Pending Transactions specifically (status == 'Pending')
   public getPendingTransactions(): Transaction[] {
+    this.reloadFromDisk();
     return this.db.transactions.filter(t => t.status === 'Pending');
   }
 
@@ -2394,65 +2548,12 @@ class DatabaseManager {
   }
 
   // Admin Cancel Transaction / Transfer
-  public adminCancelTransaction(adminUser: User, transactionId: string): { transaction: Transaction } {
-    if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
+  public adminCancelTransaction(adminUser: User, transactionId: string, reason?: string): { transaction: Transaction } {
+    return this.rejectTransaction(adminUser, transactionId, reason || 'Cancelled by SVB Review');
+  }
 
-    const txn = this.db.transactions.find(t => t.id === transactionId || t.reference === transactionId);
-    if (!txn) throw new Error('Transaction not found.');
-
-    if (txn.status === 'Cancelled' || txn.status === 'Rejected') {
-      return { transaction: txn };
-    }
-
-    const now = new Date().toISOString();
-    txn.status = 'Cancelled';
-    txn.updatedAt = now;
-
-    // Also update any matching duplicate transactions with same ID or reference
-    this.db.transactions.forEach(t => {
-      if ((t.id === txn.id || (t.reference && t.reference === txn.reference)) && t.status === 'Pending') {
-        t.status = 'Cancelled';
-        t.updatedAt = now;
-        try { syncTransactionToFirestore(t); } catch (_) {}
-      }
-    });
-
-    const targetUser = this.findUserById(txn.userId);
-    if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !txn.description.includes('received')))) {
-      targetUser.balance += txn.amount;
-      targetUser.ledgerBalance = targetUser.balance;
-      try { syncUserToFirestore(targetUser); } catch (_) {}
-    } else if (targetUser && txn.type === 'Deposit') {
-      targetUser.balance = Math.max(0, targetUser.balance - txn.amount);
-      targetUser.ledgerBalance = targetUser.balance;
-      try { syncUserToFirestore(targetUser); } catch (_) {}
-    }
-
-    const notif: UserNotification = {
-      id: `notif-${Date.now()}-cancel`,
-      userId: txn.userId,
-      title: 'Transaction Cancelled',
-      message: `Transaction ${txn.reference} of $${txn.amount.toFixed(2)} was cancelled by Silicon Valley Bank. Your balance has been updated accordingly.`,
-      amount: txn.amount,
-      currency: txn.currency,
-      reference: txn.reference,
-      read: false,
-      createdAt: new Date().toISOString()
-    };
-    this.db.notifications.unshift(notif);
-
-    this.addAuditLog({
-      adminId: adminUser.id,
-      adminEmail: adminUser.email,
-      action: 'TRANSFER_EXECUTED',
-      targetEmail: txn.userEmail,
-      targetAccountNumber: txn.accountNumber,
-      description: `Admin ${adminUser.email} cancelled transaction ${txn.reference}`,
-      details: { transactionId: txn.id, type: txn.type, amount: txn.amount }
-    });
-
-    this.saveDB(this.db);
-    return { transaction: txn };
+  public async adminCancelTransactionAsync(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
+    return this.rejectTransactionAsync(adminUser, transactionId, reason || 'Cancelled by SVB Review', rawTxnFallback);
   }
 
   // Promote / Demote Role

@@ -676,6 +676,52 @@
   ],
   "auditLogs": [
     {
+      "id": "audit-1788682817769-549",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "alexander.wright@techflow.io",
+      "targetAccountNumber": "1092837465",
+      "description": "Admin admin@svb.com approved transaction REF-CONC-1788682817597 of $500 (Wire Transfer) with sender/source name \"Admin B Approve\"",
+      "details": {
+        "transactionId": "TEST-DIAG-CONCURRENT-1788682817597",
+        "senderName": "Admin B Approve",
+        "type": "Wire Transfer"
+      },
+      "timestamp": "2026-09-06T08:20:17.769Z"
+    },
+    {
+      "id": "audit-1788682817579-858",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "alexander.wright@techflow.io",
+      "targetAccountNumber": "1092837465",
+      "description": "Admin admin@svb.com approved transaction REF-APPROVE-1788682817413 of $1500 (Wire Transfer) with sender/source name \"Silicon Valley Bank Treasury Wire Dept\"",
+      "details": {
+        "transactionId": "TEST-DIAG-APPROVE-1788682817413",
+        "senderName": "Silicon Valley Bank Treasury Wire Dept",
+        "type": "Wire Transfer"
+      },
+      "timestamp": "2026-09-06T08:20:17.579Z"
+    },
+    {
+      "id": "audit-1788682817393-842",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "alexander.wright@techflow.io",
+      "targetAccountNumber": "1092837465",
+      "description": "Admin admin@svb.com rejected transaction REF-CANCEL-1788682817182 and refunded $250",
+      "details": {
+        "transactionId": "TEST-DIAG-CANCEL-1788682817182",
+        "type": "Wire Transfer",
+        "amount": 250,
+        "reason": "Diagnostic audit test cancellation"
+      },
+      "timestamp": "2026-09-06T08:20:17.393Z"
+    },
+    {
       "id": "audit-1788596357086-705",
       "adminId": "admin-003",
       "adminEmail": "stephengarethchappell15@gmail.com",
@@ -873,6 +919,39 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif-1788682817769-snd",
+      "userId": "user-001",
+      "title": "Outgoing Transfer Processed",
+      "message": "Your outgoing transfer of $500.00 (Ref: REF-CONC-1788682817597) has been successfully processed.",
+      "amount": 500,
+      "currency": "USD",
+      "reference": "REF-CONC-1788682817597",
+      "read": false,
+      "createdAt": "2026-09-06T08:20:17.769Z"
+    },
+    {
+      "id": "notif-1788682817579-snd",
+      "userId": "user-001",
+      "title": "Outgoing Transfer Processed",
+      "message": "Your outgoing transfer of $1500.00 (Ref: REF-APPROVE-1788682817413) has been successfully processed.",
+      "amount": 1500,
+      "currency": "USD",
+      "reference": "REF-APPROVE-1788682817413",
+      "read": false,
+      "createdAt": "2026-09-06T08:20:17.578Z"
+    },
+    {
+      "id": "notif-1788682817392-rej",
+      "userId": "user-001",
+      "title": "Transaction Declined & Refunded",
+      "message": "Transaction REF-CANCEL-1788682817182 of $250.00 was declined. Funds of $250.00 have been returned to your account balance. Reason: Diagnostic audit test cancellation",
+      "amount": 250,
+      "currency": "USD",
+      "reference": "REF-CANCEL-1788682817182",
+      "read": false,
+      "createdAt": "2026-09-06T08:20:17.392Z"
+    },
     {
       "id": "notif-1788596357086-rej",
       "userId": "usr-1788596355786-395",
