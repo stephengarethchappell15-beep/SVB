@@ -264,14 +264,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       const isFinal = (st?: string) =>
         st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
 
+      const getMatchKey = (t: Transaction): string | null => {
+        if (!t) return null;
+        const tid = (t.id || '').trim().toLowerCase();
+        const tref = (t.reference || '').trim().toLowerCase();
+
+        for (const [key, existing] of map.entries()) {
+          const eid = (existing.id || '').trim().toLowerCase();
+          const eref = (existing.reference || '').trim().toLowerCase();
+
+          if (tid && eid && tid === eid) return key;
+          if (tref && eref && tref === eref) return key;
+          if (tref && eid && tref === eid) return key;
+          if (tid && eref && tid === eref) return key;
+        }
+        return null;
+      };
+
       const addOrMerge = (txn: Transaction) => {
         if (!txn || !txn.id) return;
-        const existing = map.get(txn.id) || Array.from(map.values()).find(t => t.reference && txn.reference && t.reference === txn.reference);
-        if (existing) {
-          const keepStatus = isFinal(existing.status) && txn.status === 'Pending'
-            ? existing.status
-            : (txn.status || existing.status);
-          map.set(existing.id, { ...existing, ...txn, status: keepStatus });
+        const matchedKey = getMatchKey(txn);
+        if (matchedKey) {
+          const existing = map.get(matchedKey)!;
+          let keepStatus = txn.status || existing.status;
+          if (isFinal(existing.status) && !isFinal(txn.status)) {
+            keepStatus = existing.status;
+          } else if (isFinal(txn.status)) {
+            keepStatus = txn.status;
+          }
+          const dateExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+          const dateIncoming = new Date(txn.updatedAt || txn.createdAt || 0).getTime();
+          const merged: Transaction = {
+            ...existing,
+            ...txn,
+            id: existing.id || txn.id,
+            reference: existing.reference || txn.reference || existing.id || txn.id,
+            status: keepStatus,
+            updatedAt: (dateIncoming >= dateExisting ? txn.updatedAt : existing.updatedAt) || new Date().toISOString()
+          };
+          map.set(matchedKey, merged);
         } else {
           map.set(txn.id, txn);
         }
@@ -562,23 +593,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
   const handleCancelTxn = async (txnId: string) => {
     if (processingIds[txnId]) return;
-    if (!confirm('Are you sure you want to cancel this transfer/transaction? User funds will be adjusted.')) return;
     
     const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
+    if (txn && (txn.status === 'Approved' || txn.status === 'Completed')) {
+      alert('This transaction has already been approved and cannot be cancelled.');
+      return;
+    }
     if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
       alert('This transaction has already been cancelled.');
       return;
     }
+
+    const reason = prompt('Enter cancellation / rejection reason (optional):', 'Cancelled by SVB Review');
+    if (reason === null) return; // user cancelled prompt
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
     setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
 
     try {
-      await api.adminCancelTransaction(txnId);
+      await api.rejectTransaction(txnId, reason.trim() || 'Cancelled by SVB Review');
       setActionCompleteMsg({
         id: txnId,
-        text: `Action Complete: Transaction ${txn?.reference || txnId} Cancelled.`,
+        text: `Action Complete: Transaction ${txn?.reference || txnId} Cancelled / Rejected.`,
         type: 'success'
       });
       await Promise.all([

@@ -2209,7 +2209,52 @@ class DatabaseManager {
       existing = rawTxnFallback;
     }
 
-    return this.rejectTransaction(adminUser, transactionId, reason, rawTxnFallback);
+    const result = this.rejectTransaction(adminUser, transactionId, reason, rawTxnFallback);
+
+    // Sync all matching records in Firestore to ensure single source of truth
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      const matchingFs = fsTxns.filter(t => 
+        (t.id && t.id.toLowerCase() === cleanId) || 
+        (t.reference && t.reference.toLowerCase() === cleanId) ||
+        (result.transaction.id && t.id === result.transaction.id) ||
+        (result.transaction.reference && t.reference && t.reference === result.transaction.reference)
+      );
+
+      const finalReason = result.transaction.cancelReason || reason || 'Cancelled / Declined by SVB Review';
+      const now = new Date().toISOString();
+
+      for (const m of matchingFs) {
+        m.status = 'Rejected';
+        m.cancelledAt = result.transaction.cancelledAt || now;
+        m.cancelledByAdminEmail = adminUser.email;
+        m.cancelReason = finalReason;
+        m.adminNotes = finalReason;
+        m.updatedAt = now;
+        await syncTransactionToFirestore(m);
+      }
+      await syncTransactionToFirestore(result.transaction);
+
+      // Also sync matching crypto activation deposits in Firestore
+      const fsDeps = await getAllCryptoDepositsFromFirestore();
+      const matchingDeps = fsDeps.filter(d => 
+        (d.userId === result.transaction.userId || 
+         d.id === result.transaction.id || 
+         (result.transaction.reference && d.id === result.transaction.reference) ||
+         d.id.toLowerCase() === cleanId || 
+         (d.userEmail && result.transaction.userEmail && d.userEmail.toLowerCase() === result.transaction.userEmail.toLowerCase())) &&
+        d.status === 'Pending'
+      );
+      for (const md of matchingDeps) {
+        md.status = 'Rejected';
+        md.updatedAt = now;
+        await syncCryptoDepositToFirestore(md);
+      }
+    } catch (err) {
+      console.warn('Syncing Firestore in rejectTransactionAsync:', err);
+    }
+
+    return result;
   }
 
   public async approveTransactionAsync(adminUser: User, transactionId: string, senderNameInput?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
@@ -2243,7 +2288,51 @@ class DatabaseManager {
       existing = rawTxnFallback;
     }
 
-    return this.approveTransaction(adminUser, transactionId, senderNameInput, rawTxnFallback);
+    const result = this.approveTransaction(adminUser, transactionId, senderNameInput, rawTxnFallback);
+
+    // Sync all matching records in Firestore to ensure single source of truth
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      const matchingFs = fsTxns.filter(t => 
+        (t.id && t.id.toLowerCase() === cleanId) || 
+        (t.reference && t.reference.toLowerCase() === cleanId) ||
+        (result.transaction.id && t.id === result.transaction.id) ||
+        (result.transaction.reference && t.reference && t.reference === result.transaction.reference)
+      );
+
+      const now = new Date().toISOString();
+      for (const m of matchingFs) {
+        m.status = 'Approved';
+        m.senderName = result.transaction.senderName;
+        m.approvedAt = result.transaction.approvedAt || now;
+        m.approvedByAdminEmail = adminUser.email;
+        m.updatedAt = now;
+        await syncTransactionToFirestore(m);
+      }
+      await syncTransactionToFirestore(result.transaction);
+
+      // If user has matching pending crypto deposits in Firestore, approve them as well
+      const fsDeps = await getAllCryptoDepositsFromFirestore();
+      const matchingDeps = fsDeps.filter(d => 
+        (d.userId === result.transaction.userId || 
+         d.id === result.transaction.id || 
+         (result.transaction.reference && d.id === result.transaction.reference) ||
+         d.id.toLowerCase() === cleanId || 
+         (d.userEmail && result.transaction.userEmail && d.userEmail.toLowerCase() === result.transaction.userEmail.toLowerCase())) &&
+        d.status === 'Pending'
+      );
+      for (const md of matchingDeps) {
+        md.status = 'Approved';
+        const sender = result.transaction.userId ? this.findUserById(result.transaction.userId) : undefined;
+        md.generatedCode = sender?.fourDigitCode || md.generatedCode || '0000';
+        md.updatedAt = now;
+        await syncCryptoDepositToFirestore(md);
+      }
+    } catch (err) {
+      console.warn('Syncing Firestore in approveTransactionAsync:', err);
+    }
+
+    return result;
   }
 
   // Get single transaction by ID or reference
@@ -2372,12 +2461,50 @@ class DatabaseManager {
     if (!this.db.cryptoActivationDeposits) {
       this.db.cryptoActivationDeposits = [];
     }
+
+    // Check if user already has an existing pending crypto activation deposit
+    const existingPendingDep = this.db.cryptoActivationDeposits.find(
+      d => (d.userId === user.id || (d.userEmail && user.email && d.userEmail.toLowerCase() === user.email.toLowerCase())) && d.status === 'Pending'
+    );
+    const existingPendingTxn = this.db.transactions.find(
+      t => (t.userId === user.id || (t.userEmail && user.email && t.userEmail.toLowerCase() === user.email.toLowerCase())) &&
+           (t.type === 'Code Activation Deposit' || (t.description || '').toLowerCase().includes('activation deposit')) &&
+           t.status === 'Pending'
+    );
+
+    if (existingPendingDep) {
+      // Reuse existing deposit ID instead of generating new one
+      existingPendingDep.cryptoMethod = cryptoMethod;
+      existingPendingDep.network = cryptoMethod === 'BTC' ? 'Bitcoin Mainnet' : 'ERC20 / TRC20';
+      existingPendingDep.walletAddress = selectedAddress;
+      if (txHash) existingPendingDep.txHash = txHash.trim();
+      if (proofNote) existingPendingDep.proofNote = proofNote.trim();
+      if (proofImage) existingPendingDep.proofImage = proofImage;
+      existingPendingDep.updatedAt = now;
+      user.pendingCryptoDeposit = existingPendingDep;
+
+      if (existingPendingTxn) {
+        existingPendingTxn.description = `$2,500 Crypto Activation Deposit (${cryptoMethod}) - Pending SVB Review`;
+        existingPendingTxn.updatedAt = now;
+      }
+      this.saveDB(this.db);
+      try { syncCryptoDepositToFirestore(existingPendingDep); } catch (_) {}
+      if (existingPendingTxn) {
+        try { syncTransactionToFirestore(existingPendingTxn); } catch (_) {}
+      }
+      return existingPendingDep;
+    }
     
     // Replace any prior pending deposit for this user
     this.db.cryptoActivationDeposits = this.db.cryptoActivationDeposits.filter(d => d.userId !== user.id || d.status !== 'Pending');
     this.db.cryptoActivationDeposits.unshift(deposit);
 
     user.pendingCryptoDeposit = deposit;
+
+    // Clean up any stale pending activation transactions for this user before adding the new one
+    this.db.transactions = this.db.transactions.filter(
+      t => !(t.userId === user.id && (t.type === 'Code Activation Deposit' || (t.description || '').toLowerCase().includes('activation deposit')) && t.status === 'Pending')
+    );
 
     const depTxn: Transaction = {
       id: depId,

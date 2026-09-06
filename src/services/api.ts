@@ -597,8 +597,21 @@ export const api = {
     const walletAddresses = dbStore.getCryptoAddresses();
     const selectedAddress = walletAddresses[cryptoMethod] || walletAddresses.USDT || walletAddresses.BTC;
 
+    const existingDep = dbStore.getCryptoDeposits().find(
+      d => (d.userId === current.id || d.userEmail.toLowerCase() === current.email.toLowerCase()) && d.status === 'Pending'
+    );
+    const existingTxn = dbStore.getTransactions().find(
+      t => (t.userId === current.id || (t.userEmail && t.userEmail.toLowerCase() === current.email.toLowerCase())) &&
+           (t.type === 'Code Activation Deposit' || (t.description || '').toLowerCase().includes('activation deposit')) &&
+           t.status === 'Pending'
+    );
+
+    const depId = existingDep ? existingDep.id : `DEP-${Date.now()}`;
+    const txnId = existingTxn ? existingTxn.id : `TXN-${Date.now()}`;
+    const txnRef = existingTxn?.reference || existingDep?.id || `DEP-${Date.now().toString().slice(-6)}`;
+
     const dep: CryptoActivationDeposit = {
-      id: `DEP-${Date.now()}`,
+      id: depId,
       userId: current.id,
       userEmail: current.email,
       userName: current.fullName,
@@ -610,11 +623,15 @@ export const api = {
       proofNote: note,
       proofImage: img || undefined,
       status: 'Pending',
-      createdAt: new Date().toISOString(),
+      createdAt: existingDep?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    dbStore.addCryptoDeposit(dep);
+    if (existingDep) {
+      dbStore.updateCryptoDeposit(existingDep.id, dep);
+    } else {
+      dbStore.addCryptoDeposit(dep);
+    }
     syncCryptoDepositToFirestore(dep);
     const updatedUser = dbStore.saveUser({ ...current, pendingCryptoDeposit: dep });
     syncUserToFirestore(updatedUser);
@@ -631,7 +648,7 @@ export const api = {
     });
 
     const depTxn: Transaction = {
-      id: `TXN-${Date.now()}`,
+      id: txnId,
       userId: current.id,
       userEmail: current.email,
       accountNumber: current.accountNumber,
@@ -639,12 +656,16 @@ export const api = {
       currency: 'USD',
       type: 'Code Activation Deposit',
       status: 'Pending',
-      reference: `DEP-${Date.now().toString().slice(-6)}`,
+      reference: txnRef,
       description: `$2,500 Crypto Activation Deposit (${cryptoMethod}) - Pending SVB Review`,
-      createdAt: new Date().toISOString(),
+      createdAt: existingTxn?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    dbStore.addTransaction(depTxn);
+    if (existingTxn) {
+      dbStore.updateTransaction(existingTxn.id, depTxn);
+    } else {
+      dbStore.addTransaction(depTxn);
+    }
     syncTransactionToFirestore(depTxn);
 
     // Auto post deposit proof into support chat room
@@ -1411,13 +1432,35 @@ export const api = {
     const isFinal = (st?: string) =>
       st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
 
+    const getMatchKey = (t: Transaction): string | null => {
+      if (!t) return null;
+      const tid = (t.id || '').trim().toLowerCase();
+      const tref = (t.reference || '').trim().toLowerCase();
+
+      for (const [key, existing] of map.entries()) {
+        const eid = (existing.id || '').trim().toLowerCase();
+        const eref = (existing.reference || '').trim().toLowerCase();
+
+        if (tid && eid && tid === eid) return key;
+        if (tref && eref && tref === eref) return key;
+        if (tref && eid && tref === eid) return key;
+        if (tid && eref && tid === eref) return key;
+      }
+      return null;
+    };
+
     const addOrMerge = (txn: Transaction) => {
       if (!txn || !txn.id) return;
-      const existing = map.get(txn.id) || Array.from(map.values()).find(t => t.reference && txn.reference && t.reference === txn.reference);
-      if (existing) {
-        const keepStatus = isFinal(existing.status) && txn.status === 'Pending'
-          ? existing.status
-          : (txn.status || existing.status);
+      const matchedKey = getMatchKey(txn);
+      if (matchedKey) {
+        const existing = map.get(matchedKey)!;
+        // If EITHER existing or incoming has a final status, final status MUST prevail! Never regress to Pending.
+        let keepStatus = txn.status || existing.status;
+        if (isFinal(existing.status) && !isFinal(txn.status)) {
+          keepStatus = existing.status;
+        } else if (isFinal(txn.status)) {
+          keepStatus = txn.status;
+        }
 
         const dateExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
         const dateIncoming = new Date(txn.updatedAt || txn.createdAt || 0).getTime();
@@ -1425,6 +1468,8 @@ export const api = {
         const merged: Transaction = {
           ...existing,
           ...txn,
+          id: existing.id || txn.id,
+          reference: existing.reference || txn.reference || existing.id || txn.id,
           status: keepStatus,
           senderName: txn.senderName || existing.senderName,
           userName: txn.userName || existing.userName,
@@ -1434,10 +1479,9 @@ export const api = {
           type: txn.type || existing.type,
           amount: txn.amount !== undefined ? txn.amount : existing.amount,
           currency: txn.currency || existing.currency || 'USD',
-          reference: txn.reference || existing.reference,
           updatedAt: (dateIncoming >= dateExisting ? txn.updatedAt : existing.updatedAt) || new Date().toISOString()
         };
-        map.set(existing.id, merged);
+        map.set(matchedKey, merged);
       } else {
         map.set(txn.id, txn);
       }
@@ -1491,7 +1535,49 @@ export const api = {
         updatedAt: now
       };
       dbStore.updateTransaction(txn.id, updatedTxn);
-      syncTransactionToFirestore(updatedTxn);
+      await syncTransactionToFirestore(updatedTxn);
+
+      // Also update any matching duplicate transactions with same ID or reference in dbStore
+      const allMatching = dbStore.getTransactions().filter(
+        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && t.status === 'Pending'
+      );
+      for (const match of allMatching) {
+        const matchUpd: Transaction = {
+          ...match,
+          status: 'Approved',
+          senderName: finalSenderName,
+          approvedAt: now,
+          approvedByAdminEmail: currentAdmin?.email,
+          updatedAt: now
+        };
+        dbStore.updateTransaction(match.id, matchUpd);
+        await syncTransactionToFirestore(matchUpd);
+      }
+
+      // Also ensure all matching records in Firestore are updated to Approved
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const cleanRef = (txn.reference || '').trim().toLowerCase();
+        const cleanId = (txn.id || '').trim().toLowerCase();
+        const matchingFs = fsTxns.filter(t => 
+          ((t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) ||
+           (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId))) &&
+          t.status === 'Pending'
+        );
+        for (const fsTx of matchingFs) {
+          const upd: Transaction = {
+            ...fsTx,
+            status: 'Approved',
+            senderName: finalSenderName,
+            approvedAt: now,
+            approvedByAdminEmail: currentAdmin?.email,
+            updatedAt: now
+          };
+          await syncTransactionToFirestore(upd);
+        }
+      } catch (e) {
+        console.warn('Syncing Firestore matching txns error on approval:', e);
+      }
 
       // Clear any previous pending notification for this transaction
       dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
@@ -1655,7 +1741,68 @@ export const api = {
         adminNotes: finalReason
       };
       dbStore.updateTransaction(txn.id, updatedTxn);
-      syncTransactionToFirestore(updatedTxn);
+      await syncTransactionToFirestore(updatedTxn);
+
+      // Also update any matching duplicate transactions with same ID or reference in dbStore
+      const allMatching = dbStore.getTransactions().filter(
+        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && t.status === 'Pending'
+      );
+      for (const match of allMatching) {
+        const matchUpd: Transaction = {
+          ...match,
+          status: 'Rejected',
+          updatedAt: now,
+          cancelledAt: now,
+          cancelledByAdminEmail: currentAdmin?.email,
+          cancelReason: finalReason,
+          adminNotes: finalReason
+        };
+        dbStore.updateTransaction(match.id, matchUpd);
+        await syncTransactionToFirestore(matchUpd);
+      }
+
+      // Also ensure all matching records in Firestore are updated to Rejected
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const cleanRef = (txn.reference || '').trim().toLowerCase();
+        const cleanId = (txn.id || '').trim().toLowerCase();
+        const matchingFs = fsTxns.filter(t => 
+          ((t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) ||
+           (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId))) &&
+          t.status === 'Pending'
+        );
+        for (const fsTx of matchingFs) {
+          const upd: Transaction = {
+            ...fsTx,
+            status: 'Rejected',
+            updatedAt: now,
+            cancelledAt: now,
+            cancelledByAdminEmail: currentAdmin?.email,
+            cancelReason: finalReason,
+            adminNotes: finalReason
+          };
+          await syncTransactionToFirestore(upd);
+        }
+
+        // Also reject matching crypto activation deposits in Firestore
+        const fsDeps = await getAllCryptoDepositsFromFirestore();
+        const matchingDeps = fsDeps.filter(d => 
+          (d.userId === txn.userId || 
+           d.id === txn.id || 
+           (txn.reference && d.id === txn.reference) ||
+           d.id.toLowerCase() === cleanId || 
+           (cleanRef && d.id.toLowerCase() === cleanRef) ||
+           (d.userEmail && txn.userEmail && d.userEmail.toLowerCase() === txn.userEmail.toLowerCase())) &&
+          d.status === 'Pending'
+        );
+        for (const md of matchingDeps) {
+          const updDep: CryptoActivationDeposit = { ...md, status: 'Rejected', updatedAt: now };
+          dbStore.updateCryptoDeposit(md.id, updDep);
+          await syncCryptoDepositToFirestore(updDep);
+        }
+      } catch (e) {
+        console.warn('Syncing Firestore matching txns error on rejection:', e);
+      }
 
       // Clear any previous pending notification for this transaction
       dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
