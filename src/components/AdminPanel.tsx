@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Transaction, AuditLog, DepositPayload, CryptoActivationDeposit, Tier3VerificationRequest } from '../types';
+import { User, Transaction, AuditLog, DepositPayload, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { api } from '../services/api';
 import { AdminDepositPanel } from './AdminDepositPanel';
 import { AdminAuditLogs } from './AdminAuditLogs';
@@ -261,8 +261,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       }
       const local = dbStore.getTransactions();
       const map = new Map<string, Transaction>();
-      const isFinal = (st?: string) =>
-        st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+      const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
 
       const getMatchKey = (t: Transaction): string | null => {
         if (!t) return null;
@@ -821,9 +820,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
             >
               <Clock className="w-3.5 h-3.5" />
               <span>Pending Queue</span>
-              {sysTxns.filter(t => t.status === 'Pending').length > 0 && (
+              {sysTxns.filter(t => isStatusPending(t.status)).length > 0 && (
                 <span className="bg-rose-500 text-white font-extrabold text-[10px] px-1.5 py-0.2 rounded-full animate-pulse ml-0.5">
-                  {sysTxns.filter(t => t.status === 'Pending').length}
+                  {sysTxns.filter(t => isStatusPending(t.status)).length}
                 </span>
               )}
             </button>
@@ -943,7 +942,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                   </h3>
                 </div>
                 <div className="bg-amber-500/20 text-amber-300 text-xs font-black uppercase px-3 py-1 rounded-full border border-amber-500/40 flex items-center gap-1.5 shadow-sm">
-                  <span className="text-sm font-black">{sysTxns.filter(t => t.status === 'Pending').length}</span>
+                  <span className="text-sm font-black">{sysTxns.filter(t => isStatusPending(t.status)).length}</span>
                   <span>PENDING</span>
                 </div>
               </div>
@@ -990,7 +989,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                 pendingFilter === 'Pending' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-400'
               }`}>
-                {sysTxns.filter(t => t.status === 'Pending').length}
+                {sysTxns.filter(t => isStatusPending(t.status)).length}
               </span>
             </button>
 
@@ -1007,7 +1006,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                 pendingFilter === 'Approved' ? 'bg-slate-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-400'
               }`}>
-                {sysTxns.filter(t => t.status === 'Approved' || t.status === 'Completed').length}
+                {sysTxns.filter(t => isStatusApproved(t.status)).length}
               </span>
             </button>
 
@@ -1024,7 +1023,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                 pendingFilter === 'Rejected' ? 'bg-white text-rose-600' : 'bg-rose-500/20 text-rose-400'
               }`}>
-                {sysTxns.filter(t => t.status === 'Rejected' || t.status === 'Cancelled').length}
+                {sysTxns.filter(t => isStatusRejected(t.status)).length}
               </span>
             </button>
 
@@ -1050,9 +1049,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
           ) : (() => {
             const filtered = sysTxns.filter(t => {
               // Status filter
-              if (pendingFilter === 'Pending' && t.status !== 'Pending') return false;
-              if (pendingFilter === 'Approved' && (t.status !== 'Approved' && t.status !== 'Completed')) return false;
-              if (pendingFilter === 'Rejected' && (t.status !== 'Rejected' && t.status !== 'Cancelled')) return false;
+              if (pendingFilter === 'Pending' && !isStatusPending(t.status)) return false;
+              if (pendingFilter === 'Approved' && !isStatusApproved(t.status)) return false;
+              if (pendingFilter === 'Rejected' && !isStatusRejected(t.status)) return false;
 
               // Search query
               if (!pendingQueueSearch.trim()) return true;
@@ -1091,9 +1090,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                 {/* Mobile View: Clean Card Layout */}
                 <div className="block md:hidden space-y-4">
                   {filtered.map((t) => {
-                    const isPending = t.status === 'Pending';
-                    const isApproved = t.status === 'Approved' || t.status === 'Completed';
-                    const isRejected = t.status === 'Rejected' || t.status === 'Cancelled';
+                    const isPending = isStatusPending(t.status);
+                    const isApproved = isStatusApproved(t.status);
+                    const isRejected = isStatusRejected(t.status);
                     const isBusy = processingIds[t.id];
 
                     return (
@@ -1200,9 +1199,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-slate-200">
                       {filtered.map((t) => {
-                        const isPending = t.status === 'Pending';
-                        const isApproved = t.status === 'Approved' || t.status === 'Completed';
-                        const isRejected = t.status === 'Rejected' || t.status === 'Cancelled';
+                        const isPending = isStatusPending(t.status);
+                        const isApproved = isStatusApproved(t.status);
+                        const isRejected = isStatusRejected(t.status);
                         const isBusy = processingIds[t.id];
 
                         return (
@@ -1845,14 +1844,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                         <td className="py-3 px-3 font-bold text-white">${(Number(t.amount) || 0).toFixed(2)}</td>
                         <td className="py-3 px-3">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            (t.status === 'Completed' || t.status === 'Approved') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                            (t.status === 'Cancelled' || t.status === 'Rejected') ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-amber-500/10 text-amber-400'
+                            isStatusApproved(t.status) ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            isStatusRejected(t.status) ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-amber-500/10 text-amber-400'
                           }`}>
                             {t.status}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right space-x-1.5">
-                          {t.status === 'Pending' ? (
+                          {isStatusPending(t.status) ? (
                             <>
                               <button
                                 onClick={() => handleApproveTxn(t.id, t.senderName)}

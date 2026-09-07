@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest } from '../types';
+import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore } from '../lib/firebase';
 
 interface DatabaseSchema {
@@ -1752,8 +1752,7 @@ class DatabaseManager {
     try {
       const fsTxns = await getTransactionsFromFirestore();
       const map = new Map<string, Transaction>();
-      const isFinal = (st?: string) =>
-        st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+      const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
 
       const getMatchKey = (t: Transaction): string | null => {
         if (!t) return null;
@@ -1818,7 +1817,7 @@ class DatabaseManager {
 
   public async getPendingTransactionsAsync(): Promise<Transaction[]> {
     const all = await this.getAllTransactionsAsync();
-    return all.filter(t => t.status === 'Pending');
+    return all.filter(t => isStatusPending(t.status));
   }
 
   public addTransaction(txn: Transaction): void {
@@ -1843,39 +1842,36 @@ class DatabaseManager {
       throw new Error('Transaction ID is required.');
     }
 
-    this.reloadFromDisk();
     const cleanId = transactionId.trim().toLowerCase();
     let senderTxn = this.db.transactions.find(t => 
       (t.id && t.id.toLowerCase() === cleanId) || 
       (t.reference && t.reference.toLowerCase() === cleanId)
     );
 
+    if (!senderTxn) {
+      this.reloadFromDisk();
+      senderTxn = this.db.transactions.find(t => 
+        (t.id && t.id.toLowerCase() === cleanId) || 
+        (t.reference && t.reference.toLowerCase() === cleanId)
+      );
+    }
+
     if (!senderTxn && rawTxnFallback) {
       this.db.transactions.unshift(rawTxnFallback);
       senderTxn = rawTxnFallback;
+      this.saveDB(this.db);
     }
 
     if (!senderTxn) {
-      senderTxn = {
-        id: transactionId,
-        userId: '',
-        userEmail: '',
-        accountNumber: '',
-        senderName: 'Silicon Valley Bank Treasury / Crypto Clearing',
-        amount: 0,
-        currency: 'USD',
-        type: 'Deposit',
-        status: 'Pending',
-        reference: transactionId,
-        description: 'Transaction',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      this.db.transactions.unshift(senderTxn);
+      throw new Error(`Transaction ${transactionId} not found in database.`);
     }
 
-    if ((senderTxn.status as string) === 'Completed' || (senderTxn.status as string) === 'Approved') {
+    if (isStatusApproved(senderTxn.status)) {
       return { transaction: senderTxn };
+    }
+
+    if (isStatusRejected(senderTxn.status)) {
+      throw new Error('This transaction has already been rejected/cancelled and cannot be approved.');
     }
 
     const lockKey = `txn:${senderTxn.id || cleanId}`;
@@ -2103,39 +2099,36 @@ class DatabaseManager {
       throw new Error('Transaction ID is required.');
     }
 
-    this.reloadFromDisk();
     const cleanId = transactionId.trim().toLowerCase();
     let txn = this.db.transactions.find(t => 
       (t.id && t.id.toLowerCase() === cleanId) || 
       (t.reference && t.reference.toLowerCase() === cleanId)
     );
 
+    if (!txn) {
+      this.reloadFromDisk();
+      txn = this.db.transactions.find(t => 
+        (t.id && t.id.toLowerCase() === cleanId) || 
+        (t.reference && t.reference.toLowerCase() === cleanId)
+      );
+    }
+
     if (!txn && rawTxnFallback) {
       this.db.transactions.unshift(rawTxnFallback);
       txn = rawTxnFallback;
+      this.saveDB(this.db);
     }
 
     if (!txn) {
-      txn = {
-        id: transactionId,
-        userId: '',
-        userEmail: '',
-        accountNumber: '',
-        senderName: 'Silicon Valley Bank Treasury',
-        amount: 0,
-        currency: 'USD',
-        type: 'Transfer',
-        status: 'Pending',
-        reference: transactionId,
-        description: 'Transaction Cancelled',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      this.db.transactions.unshift(txn);
+      throw new Error(`Transaction ${transactionId} not found in database.`);
     }
 
-    if (txn.status === 'Rejected' || txn.status === 'Cancelled') {
+    if (isStatusRejected(txn.status)) {
       return { transaction: txn };
+    }
+
+    if (isStatusApproved(txn.status)) {
+      throw new Error('This transaction has already been approved and cannot be rejected.');
     }
 
     const lockKey = `txn:${txn.id || cleanId}`;
@@ -2309,6 +2302,17 @@ class DatabaseManager {
       }
       await syncTransactionToFirestore(result.transaction);
 
+      // Also sync user and pendingCryptoDeposit in Firestore
+      const targetUser = result.transaction.userId ? this.findUserById(result.transaction.userId) : undefined;
+      if (targetUser) {
+        if (targetUser.pendingCryptoDeposit) {
+          targetUser.pendingCryptoDeposit.status = 'Rejected';
+          targetUser.pendingCryptoDeposit.adminNotes = finalReason;
+          targetUser.pendingCryptoDeposit.updatedAt = now;
+        }
+        await syncUserToFirestore(targetUser);
+      }
+
       // Also sync matching crypto activation deposits in Firestore
       const fsDeps = await getAllCryptoDepositsFromFirestore();
       const matchingDeps = fsDeps.filter(d => 
@@ -2332,7 +2336,6 @@ class DatabaseManager {
   }
 
   public async approveTransactionAsync(adminUser: User, transactionId: string, senderNameInput?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
-    this.reloadFromDisk();
     const cleanId = (transactionId || '').trim().toLowerCase();
     let existing = this.db.transactions.find(t => 
       (t.id && t.id.toLowerCase() === cleanId) || 
@@ -2385,6 +2388,22 @@ class DatabaseManager {
       }
       await syncTransactionToFirestore(result.transaction);
 
+      // Sync updated sender user (and recipient if applicable) in Firestore
+      const sender = result.transaction.userId ? this.findUserById(result.transaction.userId) : undefined;
+      if (sender) {
+        if (sender.pendingCryptoDeposit) {
+          sender.pendingCryptoDeposit.status = 'Approved';
+          sender.pendingCryptoDeposit.generatedCode = sender.fourDigitCode || '0000';
+          sender.pendingCryptoDeposit.updatedAt = now;
+        }
+        await syncUserToFirestore(sender);
+      }
+
+      if (result.transaction.recipientAccountNumber) {
+        const recipient = this.findUserByAccountNumber(result.transaction.recipientAccountNumber);
+        if (recipient) await syncUserToFirestore(recipient);
+      }
+
       // If user has matching pending crypto deposits in Firestore, approve them as well
       const fsDeps = await getAllCryptoDepositsFromFirestore();
       const matchingDeps = fsDeps.filter(d => 
@@ -2397,7 +2416,6 @@ class DatabaseManager {
       );
       for (const md of matchingDeps) {
         md.status = 'Approved';
-        const sender = result.transaction.userId ? this.findUserById(result.transaction.userId) : undefined;
         md.generatedCode = sender?.fourDigitCode || md.generatedCode || '0000';
         md.updatedAt = now;
         await syncCryptoDepositToFirestore(md);
@@ -2444,7 +2462,7 @@ class DatabaseManager {
   // Pending Transactions specifically (status == 'Pending')
   public getPendingTransactions(): Transaction[] {
     this.reloadFromDisk();
-    return this.db.transactions.filter(t => t.status === 'Pending');
+    return this.db.transactions.filter(t => isStatusPending(t.status));
   }
 
   // Clear or remove any stale pending notifications for a transaction

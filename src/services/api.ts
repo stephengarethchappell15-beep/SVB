@@ -12,7 +12,10 @@ import {
   AuditLog,
   TransferPayload,
   WithdrawPayload,
-  DepositPayload
+  DepositPayload,
+  isStatusPending,
+  isStatusApproved,
+  isStatusRejected
 } from '../types';
 import { dbStore } from './dbStore';
 import { broadcastRealtimeUpdate } from './realtimeBus';
@@ -1429,8 +1432,7 @@ export const api = {
     }
 
     const map = new Map<string, Transaction>();
-    const isFinal = (st?: string) =>
-      st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+    const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
 
     const getMatchKey = (t: Transaction): string | null => {
       if (!t) return null;
@@ -1905,13 +1907,13 @@ export const api = {
     try {
       const res = await requestApi<{ transactions: Transaction[] }>('/admin/pending-transactions');
       if (res && Array.isArray(res.transactions)) {
-        return { transactions: res.transactions };
+        return { transactions: res.transactions.filter(t => isStatusPending(t.status)) };
       }
     } catch (e) {
       // fallback
     }
     const all = dbStore.getTransactions();
-    return { transactions: all.filter(t => t.status === 'Pending') };
+    return { transactions: all.filter(t => isStatusPending(t.status)) };
   },
 
   // --- VIRTUAL CARDS ---

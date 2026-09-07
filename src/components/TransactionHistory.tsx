@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Transaction } from '../types';
+import { Transaction, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { 
   History, 
   Search, 
@@ -190,20 +190,20 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                     </td>
                     <td className="py-3.5 px-3">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1.5 uppercase ${
-                        txn.status === 'Completed' || txn.status === 'Approved'
+                        isStatusApproved(txn.status)
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : txn.status === 'Pending'
+                          : isStatusPending(txn.status)
                           ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                           : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                       }`}>
-                        {txn.status === 'Completed' || txn.status === 'Approved' ? (
+                        {isStatusApproved(txn.status) ? (
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        ) : txn.status === 'Pending' ? (
+                        ) : isStatusPending(txn.status) ? (
                           <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
                         ) : (
                           <XCircle className="w-3 h-3 text-rose-400" />
                         )}
-                        {txn.status === 'Completed' ? 'Approved' : txn.status === 'Pending' ? 'Pending Review' : (txn.status === 'Rejected' ? 'Cancelled / Rejected' : txn.status)}
+                        {isStatusApproved(txn.status) ? 'Approved' : isStatusPending(txn.status) ? 'Pending Review' : (isStatusRejected(txn.status) ? 'Cancelled / Rejected' : txn.status)}
                       </span>
                     </td>
                     <td className="py-3.5 px-3 text-right">

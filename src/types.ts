@@ -120,6 +120,31 @@ export interface User {
 export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee';
 export type TransactionStatus = 'Completed' | 'Pending' | 'Cancelled' | 'Rejected' | 'Refunded' | 'Approved';
 
+export function isStatusPending(status?: string): boolean {
+  if (!status) return false;
+  const s = status.trim().toUpperCase();
+  return s === 'PENDING' || s === 'PENDING_REVIEW' || s === 'PENDING REVIEW' || s === 'IN_REVIEW' || s === 'UNDER_REVIEW';
+}
+
+export function isStatusApproved(status?: string): boolean {
+  if (!status) return false;
+  const s = status.trim().toUpperCase();
+  return s === 'APPROVED' || s === 'APPROVE' || s === 'COMPLETED' || s === 'COMPLETE' || s === 'SUCCESS' || s === 'SUCCESSFUL';
+}
+
+export function isStatusRejected(status?: string): boolean {
+  if (!status) return false;
+  const s = status.trim().toUpperCase();
+  return s === 'REJECTED' || s === 'REJECT' || s === 'DECLINED' || s === 'DECLINE' || s === 'CANCELLED' || s === 'CANCELED' || s === 'CANCEL';
+}
+
+export function normalizeTxnStatus(status?: string): 'Pending' | 'Approved' | 'Rejected' {
+  if (isStatusPending(status)) return 'Pending';
+  if (isStatusApproved(status)) return 'Approved';
+  if (isStatusRejected(status)) return 'Rejected';
+  return 'Pending';
+}
+
 export interface Transaction {
   id: string;
   userId: string;

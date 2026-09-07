@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Transaction, UserNotification, VirtualCard } from '../types';
+import { User, Transaction, UserNotification, VirtualCard, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { api } from '../services/api';
 import { 
   CreditCard, 
@@ -116,7 +116,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }).format(Number(user.balance) || 0);
 
   // Pending items count for Task List widget
-  const pendingTxns = transactions.filter(t => t.status === 'Pending');
+  const pendingTxns = transactions.filter(t => isStatusPending(t.status));
   const taskCount = pendingTxns.length > 0 ? pendingTxns.length : 2;
 
   return (
@@ -664,9 +664,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           {new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </p>
                         <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md ${
-                          (t.status === 'Completed' || t.status === 'Approved')
+                          isStatusApproved(t.status)
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : t.status === 'Pending'
+                            : isStatusPending(t.status)
                             ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
                             : 'bg-rose-100 text-rose-800 border border-rose-200'
                         }`}>

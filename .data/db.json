@@ -239,9 +239,10 @@
         "walletAddress": "1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d",
         "amountUSD": 2500,
         "txHash": "0xbtc1788596298350hashverification",
-        "status": "Pending",
+        "status": "Rejected",
         "createdAt": "2026-09-05T08:18:23.376Z",
-        "updatedAt": "2026-09-05T08:18:23.376Z"
+        "updatedAt": "2026-09-05T08:18:23.376Z",
+        "adminNotes": "Cancelled by SVB Review"
       }
     },
     {
@@ -470,6 +471,25 @@
   "resetTokens": {},
   "transactions": [
     {
+      "id": "TXN-1788795174910",
+      "userId": "",
+      "userEmail": "",
+      "accountNumber": "",
+      "senderName": "Silicon Valley Bank Treasury",
+      "amount": 0,
+      "currency": "USD",
+      "type": "Transfer",
+      "status": "Rejected",
+      "reference": "TXN-1788795174910",
+      "description": "Transaction Cancelled",
+      "createdAt": "2026-09-07T15:44:57.084Z",
+      "updatedAt": "2026-09-07T15:44:57.084Z",
+      "cancelledAt": "2026-09-07T15:44:57.084Z",
+      "cancelledByAdminEmail": "admin@svb.com",
+      "cancelReason": "Cancelled by SVB Review / Duplicate submission",
+      "adminNotes": "Cancelled by SVB Review / Duplicate submission"
+    },
+    {
       "id": "txn-1788596357085-out",
       "userId": "usr-1788596355786-395",
       "userEmail": "testuser_1788596352792@svbtest.com",
@@ -587,11 +607,15 @@
       "amount": 2500,
       "currency": "USD",
       "type": "Code Activation Deposit",
-      "status": "Pending",
+      "status": "Rejected",
       "reference": "DEP-76-745",
       "description": "$2,500 Crypto Activation Deposit (BTC) - Pending SVB Review",
       "createdAt": "2026-09-05T08:18:23.376Z",
-      "updatedAt": "2026-09-05T08:18:23.376Z"
+      "updatedAt": "2026-09-07T15:44:57.088Z",
+      "cancelledAt": "2026-09-07T15:44:57.088Z",
+      "cancelledByAdminEmail": "admin@svb.com",
+      "cancelReason": "Cancelled by SVB Review",
+      "adminNotes": "Cancelled by SVB Review"
     },
     {
       "id": "txn-1788596303375-12",
@@ -621,12 +645,16 @@
       "amount": 40000,
       "currency": "USD",
       "type": "Wire Transfer",
-      "status": "Pending",
+      "status": "Rejected",
       "reference": "WIRE-1786621671221",
       "description": "Outgoing International Wire Transfer - SVB Security Clearance",
       "createdByAdminEmail": "System (User-Initiated)",
       "createdAt": "2026-09-05T07:53:27.217Z",
-      "updatedAt": "2026-09-05T07:53:27.217Z"
+      "updatedAt": "2026-09-07T15:44:57.086Z",
+      "cancelledAt": "2026-09-07T15:44:57.086Z",
+      "cancelledByAdminEmail": "admin@svb.com",
+      "cancelReason": "Cancelled by SVB Review",
+      "adminNotes": "Cancelled by SVB Review"
     },
     {
       "id": "txn-001",
@@ -672,9 +700,91 @@
       "createdByAdminEmail": "admin@svb.com",
       "createdAt": "2026-03-01T14:20:00.000Z",
       "updatedAt": "2026-03-01T14:20:00.000Z"
+    },
+    {
+      "userId": "usr-1788520402306",
+      "accountNumber": "103994311963",
+      "description": "$2,500 Crypto Activation Deposit (USDT) - Pending SVB Review",
+      "createdAt": "2026-09-07T15:33:07.680Z",
+      "userEmail": "ifunanya@gmail.com",
+      "status": "Rejected",
+      "reference": "DEP-187680",
+      "updatedAt": "2026-09-07T15:44:02.612Z",
+      "id": "TXN-1788795187680",
+      "type": "Code Activation Deposit",
+      "amount": 2500,
+      "currency": "USD",
+      "cancelledAt": "2026-09-07T15:44:02.612Z",
+      "cancelledByAdminEmail": "admin@svb.com",
+      "cancelReason": "Cancelled by Admin",
+      "adminNotes": "Cancelled by Admin"
     }
   ],
   "auditLogs": [
+    {
+      "id": "audit-1788795897089-54",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "testuser_1788596298350@svbtest.com",
+      "targetAccountNumber": "1080906694",
+      "description": "Admin admin@svb.com rejected transaction DEP-76-745 and refunded $2500",
+      "details": {
+        "transactionId": "TXN-1788596303376-466",
+        "type": "Code Activation Deposit",
+        "amount": 2500,
+        "reason": "Cancelled by SVB Review"
+      },
+      "timestamp": "2026-09-07T15:44:57.089Z"
+    },
+    {
+      "id": "audit-1788795897087-659",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "dominicglobalenergysolution@gmail.com",
+      "targetAccountNumber": "102576690868",
+      "description": "Admin admin@svb.com rejected transaction WIRE-1786621671221 and refunded $40000",
+      "details": {
+        "transactionId": "TXN-WIRE-1786621671221",
+        "type": "Wire Transfer",
+        "amount": 40000,
+        "reason": "Cancelled by SVB Review"
+      },
+      "timestamp": "2026-09-07T15:44:57.087Z"
+    },
+    {
+      "id": "audit-1788795897084-243",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "",
+      "targetAccountNumber": "",
+      "description": "Admin admin@svb.com rejected transaction TXN-1788795174910 and refunded $0",
+      "details": {
+        "transactionId": "TXN-1788795174910",
+        "type": "Transfer",
+        "amount": 0,
+        "reason": "Cancelled by SVB Review / Duplicate submission"
+      },
+      "timestamp": "2026-09-07T15:44:57.084Z"
+    },
+    {
+      "id": "audit-1788795842613-419",
+      "adminId": "admin-001",
+      "adminEmail": "admin@svb.com",
+      "action": "TRANSFER_EXECUTED",
+      "targetEmail": "ifunanya@gmail.com",
+      "targetAccountNumber": "103994311963",
+      "description": "Admin admin@svb.com rejected transaction DEP-187680 and refunded $2500",
+      "details": {
+        "transactionId": "TXN-1788795187680",
+        "type": "Code Activation Deposit",
+        "amount": 2500,
+        "reason": "Cancelled by Admin"
+      },
+      "timestamp": "2026-09-07T15:44:02.613Z"
+    },
     {
       "id": "audit-1788682817769-549",
       "adminId": "admin-001",
@@ -919,6 +1029,39 @@
     }
   ],
   "notifications": [
+    {
+      "id": "notif-1788795897089-rej",
+      "userId": "usr-1788596301530-128",
+      "title": "Deposit Request Declined",
+      "message": "Deposit request DEP-76-745 of $2500.00 was declined by Silicon Valley Bank. Reason: Cancelled by SVB Review",
+      "amount": 2500,
+      "currency": "USD",
+      "reference": "DEP-76-745",
+      "read": false,
+      "createdAt": "2026-09-07T15:44:57.088Z"
+    },
+    {
+      "id": "notif-1788795897087-rej",
+      "userId": "usr-dominic-global",
+      "title": "Transaction Declined & Refunded",
+      "message": "Transaction WIRE-1786621671221 of $40000.00 was declined. Funds of $40000.00 have been returned to your account balance. Reason: Cancelled by SVB Review",
+      "amount": 40000,
+      "currency": "USD",
+      "reference": "WIRE-1786621671221",
+      "read": false,
+      "createdAt": "2026-09-07T15:44:57.086Z"
+    },
+    {
+      "id": "notif-1788795842613-rej",
+      "userId": "usr-1788520402306",
+      "title": "Deposit Request Declined",
+      "message": "Deposit request DEP-187680 of $2500.00 was declined by Silicon Valley Bank. Reason: Cancelled by Admin",
+      "amount": 2500,
+      "currency": "USD",
+      "reference": "DEP-187680",
+      "read": false,
+      "createdAt": "2026-09-07T15:44:02.612Z"
+    },
     {
       "id": "notif-1788682817769-snd",
       "userId": "user-001",
@@ -1212,9 +1355,10 @@
       "walletAddress": "1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d",
       "amountUSD": 2500,
       "txHash": "0xbtc1788596298350hashverification",
-      "status": "Pending",
+      "status": "Rejected",
       "createdAt": "2026-09-05T08:18:23.376Z",
-      "updatedAt": "2026-09-05T08:18:23.376Z"
+      "updatedAt": "2026-09-07T15:44:57.088Z",
+      "adminNotes": "Cancelled by SVB Review"
     }
   ]
 }
