@@ -1747,6 +1747,80 @@ class DatabaseManager {
     return this.db.transactions;
   }
 
+  public async getAllTransactionsAsync(): Promise<Transaction[]> {
+    this.reloadFromDisk();
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      const map = new Map<string, Transaction>();
+      const isFinal = (st?: string) =>
+        st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+
+      const getMatchKey = (t: Transaction): string | null => {
+        if (!t) return null;
+        const tid = (t.id || '').trim().toLowerCase();
+        const tref = (t.reference || '').trim().toLowerCase();
+
+        for (const [key, existing] of map.entries()) {
+          const eid = (existing.id || '').trim().toLowerCase();
+          const eref = (existing.reference || '').trim().toLowerCase();
+
+          if (tid && eid && tid === eid) return key;
+          if (tref && eref && tref === eref) return key;
+          if (tref && eid && tref === eid) return key;
+          if (tid && eref && tid === eref) return key;
+        }
+        return null;
+      };
+
+      const addOrMerge = (txn: Transaction) => {
+        if (!txn || !txn.id) return;
+        const matchedKey = getMatchKey(txn);
+        if (matchedKey) {
+          const existing = map.get(matchedKey)!;
+          let keepStatus = txn.status || existing.status;
+          if (isFinal(existing.status) && !isFinal(txn.status)) {
+            keepStatus = existing.status;
+          } else if (isFinal(txn.status)) {
+            keepStatus = txn.status;
+          }
+          const dateExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+          const dateIncoming = new Date(txn.updatedAt || txn.createdAt || 0).getTime();
+          const merged: Transaction = {
+            ...existing,
+            ...txn,
+            id: existing.id || txn.id,
+            reference: existing.reference || txn.reference || existing.id || txn.id,
+            status: keepStatus,
+            updatedAt: (dateIncoming >= dateExisting ? txn.updatedAt : existing.updatedAt) || new Date().toISOString()
+          };
+          map.set(matchedKey, merged);
+        } else {
+          map.set(txn.id, txn);
+        }
+      };
+
+      // Merge local DB transactions first, then Firestore
+      this.db.transactions.forEach(addOrMerge);
+      fsTxns.forEach(addOrMerge);
+
+      const mergedList = Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
+
+      this.db.transactions = mergedList;
+      this.saveDB(this.db);
+      return mergedList;
+    } catch (err) {
+      console.warn('getAllTransactionsAsync Firestore sync fallback:', err);
+      return this.db.transactions;
+    }
+  }
+
+  public async getPendingTransactionsAsync(): Promise<Transaction[]> {
+    const all = await this.getAllTransactionsAsync();
+    return all.filter(t => t.status === 'Pending');
+  }
+
   public addTransaction(txn: Transaction): void {
     const existingIndex = this.db.transactions.findIndex(t => t.id === txn.id);
     if (existingIndex >= 0) {

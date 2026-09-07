@@ -639,7 +639,8 @@ app.get('/api/admin/transactions', async (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
   }
-  res.json({ transactions: dbManager.getAllTransactions() });
+  const transactions = await dbManager.getAllTransactionsAsync();
+  res.json({ transactions });
 });
 
 // Admin: Get Pending Transactions specifically (status == 'Pending')
@@ -648,7 +649,8 @@ app.get('/api/admin/pending-transactions', async (req, res) => {
   if (!user || user.role !== 'admin') {
     return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
   }
-  res.json({ transactions: dbManager.getPendingTransactions() });
+  const transactions = await dbManager.getPendingTransactionsAsync();
+  res.json({ transactions });
 });
 
 // Admin: Get single transaction by ID or reference
