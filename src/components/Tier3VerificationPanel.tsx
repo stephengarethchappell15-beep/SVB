@@ -3,6 +3,7 @@ import { User } from '../types';
 import { api } from '../services/api';
 import { subscribeCryptoAddressesFromFirestore } from '../lib/firebase';
 import { ShieldCheck, Upload, FileText, CheckCircle2, Clock, AlertCircle, MapPin, Globe, Sparkles, DollarSign, X, Check, Copy, ArrowRight, Wallet } from 'lucide-react';
+import { compressImage } from '../lib/imageUtils';
 
 interface Tier3VerificationPanelProps {
   user: User;
@@ -122,35 +123,45 @@ export const Tier3VerificationPanel: React.FC<Tier3VerificationPanelProps> = ({ 
     setTimeout(() => setCopiedAddress(false), 2000);
   };
 
-  const handleIdFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleIdFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setMsg({ type: 'error', text: 'Identity document image size must be under 5MB.' });
+      if (file.size > 10 * 1024 * 1024) {
+        setMsg({ type: 'error', text: 'Identity document image size must be under 10MB.' });
         return;
       }
       setPreviewName(file.name);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setDocumentUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 1000, 1000, 0.75);
+        setDocumentUrl(compressed);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setDocumentUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
-  const handleSlipFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSlipFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Payment slip image size must be under 5MB.');
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Payment slip image size must be under 10MB.');
         return;
       }
       setPaymentSlipName(file.name);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPaymentSlipUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 1000, 1000, 0.75);
+        setPaymentSlipUrl(compressed);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPaymentSlipUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

@@ -1496,6 +1496,53 @@ class DatabaseManager {
     return this.db.tier3Verifications || [];
   }
 
+  public async getVerificationsAsync(): Promise<Tier3VerificationRequest[]> {
+    this.reloadFromDisk();
+    try {
+      const fsVerifs = await getAllVerificationsFromFirestore();
+      const map = new Map<string, Tier3VerificationRequest>();
+      const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
+
+      const addOrMerge = (v: Tier3VerificationRequest) => {
+        if (!v || !v.id) return;
+        const key = v.id.trim().toLowerCase();
+        if (map.has(key)) {
+          const existing = map.get(key)!;
+          let keepStatus = v.status || existing.status;
+          if (isFinal(existing.status) && !isFinal(v.status)) {
+            keepStatus = existing.status;
+          } else if (isFinal(v.status)) {
+            keepStatus = v.status;
+          }
+          const dateExisting = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+          const dateIncoming = new Date(v.updatedAt || v.createdAt || 0).getTime();
+          const merged: Tier3VerificationRequest = {
+            ...existing,
+            ...v,
+            status: keepStatus as any,
+            updatedAt: (dateIncoming >= dateExisting ? v.updatedAt : existing.updatedAt) || new Date().toISOString()
+          };
+          map.set(key, merged);
+        } else {
+          map.set(key, v);
+        }
+      };
+
+      (this.db.tier3Verifications || []).forEach(addOrMerge);
+      fsVerifs.forEach(addOrMerge);
+
+      const mergedList = Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      );
+      this.db.tier3Verifications = mergedList;
+      this.saveDB(this.db);
+      return mergedList;
+    } catch (err) {
+      console.warn('getVerificationsAsync Firestore fallback:', err);
+      return this.db.tier3Verifications || [];
+    }
+  }
+
   public submitVerification(user: User, payload: Partial<Tier3VerificationRequest>): Tier3VerificationRequest {
     if (!this.db.tier3Verifications) this.db.tier3Verifications = [];
     const now = new Date().toISOString();
@@ -1517,6 +1564,33 @@ class DatabaseManager {
       updatedAt: now
     };
     this.db.tier3Verifications.unshift(req);
+
+    // Update user status to Pending Tier 3
+    const userInDb = this.findUserById(user.id);
+    if (userInDb) {
+      userInDb.verificationTier = 'Pending Tier 3';
+      try { syncUserToFirestore(userInDb); } catch (_) {}
+    }
+
+    // Record pending $5,000 upgrade transaction
+    const upgradeTxn: Transaction = {
+      id: `TXN-${Date.now()}`,
+      userId: user.id,
+      userEmail: user.email,
+      accountNumber: user.accountNumber,
+      amount: 5000,
+      currency: 'USD',
+      type: 'VIP Upgrade Fee',
+      status: 'Pending',
+      reference: `UPGRADE-${Date.now().toString().slice(-6)}`,
+      description: '$5,000 Tier 3 VIP Account Upgrade Deposit Submission - Pending SVB Review',
+      createdAt: now,
+      updatedAt: now
+    };
+    if (!this.db.transactions) this.db.transactions = [];
+    this.db.transactions.unshift(upgradeTxn);
+    try { syncTransactionToFirestore(upgradeTxn); } catch (_) {}
+
     this.saveDB(this.db);
     syncVerificationToFirestore(req).catch(e => console.warn('Firestore verif sync error:', e));
     return req;
