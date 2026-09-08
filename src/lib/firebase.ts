@@ -338,13 +338,24 @@ export async function getAllCryptoDepositsFromFirestore(): Promise<CryptoActivat
 export async function syncVerificationToFirestore(verif: Tier3VerificationRequest): Promise<void> {
   if (!verif || !verif.id) return;
   try {
+    let docUrl = verif.documentUrl || '';
+    let slipUrl = verif.paymentSlipUrl || '';
+    if (docUrl.length > 250000) {
+      docUrl = docUrl.slice(0, 250000);
+    }
+    if (slipUrl.length > 250000) {
+      slipUrl = slipUrl.slice(0, 250000);
+    }
+
     const payload = sanitizeForFirestore({
       ...verif,
+      documentUrl: docUrl,
+      paymentSlipUrl: slipUrl,
       updatedAt: new Date().toISOString()
     });
     await setDoc(doc(db, 'tier3_verifications', verif.id), payload, { merge: true });
   } catch (err) {
-    console.warn('Firestore verification sync error:', err);
+    console.error('Firestore verification sync error:', err);
   }
 }
 

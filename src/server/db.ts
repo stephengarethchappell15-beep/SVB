@@ -1685,6 +1685,19 @@ class DatabaseManager {
     this.db.transactions.unshift(newTxn);
     try { syncTransactionToFirestore(newTxn); } catch (_) {}
 
+    // Also mark any pending VIP Upgrade transaction as Completed
+    const pendingUpgradeTxns = (this.db.transactions || []).filter(
+      t => (t.userId === targetUser.id || (verif.id && t.reference && t.reference.includes(verif.id))) &&
+           (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
+           t.status === 'Pending'
+    );
+    pendingUpgradeTxns.forEach(pt => {
+      pt.status = 'Completed';
+      pt.adminNotes = safeNotes;
+      pt.updatedAt = new Date().toISOString();
+      try { syncTransactionToFirestore(pt); } catch (_) {}
+    });
+
     if (targetUser.id) {
       const notif: UserNotification = {
         id: `notif-${Date.now()}-tier3`,
@@ -1734,7 +1747,11 @@ class DatabaseManager {
         console.warn('Firestore fallback for verification lookup:', e);
       }
     }
-    return this.approveVerification(adminUser, verificationId, notes);
+    const res = this.approveVerification(adminUser, verificationId, notes);
+    try {
+      await syncVerificationToFirestore(res.verification);
+    } catch (_) {}
+    return res;
   }
 
   public rejectVerification(adminUser: User, verificationId: string, reason?: string): { verification: Tier3VerificationRequest } {
@@ -1770,6 +1787,28 @@ class DatabaseManager {
     verif.updatedAt = new Date().toISOString();
     verif.decidedByAdminEmail = adminUser.email;
     verif.adminNotes = safeReason;
+
+    // Reset user verificationTier to Tier 1
+    let targetUser = verif.userId ? this.findUserById(verif.userId) : undefined;
+    if (!targetUser && verif.userEmail) targetUser = this.findUserByEmail(verif.userEmail);
+    if (!targetUser && verif.accountNumber) targetUser = this.findUserByAccountNumber(verif.accountNumber);
+    if (targetUser) {
+      targetUser.verificationTier = 'Tier 1';
+      try { syncUserToFirestore(targetUser); } catch (_) {}
+    }
+
+    // Mark any pending VIP Upgrade transaction as Rejected
+    const pendingUpgradeTxns = (this.db.transactions || []).filter(
+      t => (t.userId === verif.userId || (verif.id && t.reference && t.reference.includes(verif.id))) &&
+           (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
+           t.status === 'Pending'
+    );
+    pendingUpgradeTxns.forEach(pt => {
+      pt.status = 'Rejected';
+      pt.adminNotes = safeReason;
+      pt.updatedAt = new Date().toISOString();
+      try { syncTransactionToFirestore(pt); } catch (_) {}
+    });
 
     if (verif.userId) {
       const notif: UserNotification = {
@@ -1808,7 +1847,11 @@ class DatabaseManager {
         console.warn('Firestore fallback for verification lookup:', e);
       }
     }
-    return this.rejectVerification(adminUser, verificationId, reason);
+    const res = this.rejectVerification(adminUser, verificationId, reason);
+    try {
+      await syncVerificationToFirestore(res.verification);
+    } catch (_) {}
+    return res;
   }
 
   // Transactions

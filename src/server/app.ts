@@ -473,7 +473,7 @@ app.get('/api/admin/verifications', async (req, res) => {
     return res.status(403).json({ error: 'Access denied. Administrator privilege required.' });
   }
   try {
-    const verifications = dbManager.getVerifications();
+    const verifications = await dbManager.getVerificationsAsync();
     res.json({ verifications });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to get verifications.' });

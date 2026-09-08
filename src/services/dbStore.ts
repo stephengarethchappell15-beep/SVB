@@ -308,7 +308,27 @@ function saveDB(db: DBStructure): void {
       localStorage.setItem(EXTRA_USERS_KEY, JSON.stringify(db.users));
     }
   } catch (e) {
-    console.error('Error saving local DB', e);
+    console.error('Error saving local DB, attempting sanitized persistence:', e);
+    try {
+      const copy: DBStructure = {
+        ...db,
+        verifications: (db.verifications || []).map(v => ({
+          ...v,
+          documentUrl: (v.documentUrl || '').length > 100000 ? v.documentUrl.slice(0, 100000) : v.documentUrl,
+          paymentSlipUrl: (v.paymentSlipUrl || '').length > 100000 ? v.paymentSlipUrl.slice(0, 100000) : v.paymentSlipUrl,
+        })),
+        cryptoDeposits: (db.cryptoDeposits || []).map(d => ({
+          ...d,
+          proofImage: (d.proofImage || '').length > 100000 ? d.proofImage.slice(0, 100000) : d.proofImage,
+        }))
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
+      if (copy && Array.isArray(copy.users)) {
+        localStorage.setItem(EXTRA_USERS_KEY, JSON.stringify(copy.users));
+      }
+    } catch (e2) {
+      console.error('Failed to save sanitized local DB:', e2);
+    }
   }
 }
 

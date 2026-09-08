@@ -338,7 +338,27 @@ export const api = {
     const current = dbStore.getCurrentUser();
     if (!current) throw new Error('Not authenticated');
 
-    const req: Tier3VerificationRequest = {
+    let backendVerif: Tier3VerificationRequest | undefined;
+    try {
+      const backendRes = await requestApi<{ verification: Tier3VerificationRequest }>('/user/verification', {
+        method: 'POST',
+        body: JSON.stringify({
+          address: data.address,
+          country: data.country,
+          documentType: data.documentType,
+          documentUrl: data.documentUrl,
+          paymentSlipUrl: data.paymentSlipUrl,
+          txHash: data.txHash
+        })
+      });
+      if (backendRes && backendRes.verification) {
+        backendVerif = backendRes.verification;
+      }
+    } catch (apiErr) {
+      console.warn('Backend submit verification fallback:', apiErr);
+    }
+
+    const req: Tier3VerificationRequest = backendVerif || {
       id: `VERIF-${Date.now()}`,
       userId: current.id,
       userEmail: current.email,
@@ -355,7 +375,8 @@ export const api = {
     };
 
     dbStore.addVerification(req);
-    syncVerificationToFirestore(req);
+    await syncVerificationToFirestore(req);
+
     const updatedUser = dbStore.saveUser({ ...current, verificationTier: 'Pending Tier 3' });
     syncUserToFirestore(updatedUser);
 
@@ -387,8 +408,7 @@ export const api = {
     dbStore.addTransaction(verifTxn);
     syncTransactionToFirestore(verifTxn);
 
-    // Auto post submission to client support chat room
-    const chatImages = [data.documentUrl, data.paymentSlipUrl].filter(Boolean) as string[];
+    // Auto post submission to client support chat room (without huge image strings)
     const chatText = `Submitted Tier 3 VIP Account Upgrade Application.\n• Country: ${data.country}\n• Document: ${data.documentType}\n• Address: ${data.address}\n• $5,000 Deposit Payment Slip attached.`;
     
     // Find or create ticket
@@ -419,7 +439,6 @@ export const api = {
       senderName: current.fullName,
       senderRole: current.role,
       message: chatText,
-      images: chatImages,
       createdAt: now
     });
     ticket.status = 'Open';
@@ -439,75 +458,157 @@ export const api = {
       timestamp: new Date().toISOString()
     });
 
-    syncVerificationToFirestore(req);
-
     return { verification: req };
   },
 
   async getVerifications(): Promise<{ verifications: Tier3VerificationRequest[] }> {
-    let local = dbStore.getVerifications();
+    const map = new Map<string, Tier3VerificationRequest>();
+    const isFinal = (s?: string) => s === 'Approved' || s === 'Rejected';
+
+    const mergeItem = (v: Tier3VerificationRequest) => {
+      if (!v || !v.id) return;
+      const key = v.id.trim().toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, v);
+      } else {
+        const keepStatus = (isFinal(existing.status) && !isFinal(v.status))
+          ? existing.status
+          : (isFinal(v.status) ? v.status : (v.status || existing.status));
+        map.set(key, { ...existing, ...v, status: keepStatus });
+      }
+    };
+
+    // 1. Seed from local dbStore
+    dbStore.getVerifications().forEach(mergeItem);
+
+    // 2. Fetch from Backend Server API
+    try {
+      const backendRes = await requestApi<{ verifications: Tier3VerificationRequest[] }>('/admin/verifications');
+      if (backendRes && backendRes.verifications) {
+        backendRes.verifications.forEach(mergeItem);
+      }
+    } catch (e) {
+      console.warn('Backend getVerifications error:', e);
+    }
+
+    // 3. Fetch from Firestore
     try {
       const fsList = await getAllVerificationsFromFirestore();
-      if (fsList.length > 0) {
-        fsList.forEach(v => {
-          if (!local.some(existing => existing.id === v.id)) {
-            dbStore.addVerification(v);
-            local.push(v);
-          }
-        });
+      if (fsList && fsList.length > 0) {
+        fsList.forEach(mergeItem);
       }
     } catch (e) {
       console.warn('Firestore getVerifications fallback error:', e);
     }
-    return { verifications: local };
+
+    const mergedList = Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+
+    // Keep dbStore synchronized
+    mergedList.forEach(v => dbStore.addVerification(v));
+
+    return { verifications: mergedList };
   },
 
   async approveVerification(verifId: string, notes?: string): Promise<void> {
+    const safeNotes = notes || 'Approved by Compliance Team';
+
+    // 1. Notify backend server API
+    try {
+      await requestApi(`/admin/verifications/${verifId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: safeNotes })
+      });
+    } catch (e) {
+      console.warn('Backend approve verification fallback:', e);
+    }
+
+    // 2. Locate target in dbStore or Firestore
     const verifs = dbStore.getVerifications();
-    const target = verifs.find(v => v.id === verifId);
-    if (!target) throw new Error('Verification request not found');
+    let target = verifs.find(v => v.id === verifId || v.id.toLowerCase() === verifId.toLowerCase());
+    if (!target) {
+      try {
+        const fsList = await getAllVerificationsFromFirestore();
+        target = fsList.find(v => v.id === verifId || v.id.toLowerCase() === verifId.toLowerCase());
+      } catch (_) {}
+    }
 
     const updatedVerif: Tier3VerificationRequest = {
-      ...target,
+      ...(target || {
+        id: verifId,
+        userId: '',
+        userEmail: '',
+        userName: 'Client',
+        accountNumber: '',
+        address: '',
+        country: 'United States',
+        documentType: 'Passport',
+        documentUrl: '',
+        createdAt: new Date().toISOString()
+      }),
       status: 'Approved',
       updatedAt: new Date().toISOString(),
-      adminNotes: notes || 'Approved by Compliance Team'
+      adminNotes: safeNotes
     };
 
     dbStore.updateVerification(verifId, updatedVerif);
-    syncVerificationToFirestore(updatedVerif);
+    await syncVerificationToFirestore(updatedVerif);
 
-    const user = dbStore.getUserById(target.userId);
-    if (user) {
-      const newBalance = user.balance + 5000;
-      const updatedUser = dbStore.saveUser({
-        ...user,
-        verificationTier: 'Tier 3',
-        balance: newBalance,
-        ledgerBalance: newBalance
-      });
-      syncUserToFirestore(updatedUser);
+    const userId = target?.userId;
+    if (userId) {
+      const user = dbStore.getUserById(userId);
+      if (user) {
+        const newBalance = user.balance + 5000;
+        const updatedUser = dbStore.saveUser({
+          ...user,
+          verificationTier: 'Tier 3',
+          balance: newBalance,
+          ledgerBalance: newBalance
+        });
+        syncUserToFirestore(updatedUser);
+      }
 
-      // Record $5,000 upgrade deposit transaction
-      const txn: Transaction = {
-        id: `TXN-${Date.now()}`,
-        userId: user.id,
-        userEmail: user.email,
-        accountNumber: user.accountNumber,
-        amount: 5000,
-        currency: 'USD',
-        type: 'Deposit',
-        status: 'Completed',
-        reference: `UPGRADE-${Date.now().toString().slice(-6)}`,
-        description: '$5,000 Tier 3 VIP Account Upgrade Deposit Approved',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      dbStore.addTransaction(txn);
-      syncTransactionToFirestore(txn);
+      // Record / update $5,000 upgrade deposit transaction
+      const allTxns = dbStore.getTransactions();
+      const upgradeTxns = allTxns.filter(
+        t => (t.userId === userId || (t.reference && t.reference.includes(verifId))) &&
+             (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
+             t.status === 'Pending'
+      );
+      if (upgradeTxns.length > 0) {
+        upgradeTxns.forEach(pt => {
+          const completed: Transaction = {
+            ...pt,
+            status: 'Completed',
+            adminNotes: safeNotes,
+            updatedAt: new Date().toISOString()
+          };
+          dbStore.updateTransaction(pt.id, completed);
+          syncTransactionToFirestore(completed);
+        });
+      } else {
+        const txn: Transaction = {
+          id: `TXN-${Date.now()}`,
+          userId: userId,
+          userEmail: target?.userEmail || '',
+          accountNumber: target?.accountNumber || '',
+          amount: 5000,
+          currency: 'USD',
+          type: 'Deposit',
+          status: 'Completed',
+          reference: `UPGRADE-${Date.now().toString().slice(-6)}`,
+          description: '$5,000 Tier 3 VIP Account Upgrade Deposit Approved',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        dbStore.addTransaction(txn);
+        syncTransactionToFirestore(txn);
+      }
 
-      // Automatically update virtual card limits to $50,000,000.00 / Unlimited
-      const userCards = dbStore.getVirtualCards(user.id);
+      // Update virtual card limits to $50,000,000.00 / Unlimited
+      const userCards = dbStore.getVirtualCards(userId);
       userCards.forEach(card => {
         const updatedCard = { ...card, spendingLimit: 50000000 };
         dbStore.addVirtualCard(updatedCard);
@@ -516,7 +617,7 @@ export const api = {
 
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
-        userId: user.id,
+        userId: userId,
         title: 'Tier 3 VIP Identity Verified & $5,000 Deposit Credited',
         message: 'Your Tier 3 VIP account upgrade and $5,000 deposit have been approved by Silicon Valley Bank Compliance. Your Virtual Bank Card limits are now updated to $50,000,000.00 Daily / Unlimited Monthly.',
         amount: 5000,
@@ -529,27 +630,83 @@ export const api = {
   },
 
   async rejectVerification(verifId: string, notes?: string): Promise<void> {
+    const safeReason = notes || 'Document verification failed';
+
+    // 1. Notify backend server API
+    try {
+      await requestApi(`/admin/verifications/${verifId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: safeReason })
+      });
+    } catch (e) {
+      console.warn('Backend reject verification fallback:', e);
+    }
+
+    // 2. Locate target in dbStore or Firestore
     const verifs = dbStore.getVerifications();
-    const target = verifs.find(v => v.id === verifId);
-    if (!target) throw new Error('Verification request not found');
+    let target = verifs.find(v => v.id === verifId || v.id.toLowerCase() === verifId.toLowerCase());
+    if (!target) {
+      try {
+        const fsList = await getAllVerificationsFromFirestore();
+        target = fsList.find(v => v.id === verifId || v.id.toLowerCase() === verifId.toLowerCase());
+      } catch (_) {}
+    }
 
     const updatedVerif: Tier3VerificationRequest = {
-      ...target,
+      ...(target || {
+        id: verifId,
+        userId: '',
+        userEmail: '',
+        userName: 'Client',
+        accountNumber: '',
+        address: '',
+        country: 'United States',
+        documentType: 'Passport',
+        documentUrl: '',
+        createdAt: new Date().toISOString()
+      }),
       status: 'Rejected',
       updatedAt: new Date().toISOString(),
-      adminNotes: notes || 'Document verification failed'
+      adminNotes: safeReason
     };
 
     dbStore.updateVerification(verifId, updatedVerif);
-    syncVerificationToFirestore(updatedVerif);
+    await syncVerificationToFirestore(updatedVerif);
 
-    const user = dbStore.getUserById(target.userId);
-    if (user) {
+    const userId = target?.userId;
+    if (userId) {
+      const user = dbStore.getUserById(userId);
+      if (user) {
+        const updatedUser = dbStore.saveUser({
+          ...user,
+          verificationTier: 'Tier 1'
+        });
+        syncUserToFirestore(updatedUser);
+      }
+
+      // Mark matching pending upgrade transaction as Rejected
+      const allTxns = dbStore.getTransactions();
+      const upgradeTxns = allTxns.filter(
+        t => (t.userId === userId || (t.reference && t.reference.includes(verifId))) &&
+             (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
+             t.status === 'Pending'
+      );
+      upgradeTxns.forEach(pt => {
+        const rejected: Transaction = {
+          ...pt,
+          status: 'Rejected',
+          adminNotes: safeReason,
+          updatedAt: new Date().toISOString()
+        };
+        dbStore.updateTransaction(pt.id, rejected);
+        syncTransactionToFirestore(rejected);
+      });
+
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
-        userId: user.id,
+        userId: userId,
         title: 'Tier 3 Verification Request Rejected',
-        message: `Your Tier 3 verification submission was rejected by Silicon Valley Bank. Reason: ${notes || 'Documentation requirements not met'}. Please contact support.`,
+        message: `Your Tier 3 verification submission was rejected by Silicon Valley Bank. Reason: ${safeReason}. Please contact support.`,
         amount: 0,
         currency: 'USD',
         reference: `VERIF-REJ-${verifId}`,
@@ -892,8 +1049,27 @@ export const api = {
   },
 
   async rejectCryptoActivationDeposit(depositId: string, notes?: string): Promise<void> {
-    const deposits = dbStore.getCryptoDeposits();
-    const target = deposits.find(d => d.id === depositId);
+    const safeNotes = notes || 'The submitted deposit could not be verified on the blockchain network ledger. Please reach out to customer support if you need further assistance.';
+
+    // 1. Notify backend server API
+    try {
+      await requestApi('/admin/reject-crypto-activation-deposit', {
+        method: 'POST',
+        body: JSON.stringify({ depositId, reason: safeNotes })
+      });
+    } catch (e) {
+      console.warn('Backend reject crypto deposit fallback:', e);
+    }
+
+    // 2. Locate deposit
+    let deposits = dbStore.getCryptoDeposits();
+    let target = deposits.find(d => d.id === depositId || d.id.toLowerCase() === depositId.toLowerCase());
+    if (!target) {
+      try {
+        const fsDeps = await getAllCryptoDepositsFromFirestore();
+        target = fsDeps.find(d => d.id === depositId || d.id.toLowerCase() === depositId.toLowerCase());
+      } catch (_) {}
+    }
 
     const updatedDep: Partial<CryptoActivationDeposit> = {
       status: 'Rejected',
@@ -902,7 +1078,7 @@ export const api = {
     dbStore.updateCryptoDeposit(depositId, updatedDep);
 
     if (target) {
-      syncCryptoDepositToFirestore({ ...target, ...updatedDep } as CryptoActivationDeposit);
+      await syncCryptoDepositToFirestore({ ...target, ...updatedDep } as CryptoActivationDeposit);
       const user = dbStore.getUserById(target.userId);
       if (user) {
         // Update user pending deposit status

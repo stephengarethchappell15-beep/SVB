@@ -242,16 +242,76 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     const unsubCrypto = subscribeCryptoDepositsFromFirestore((liveDeposits) => {
       if (liveDeposits) {
         liveDeposits.forEach(d => dbStore.addCryptoDeposit(d));
-        setCryptoDeposits(liveDeposits);
       }
+      const local = dbStore.getCryptoDeposits();
+      const map = new Map<string, CryptoActivationDeposit>();
+      const isFinal = (st?: string) => st === 'Approved' || st === 'Rejected' || st === 'Cancelled';
+
+      const addOrMerge = (dep: CryptoActivationDeposit) => {
+        if (!dep || !dep.id) return;
+        const key = dep.id.trim().toLowerCase();
+        const existing = map.get(key);
+        if (existing) {
+          let keepStatus = dep.status || existing.status;
+          if (isFinal(existing.status) && !isFinal(dep.status)) {
+            keepStatus = existing.status;
+          } else if (isFinal(dep.status)) {
+            keepStatus = dep.status;
+          }
+          const merged: CryptoActivationDeposit = {
+            ...existing,
+            ...dep,
+            status: keepStatus,
+            updatedAt: dep.updatedAt || existing.updatedAt || new Date().toISOString()
+          };
+          map.set(key, merged);
+        } else {
+          map.set(key, dep);
+        }
+      };
+
+      local.forEach(addOrMerge);
+      if (liveDeposits) liveDeposits.forEach(addOrMerge);
+      const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setCryptoDeposits(merged);
     });
 
     // 3. Subscribe to Live Tier 3 Verifications
     const unsubVerifs = subscribeVerificationsFromFirestore((liveVerifs) => {
       if (liveVerifs) {
         liveVerifs.forEach(v => dbStore.addVerification(v));
-        setVerifications(liveVerifs);
       }
+      const local = dbStore.getVerifications();
+      const map = new Map<string, Tier3VerificationRequest>();
+      const isFinal = (st?: string) => st === 'Approved' || st === 'Rejected' || st === 'Cancelled';
+
+      const addOrMerge = (v: Tier3VerificationRequest) => {
+        if (!v || !v.id) return;
+        const key = v.id.trim().toLowerCase();
+        const existing = map.get(key);
+        if (existing) {
+          let keepStatus = v.status || existing.status;
+          if (isFinal(existing.status) && !isFinal(v.status)) {
+            keepStatus = existing.status;
+          } else if (isFinal(v.status)) {
+            keepStatus = v.status;
+          }
+          const merged: Tier3VerificationRequest = {
+            ...existing,
+            ...v,
+            status: keepStatus,
+            updatedAt: v.updatedAt || existing.updatedAt || new Date().toISOString()
+          };
+          map.set(key, merged);
+        } else {
+          map.set(key, v);
+        }
+      };
+
+      local.forEach(addOrMerge);
+      if (liveVerifs) liveVerifs.forEach(addOrMerge);
+      const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setVerifications(merged);
     });
 
     // 4. Subscribe to Live Transactions

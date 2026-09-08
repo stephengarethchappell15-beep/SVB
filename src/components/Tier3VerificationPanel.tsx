@@ -132,7 +132,7 @@ export const Tier3VerificationPanel: React.FC<Tier3VerificationPanelProps> = ({ 
       }
       setPreviewName(file.name);
       try {
-        const compressed = await compressImage(file, 1000, 1000, 0.75);
+        const compressed = await compressImage(file, 800, 800, 0.6);
         setDocumentUrl(compressed);
       } catch (err) {
         const reader = new FileReader();
@@ -153,7 +153,7 @@ export const Tier3VerificationPanel: React.FC<Tier3VerificationPanelProps> = ({ 
       }
       setPaymentSlipName(file.name);
       try {
-        const compressed = await compressImage(file, 1000, 1000, 0.75);
+        const compressed = await compressImage(file, 800, 800, 0.6);
         setPaymentSlipUrl(compressed);
       } catch (err) {
         const reader = new FileReader();

@@ -4,9 +4,9 @@
  */
 export function compressImage(
   file: File,
-  maxWidth = 1000,
-  maxHeight = 1000,
-  quality = 0.75
+  maxWidth = 800,
+  maxHeight = 800,
+  quality = 0.6
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -17,8 +17,12 @@ export function compressImage(
         return;
       }
 
-      // If it's not an image (e.g. PDF), return original dataUrl if small, or as-is
+      // If it's not an image (e.g. PDF)
       if (!file.type.startsWith('image/')) {
+        if (dataUrl.length > 300000) {
+          // If PDF is too large to fit safely in Firestore document with other fields
+          console.warn('Non-image file exceeds safe Firestore document size limit');
+        }
         resolve(dataUrl);
         return;
       }
@@ -46,7 +50,7 @@ export function compressImage(
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(dataUrl);
+          resolve(dataUrl.length > 250000 ? dataUrl.slice(0, 250000) : dataUrl);
           return;
         }
 
@@ -55,12 +59,27 @@ export function compressImage(
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        const compressed = canvas.toDataURL('image/jpeg', quality);
+        let compressed = canvas.toDataURL('image/jpeg', quality);
+
+        // If still > 200,000 characters (~150KB), re-encode with lower quality/size
+        if (compressed.length > 200000) {
+          const smallCanvas = document.createElement('canvas');
+          smallCanvas.width = Math.round(canvas.width * 0.7);
+          smallCanvas.height = Math.round(canvas.height * 0.7);
+          const smallCtx = smallCanvas.getContext('2d');
+          if (smallCtx) {
+            smallCtx.fillStyle = '#FFFFFF';
+            smallCtx.fillRect(0, 0, smallCanvas.width, smallCanvas.height);
+            smallCtx.drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
+            compressed = smallCanvas.toDataURL('image/jpeg', 0.45);
+          }
+        }
+
         resolve(compressed);
       };
 
       img.onerror = () => {
-        resolve(dataUrl);
+        resolve(dataUrl.length > 200000 ? dataUrl.slice(0, 200000) : dataUrl);
       };
 
       img.src = dataUrl;
@@ -70,3 +89,4 @@ export function compressImage(
     reader.readAsDataURL(file);
   });
 }
+
