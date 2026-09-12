@@ -575,7 +575,7 @@ export const api = {
       const upgradeTxns = allTxns.filter(
         t => (t.userId === userId || (t.reference && t.reference.includes(verifId))) &&
              (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
-             t.status === 'Pending'
+             isStatusPending(t.status)
       );
       if (upgradeTxns.length > 0) {
         upgradeTxns.forEach(pt => {

@@ -245,7 +245,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       }
       const local = dbStore.getCryptoDeposits();
       const map = new Map<string, CryptoActivationDeposit>();
-      const isFinal = (st?: string) => st === 'Approved' || st === 'Rejected' || st === 'Cancelled';
+      const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
 
       const addOrMerge = (dep: CryptoActivationDeposit) => {
         if (!dep || !dep.id) return;
@@ -283,7 +283,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       }
       const local = dbStore.getVerifications();
       const map = new Map<string, Tier3VerificationRequest>();
-      const isFinal = (st?: string) => st === 'Approved' || st === 'Rejected' || st === 'Cancelled';
+      const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
 
       const addOrMerge = (v: Tier3VerificationRequest) => {
         if (!v || !v.id) return;
@@ -400,11 +400,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[verifId]) return;
 
     const target = verifications.find(v => v.id === verifId);
-    if (target && target.status === 'Approved') {
+    if (target && isStatusApproved(target.status)) {
       alert('This Tier 3 verification has already been approved.');
       return;
     }
-    if (target && target.status === 'Rejected') {
+    if (target && isStatusRejected(target.status)) {
       alert('This Tier 3 verification has already been rejected.');
       return;
     }
@@ -442,8 +442,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[verifId]) return;
 
     const target = verifications.find(v => v.id === verifId);
-    if (target && (target.status === 'Approved' || target.status === 'Rejected')) {
-      alert(`This verification request has already been ${target.status.toLowerCase()}.`);
+    if (target && (isStatusApproved(target.status) || isStatusRejected(target.status))) {
+      alert('This verification request has already been processed.');
       return;
     }
 
@@ -492,11 +492,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[depId]) return;
 
     const target = cryptoDeposits.find(d => d.id === depId);
-    if (target && target.status === 'Approved') {
+    if (target && isStatusApproved(target.status)) {
       alert('This crypto deposit has already been approved.');
       return;
     }
-    if (target && target.status === 'Rejected') {
+    if (target && isStatusRejected(target.status)) {
       alert('This crypto deposit has already been rejected.');
       return;
     }
@@ -535,8 +535,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[depId]) return;
 
     const target = cryptoDeposits.find(d => d.id === depId);
-    if (target && (target.status === 'Approved' || target.status === 'Rejected')) {
-      alert(`This deposit has already been ${target.status.toLowerCase()}.`);
+    if (target && (isStatusApproved(target.status) || isStatusRejected(target.status))) {
+      alert('This deposit has already been processed.');
       return;
     }
 
@@ -598,11 +598,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[txnId]) return;
 
     const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
-    if (txn && (txn.status === 'Approved' || txn.status === 'Completed')) {
+    if (txn && isStatusApproved(txn.status)) {
       alert('This transaction has already been approved.');
       return;
     }
-    if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
+    if (txn && isStatusRejected(txn.status)) {
       alert('This transaction has already been rejected/cancelled.');
       return;
     }
@@ -654,11 +654,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[txnId]) return;
     
     const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
-    if (txn && (txn.status === 'Approved' || txn.status === 'Completed')) {
+    if (txn && isStatusApproved(txn.status)) {
       alert('This transaction has already been approved and cannot be cancelled.');
       return;
     }
-    if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
+    if (txn && isStatusRejected(txn.status)) {
       alert('This transaction has already been cancelled.');
       return;
     }
@@ -698,11 +698,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (processingIds[txnId]) return;
 
     const txn = sysTxns.find(t => t.id === txnId || (t.reference && t.reference === txnId));
-    if (txn && (txn.status === 'Approved' || txn.status === 'Completed')) {
+    if (txn && isStatusApproved(txn.status)) {
       alert('This transaction has already been approved and cannot be rejected.');
       return;
     }
-    if (txn && (txn.status === 'Rejected' || txn.status === 'Cancelled')) {
+    if (txn && isStatusRejected(txn.status)) {
       alert('This transaction has already been rejected/cancelled.');
       return;
     }
@@ -915,7 +915,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
             >
               <Key className="w-3.5 h-3.5" />
               <span>Crypto 4-Digit Approvals</span>
-              {cryptoDeposits.filter(d => d.status === 'Pending').length > 0 && (
+              {cryptoDeposits.filter(d => isStatusPending(d.status)).length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               )}
             </button>
@@ -928,7 +928,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>Tier 3 Identity Reviews</span>
-              {verifications.filter(v => v.status === 'Pending').length > 0 && (
+              {verifications.filter(v => isStatusPending(v.status)).length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
               )}
             </button>
@@ -1607,7 +1607,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                   cryptoFilter === 'Pending' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-400'
                 }`}>
-                  {cryptoDeposits.filter(d => d.status === 'Pending').length}
+                  {cryptoDeposits.filter(d => isStatusPending(d.status)).length}
                 </span>
               </button>
 
@@ -1624,7 +1624,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                   cryptoFilter === 'Approved' ? 'bg-slate-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-400'
                 }`}>
-                  {cryptoDeposits.filter(d => d.status === 'Approved').length}
+                  {cryptoDeposits.filter(d => isStatusApproved(d.status)).length}
                 </span>
               </button>
 
@@ -1641,7 +1641,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                   cryptoFilter === 'Rejected' ? 'bg-white text-rose-600' : 'bg-rose-500/20 text-rose-400'
                 }`}>
-                  {cryptoDeposits.filter(d => d.status === 'Rejected').length}
+                  {cryptoDeposits.filter(d => isStatusRejected(d.status)).length}
                 </span>
               </button>
 
@@ -1680,9 +1680,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                     </tr>
                   ) : (() => {
                     const filteredCrypto = cryptoDeposits.filter(dep => {
-                      if (cryptoFilter === 'Pending') return dep.status === 'Pending';
-                      if (cryptoFilter === 'Approved') return dep.status === 'Approved';
-                      if (cryptoFilter === 'Rejected') return dep.status === 'Rejected';
+                      if (cryptoFilter === 'Pending') return isStatusPending(dep.status);
+                      if (cryptoFilter === 'Approved') return isStatusApproved(dep.status);
+                      if (cryptoFilter === 'Rejected') return isStatusRejected(dep.status);
                       return true;
                     });
 
@@ -1697,8 +1697,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                     }
 
                     return filteredCrypto.map((dep) => {
-                      const isPending = dep.status === 'Pending';
-                      const isApproved = dep.status === 'Approved';
+                      const isPending = isStatusPending(dep.status);
+                      const isApproved = isStatusApproved(dep.status);
+                      const isRejected = isStatusRejected(dep.status);
                       const isBusy = processingIds[dep.id];
 
                       return (
@@ -1742,7 +1743,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                                 <CheckCircle2 className="w-3 h-3" /> Approved ({dep.generatedCode})
                               </span>
                             )}
-                            {dep.status === 'Rejected' && (
+                            {isRejected && (
                               <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
                                 <XCircle className="w-3 h-3" /> Rejected
                               </span>
@@ -1999,7 +2000,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                 verifFilter === 'Pending' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/20 text-amber-400'
               }`}>
-                {verifications.filter(v => v.status === 'Pending').length}
+                {verifications.filter(v => isStatusPending(v.status)).length}
               </span>
             </button>
 
@@ -2016,7 +2017,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                 verifFilter === 'Approved' ? 'bg-slate-950 text-emerald-400' : 'bg-emerald-500/20 text-emerald-400'
               }`}>
-                {verifications.filter(v => v.status === 'Approved').length}
+                {verifications.filter(v => isStatusApproved(v.status)).length}
               </span>
             </button>
 
@@ -2033,7 +2034,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
                 verifFilter === 'Rejected' ? 'bg-white text-rose-600' : 'bg-rose-500/20 text-rose-400'
               }`}>
-                {verifications.filter(v => v.status === 'Rejected').length}
+                {verifications.filter(v => isStatusRejected(v.status)).length}
               </span>
             </button>
 
@@ -2072,9 +2073,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                   </tr>
                 ) : (() => {
                   const filteredVerifs = verifications.filter(v => {
-                    if (verifFilter === 'Pending') return v.status === 'Pending';
-                    if (verifFilter === 'Approved') return v.status === 'Approved';
-                    if (verifFilter === 'Rejected') return v.status === 'Rejected';
+                    if (verifFilter === 'Pending') return isStatusPending(v.status);
+                    if (verifFilter === 'Approved') return isStatusApproved(v.status);
+                    if (verifFilter === 'Rejected') return isStatusRejected(v.status);
                     return true;
                   });
 
@@ -2089,8 +2090,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                   }
 
                   return filteredVerifs.map((v) => {
-                    const isPending = v.status === 'Pending';
-                    const isApproved = v.status === 'Approved';
+                    const isPending = isStatusPending(v.status);
+                    const isApproved = isStatusApproved(v.status);
+                    const isRejected = isStatusRejected(v.status);
                     const isBusy = processingIds[v.id];
 
                     return (
@@ -2114,7 +2116,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
                               <CheckCircle2 className="w-3 h-3" /> Approved Tier 3
                             </span>
                           )}
-                          {v.status === 'Rejected' && (
+                          {isRejected && (
                             <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
                               <XCircle className="w-3 h-3" /> Rejected
                             </span>
