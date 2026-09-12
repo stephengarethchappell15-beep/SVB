@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore } from '../lib/firebase';
+import { defaultUserLaura, lauraMitchellPassword, lauraMitchellCard, lauraMitchellTransactions } from '../data/lauraMitchellData';
 
 interface DatabaseSchema {
   users: User[];
@@ -402,6 +403,8 @@ class DatabaseManager {
         if (!parsed.virtualCards) parsed.virtualCards = seedVirtualCards;
         if (!parsed.billPayments) parsed.billPayments = seedBillPayments;
         if (!parsed.resetTokens) parsed.resetTokens = {};
+        if (!parsed.tier3Verifications) parsed.tier3Verifications = [];
+        if (!parsed.cryptoActivationDeposits) parsed.cryptoActivationDeposits = [];
         
         // Ensure admin user exists with admin@svb.com
         const adminUser = parsed.users.find((u: User) => u.email === 'admin@svb.com');
@@ -453,6 +456,41 @@ class DatabaseManager {
         if (!dominicUser) {
           parsed.users.push(defaultUserDominic);
           parsed.passwords[defaultUserDominic.id] = 'password123';
+        }
+
+        // Ensure Laura Mitchell seed user exists
+        let lauraUser = parsed.users.find((u: User) => 
+          u.email.toLowerCase() === 'lauratmitchell456@gmail.com' || u.id === 'usr-laura-mitchell'
+        );
+        if (!lauraUser) {
+          parsed.users.push(defaultUserLaura);
+          parsed.passwords[defaultUserLaura.id] = lauraMitchellPassword;
+        } else {
+          lauraUser.fullName = defaultUserLaura.fullName;
+          lauraUser.email = defaultUserLaura.email;
+          lauraUser.phone = defaultUserLaura.phone;
+          lauraUser.accountNumber = defaultUserLaura.accountNumber;
+          lauraUser.balance = defaultUserLaura.balance;
+          lauraUser.ledgerBalance = defaultUserLaura.ledgerBalance;
+          lauraUser.createdAt = defaultUserLaura.createdAt;
+          lauraUser.verificationTier = 'Tier 3';
+          lauraUser.status = 'Active';
+          lauraUser.role = 'user';
+          parsed.passwords[lauraUser.id] = lauraMitchellPassword;
+        }
+
+        // Ensure Laura Mitchell's virtual card exists
+        if (!parsed.virtualCards) parsed.virtualCards = [];
+        if (!parsed.virtualCards.some((c: VirtualCard) => c.userId === defaultUserLaura.id)) {
+          parsed.virtualCards.push(lauraMitchellCard);
+        }
+
+        // Ensure Laura Mitchell's transactions exist
+        if (!parsed.transactions) parsed.transactions = [];
+        for (const lt of lauraMitchellTransactions) {
+          if (!parsed.transactions.some((t: Transaction) => t.id === lt.id || t.reference === lt.reference)) {
+            parsed.transactions.unshift(lt);
+          }
         }
 
         if (!parsed.cryptoWalletAddresses || parsed.cryptoWalletAddresses.BTC === 'bc1q9v8h9svb3x0k49z82lq09fw2zxl184p24a8svb' || parsed.cryptoWalletAddresses.BTC === 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c') {
@@ -510,24 +548,27 @@ class DatabaseManager {
     }
 
     const initialDB: DatabaseSchema = {
-      users: [defaultAdmin, defaultAdmin2, defaultUser1, defaultUser2, defaultUserDominic],
+      users: [defaultAdmin, defaultAdmin2, defaultUser1, defaultUser2, defaultUserDominic, defaultUserLaura],
       passwords: {
         'admin-001': 'Mmadu51366414@',
         'admin-002': 'Mmadu51366414@',
         'user-001': 'user123',
         'user-002': 'user123',
-        'usr-dominic-global': 'password123'
+        'usr-dominic-global': 'password123',
+        'usr-laura-mitchell': lauraMitchellPassword
       },
-      virtualCards: seedVirtualCards,
+      virtualCards: [...seedVirtualCards, lauraMitchellCard],
       billPayments: seedBillPayments,
       resetTokens: {},
-      transactions: seedTransactions,
+      transactions: [...lauraMitchellTransactions, ...seedTransactions],
       auditLogs: seedAuditLogs,
       notifications: seedNotifications,
       supportTickets: seedSupportTickets,
+      tier3Verifications: [],
+      cryptoActivationDeposits: [],
       cryptoWalletAddresses: {
-        BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
-        USDT: 'TWgMXsoubMTxyK9Zc47ZxcN29bLaCJU4EA'
+        BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
+        USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
       }
     };
 
@@ -544,6 +585,10 @@ class DatabaseManager {
           if (Array.isArray(parsed.transactions)) this.db.transactions = parsed.transactions;
           if (Array.isArray(parsed.users)) this.db.users = parsed.users;
           if (Array.isArray(parsed.tier3Verifications)) this.db.tier3Verifications = parsed.tier3Verifications;
+          if (Array.isArray(parsed.cryptoActivationDeposits)) this.db.cryptoActivationDeposits = parsed.cryptoActivationDeposits;
+          if (Array.isArray(parsed.virtualCards)) this.db.virtualCards = parsed.virtualCards;
+          if (Array.isArray(parsed.billPayments)) this.db.billPayments = parsed.billPayments;
+          if (parsed.passwords) this.db.passwords = parsed.passwords;
           if (Array.isArray(parsed.auditLogs)) this.db.auditLogs = parsed.auditLogs;
           if (Array.isArray(parsed.notifications)) this.db.notifications = parsed.notifications;
         }
@@ -1856,7 +1901,15 @@ class DatabaseManager {
 
   // Transactions
   public getUserTransactions(userId: string): Transaction[] {
-    return this.db.transactions.filter(t => t.userId === userId);
+    this.reloadFromDisk();
+    const user = this.findUserById(userId);
+    const userEmail = user?.email?.toLowerCase() || userId.toLowerCase();
+    const userAcc = user?.accountNumber;
+    return this.db.transactions.filter(t => 
+      t.userId === userId || 
+      (t.userEmail && t.userEmail.toLowerCase() === userEmail) ||
+      (userAcc && (t.accountNumber === userAcc || t.recipientAccountNumber === userAcc))
+    );
   }
 
   public getAllTransactions(): Transaction[] {

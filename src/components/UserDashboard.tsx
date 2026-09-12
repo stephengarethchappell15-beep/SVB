@@ -186,7 +186,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
       {/* Account Details Display Banner */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4.5 sm:p-5 hover:shadow-md transition-shadow">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           
           {/* Account Title & Account Holder Name */}
           <div className="flex items-center gap-3.5">
@@ -194,13 +194,20 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               SVB
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
                   Account Name
                 </span>
-                <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Active Account
+                <span className={`text-xs font-semibold flex items-center gap-1 ${
+                  (user.status || 'Active') === 'Active' ? 'text-emerald-600' : 'text-amber-600'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    (user.status || 'Active') === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`} />
+                  {user.status || 'Active'} Account
+                </span>
+                <span className="text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded">
+                  Sample Test Data
                 </span>
               </div>
               <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
@@ -209,8 +216,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
           </div>
 
-          {/* Account Number, Routing Number, and Balance Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+          {/* Account Number, Routing Number, Creation Date, Status & Balance Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 xl:pt-0 border-t xl:border-t-0 border-slate-100">
             
             {/* Account Number */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
@@ -223,7 +230,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 </span>
                 <button
                   onClick={copyAccountNumber}
-                  className="p-1 text-slate-500 hover:text-slate-900 transition-colors"
+                  className="p-1 text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
                   title="Copy Account Number"
                 >
                   {copied ? (
@@ -238,6 +245,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               )}
             </div>
 
+            {/* Account Creation Date */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+              <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">
+                Account Opened
+              </span>
+              <span className="font-bold text-sm text-slate-900 block mt-1">
+                {(() => {
+                  if (!user.createdAt) return '2023';
+                  try {
+                    const d = new Date(user.createdAt);
+                    return isNaN(d.getTime()) ? user.createdAt : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  } catch (_) {
+                    return user.createdAt;
+                  }
+                })()}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                {user.verificationTier || 'Tier 3 VIP Verified'}
+              </span>
+            </div>
+
             {/* Routing Number */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
               <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">
@@ -250,14 +278,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             </div>
 
             {/* Available Balance */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 col-span-2 sm:col-span-1">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
               <span className="text-[10px] font-bold uppercase text-slate-500 block tracking-wider">
-                Available Balance
+                Account Balance
               </span>
               <span className="font-extrabold text-sm sm:text-base text-slate-900 block mt-1">
                 {formattedBalance}
               </span>
-              <span className="text-[10px] text-slate-500 block mt-0.5">Primary Checking</span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">Available Balance</span>
             </div>
 
           </div>

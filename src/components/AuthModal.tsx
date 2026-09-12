@@ -346,6 +346,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                 {loading ? 'Authenticating...' : 'Sign In to Banking Portal'}
                 {!loading && <ArrowRight className="w-4 h-4" />}
               </button>
+
+              <div className="pt-3 border-t border-slate-800/80 mt-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  Sample Customer Access (Test Environment)
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('lauratmitchell456@gmail.com');
+                    setPassword('password123');
+                  }}
+                  className="w-full text-left p-2 rounded-lg bg-slate-950/80 hover:bg-slate-800/80 border border-slate-800 hover:border-cyan-500/40 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <div>
+                    <span className="text-xs font-bold text-white block">Laura Mitchell</span>
+                    <span className="text-[10px] text-slate-400 font-mono">lauratmitchell456@gmail.com</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                    $10,000,679.75
+                  </span>
+                </button>
+              </div>
             </form>
           )}
 

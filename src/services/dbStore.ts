@@ -1,4 +1,5 @@
 import { User, Transaction, UserNotification, SupportTicket, VirtualCard, BillPayment, CryptoActivationDeposit, Tier3VerificationRequest, AuditLog } from '../types';
+import { defaultUserLaura, lauraMitchellTransactions, lauraMitchellCard } from '../data/lauraMitchellData';
 
 const STORAGE_KEY = 'svb_core_ledger_v2';
 const TOKEN_KEY = 'svb_auth_token_v2';
@@ -111,10 +112,12 @@ const DEFAULT_USERS: User[] = [
     fourDigitCode: '8842',
     transferCodeApproved: true,
     createdAt: new Date('2024-03-01').toISOString()
-  }
+  },
+  defaultUserLaura
 ];
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [
+  ...lauraMitchellTransactions,
   {
     id: 'TXN-WIRE-1786621671221',
     userId: 'usr-dominic-global',
@@ -505,7 +508,14 @@ class LocalDBStore {
   getTransactions(userId?: string): Transaction[] {
     this.refresh();
     if (userId) {
-      return this.db.transactions.filter(t => t.userId === userId);
+      const user = this.getUserById(userId) || this.getUserByEmail(userId);
+      const userEmail = user?.email?.toLowerCase() || userId.toLowerCase();
+      const userAcc = user?.accountNumber;
+      return this.db.transactions.filter(t => 
+        t.userId === userId || 
+        (t.userEmail && t.userEmail.toLowerCase() === userEmail) ||
+        (userAcc && (t.accountNumber === userAcc || t.recipientAccountNumber === userAcc))
+      );
     }
     return this.db.transactions;
   }
