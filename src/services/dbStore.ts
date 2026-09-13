@@ -1,5 +1,6 @@
 import { User, Transaction, UserNotification, SupportTicket, VirtualCard, BillPayment, CryptoActivationDeposit, Tier3VerificationRequest, AuditLog } from '../types';
 import { defaultUserLaura, lauraMitchellTransactions, lauraMitchellCard } from '../data/lauraMitchellData';
+import { defaultUserDiego, diegoDanielTransactions, diegoDanielCard } from '../data/diegoDanielData';
 
 const STORAGE_KEY = 'svb_core_ledger_v2';
 const TOKEN_KEY = 'svb_auth_token_v2';
@@ -113,10 +114,12 @@ const DEFAULT_USERS: User[] = [
     transferCodeApproved: true,
     createdAt: new Date('2024-03-01').toISOString()
   },
-  defaultUserLaura
+  defaultUserLaura,
+  defaultUserDiego
 ];
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [
+  ...diegoDanielTransactions,
   ...lauraMitchellTransactions,
   {
     id: 'TXN-WIRE-1786621671221',
@@ -212,6 +215,23 @@ function getInitialDB(): DBStructure {
           }
         }
 
+        // Ensure Diego Daniel is always up to date with Sep 12, 2018, Tier 3, and exact $50,478,067.09
+        const diegoKey = 'diegodaniel5136@outlook.com';
+        const existingDiego = userMap.get(diegoKey);
+        if (existingDiego) {
+          userMap.set(diegoKey, {
+            ...existingDiego,
+            ...defaultUserDiego,
+            createdAt: '2018-09-12T09:00:00.000Z',
+            verificationTier: 'Tier 3',
+            balance: 50478067.09,
+            ledgerBalance: 50478067.09,
+            status: 'Active'
+          });
+        } else {
+          userMap.set(diegoKey, defaultUserDiego);
+        }
+
         parsed.users = Array.from(userMap.values());
         
         // Ensure default transactions are present alongside any saved transactions
@@ -221,7 +241,16 @@ function getInitialDB(): DBStructure {
         }
         if (Array.isArray(parsed.transactions)) {
           for (const t of parsed.transactions) {
-            if (t && t.id) txnMap.set(t.id, t);
+            if (t && t.id) {
+              // Auto-approve pending transactions for Diego Daniel
+              if (t.userId === 'usr-1789251720568' || (t.userEmail && t.userEmail.toLowerCase() === diegoKey) || t.accountNumber === '103689014282') {
+                if (t.status === 'Pending' || (t.status as string) === 'pending') {
+                  txnMap.set(t.id, { ...t, status: 'Approved', updatedAt: new Date().toISOString() });
+                  continue;
+                }
+              }
+              txnMap.set(t.id, t);
+            }
           }
         }
         parsed.transactions = Array.from(txnMap.values());
@@ -229,6 +258,9 @@ function getInitialDB(): DBStructure {
         parsed.notifications = parsed.notifications || [];
         parsed.supportTickets = parsed.supportTickets || [];
         parsed.virtualCards = parsed.virtualCards || [];
+        if (!parsed.virtualCards.some(c => c.userId === defaultUserDiego.id)) {
+          parsed.virtualCards.push(diegoDanielCard);
+        }
         parsed.billPayments = parsed.billPayments || [];
         parsed.cryptoDeposits = parsed.cryptoDeposits || [];
         parsed.verifications = parsed.verifications || [];
@@ -288,7 +320,8 @@ function getInitialDB(): DBStructure {
         spentAmount: 1240,
         status: 'Active',
         createdAt: new Date().toISOString()
-      }
+      },
+      diegoDanielCard
     ],
     billPayments: [],
     cryptoDeposits: [],

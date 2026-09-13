@@ -409,8 +409,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       return;
     }
 
-    const notes = prompt('Enter compliance approval notes (optional):');
-    if (notes === null) return;
+    const notes = 'Approved by SVB Compliance Review';
 
     setProcessingIds(prev => ({ ...prev, [verifId]: true }));
     setVerifications(prev => prev.map(v => v.id === verifId ? { ...v, status: 'Approved', updatedAt: new Date().toISOString() } : v));
@@ -427,7 +426,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         fetchUsers(searchQuery)
       ]);
     } catch (err: any) {
-      alert(err.message || 'Approval failed');
+      console.error('Approval failed:', err);
       await fetchVerifications();
     } finally {
       setProcessingIds(prev => {
@@ -443,12 +442,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     const target = verifications.find(v => v.id === verifId);
     if (target && (isStatusApproved(target.status) || isStatusRejected(target.status))) {
-      alert('This verification request has already been processed.');
       return;
     }
 
-    const notes = prompt('Enter rejection reason (optional):');
-    if (notes === null) return;
+    const notes = 'Declined by SVB Compliance Review - Criteria not met';
 
     setProcessingIds(prev => ({ ...prev, [verifId]: true }));
     setVerifications(prev => prev.map(v => v.id === verifId ? { ...v, status: 'Rejected', updatedAt: new Date().toISOString() } : v));
@@ -457,7 +454,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       await api.rejectVerification(verifId, notes);
       setActionCompleteMsg({
         id: verifId,
-        text: `Action Complete: Tier 3 Verification Rejected.`,
+        text: `Action Complete: Tier 3 Verification Rejected and reset for client refill.`,
         type: 'success'
       });
       await Promise.all([
@@ -465,7 +462,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         fetchUsers(searchQuery)
       ]);
     } catch (err: any) {
-      alert(err.message || 'Rejection failed');
+      console.error('Rejection failed:', err);
       await fetchVerifications();
     } finally {
       setProcessingIds(prev => {
@@ -478,13 +475,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
   const handleToggleRole = async (userId: string, currentRole: 'user' | 'admin') => {
     const nextRole = currentRole === 'admin' ? 'user' : 'admin';
-    if (!confirm(`Are you sure you want to change this user's role to ${nextRole.toUpperCase()}?`)) return;
 
     try {
       await api.toggleRole(userId, nextRole);
       fetchUsers(searchQuery);
     } catch (err: any) {
-      alert(err.message || 'Failed to update role');
+      console.error('Failed to update role:', err);
     }
   };
 
@@ -540,8 +536,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       return;
     }
 
-    const reason = prompt('Enter rejection reason or explanatory note for client (optional):');
-    if (reason === null) return;
+    const reason = 'Crypto activation deposit rejected by SVB Treasury Review';
 
     setProcessingIds(prev => ({ ...prev, [depId]: true }));
     setCryptoDeposits(prev => prev.map(d => d.id === depId ? { ...d, status: 'Rejected', updatedAt: new Date().toISOString() } : d));
@@ -609,16 +604,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     const isDeposit = txn && (((txn.type || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('verification')));
     
-    let senderName = defaultSenderName || (isDeposit ? "Silicon Valley Bank Treasury / Crypto Clearing" : "Federal Wire Transfer / SVB Treasury");
-    if (!isDeposit && (!defaultSenderName || defaultSenderName.trim() === '')) {
-      const input = prompt("Enter Sender's Full Name (required before crediting recipient account):", "Federal Wire Transfer / SVB Treasury");
-      if (input === null) return; // user cancelled prompt
-      if (!input.trim()) {
-        alert("Sender's name is required before crediting funds.");
-        return;
-      }
-      senderName = input.trim();
-    }
+    const senderName = defaultSenderName || txn?.senderName || (isDeposit ? "Silicon Valley Bank Treasury / Crypto Clearing" : "Federal Wire Transfer / SVB Treasury");
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
 
@@ -639,7 +625,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         fetchCryptoDeposits()
       ]);
     } catch (err: any) {
-      alert(err.message || 'Approval failed.');
+      console.error('Approval failed:', err);
       await fetchSysTxns();
     } finally {
       setProcessingIds(prev => {
@@ -663,15 +649,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       return;
     }
 
-    const reason = prompt('Enter cancellation / rejection reason (optional):', 'Cancelled by SVB Review');
-    if (reason === null) return; // user cancelled prompt
+    const reason = 'Cancelled by SVB Review';
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
     setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
 
     try {
-      await api.rejectTransaction(txnId, reason.trim() || 'Cancelled by SVB Review');
+      await api.rejectTransaction(txnId, reason);
       setActionCompleteMsg({
         id: txnId,
         text: `Action Complete: Transaction ${txn?.reference || txnId} Cancelled / Rejected.`,
@@ -683,7 +668,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         fetchCryptoDeposits()
       ]);
     } catch (err: any) {
-      alert(err.message || 'Cancellation failed.');
+      console.error('Cancellation failed:', err);
       await fetchSysTxns();
     } finally {
       setProcessingIds(prev => {
@@ -707,8 +692,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       return;
     }
 
-    const reason = prompt('Enter cancellation/rejection reason (optional):', 'Cancelled / Declined by SVB Review');
-    if (reason === null) return; // user cancelled prompt
+    const reason = 'Cancelled / Declined by SVB Review';
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
 
@@ -717,7 +701,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
 
     try {
-      await api.rejectTransaction(txnId, reason.trim() || 'Cancelled / Declined by SVB Review');
+      await api.rejectTransaction(txnId, reason);
       setActionCompleteMsg({
         id: txnId,
         text: `Action Complete: Reference ${txn?.reference || txnId} Rejected / Cancelled.`,
@@ -729,7 +713,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
         fetchCryptoDeposits()
       ]);
     } catch (err: any) {
-      alert(err.message || 'Rejection failed.');
+      console.error('Rejection failed:', err);
       await fetchSysTxns();
     } finally {
       setProcessingIds(prev => {
@@ -741,26 +725,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
   };
 
   const handleRegenerateCode = async (userId: string, userName: string) => {
-    if (!confirm(`Regenerate a new 4-Digit Security Code for ${userName}?`)) return;
     try {
       const res = await api.regenerateFourDigitCode(userId);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, fourDigitCode: res.code, transferCodeApproved: true } : u));
-      alert(`New 4-Digit Code [ ${res.code} ] successfully generated and saved for ${userName}.`);
+      setActionCompleteMsg({
+        id: `code-${userId}`,
+        text: `New 4-Digit Code [ ${res.code} ] generated & saved for ${userName}.`,
+        type: 'success'
+      });
       await fetchUsers(searchQuery);
     } catch (err: any) {
-      alert(err.message || 'Regeneration failed.');
+      console.error('Regeneration failed:', err);
     }
   };
 
   const handleRevokeCode = async (userId: string, userName: string) => {
-    if (!confirm(`Are you sure you want to cancel and revoke the 4-Digit Code authorization for ${userName}?`)) return;
     try {
       await api.revokeFourDigitCode(userId);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, fourDigitCode: '', transferCodeApproved: false } : u));
-      alert(`4-Digit Security Code authorization for ${userName} has been cancelled and revoked.`);
+      setActionCompleteMsg({
+        id: `revoke-${userId}`,
+        text: `4-Digit Security Code for ${userName} has been cancelled and revoked.`,
+        type: 'success'
+      });
       await fetchUsers(searchQuery);
     } catch (err: any) {
-      alert(err.message || 'Revocation failed.');
+      console.error('Revocation failed:', err);
     }
   };
 

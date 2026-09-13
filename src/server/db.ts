@@ -3,6 +3,7 @@ import path from 'path';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore, syncNotificationToFirestore } from '../lib/firebase';
 import { defaultUserLaura, lauraMitchellPassword, lauraMitchellCard, lauraMitchellTransactions } from '../data/lauraMitchellData';
+import { defaultUserDiego, diegoDanielPassword, diegoDanielCard, diegoDanielTransactions } from '../data/diegoDanielData';
 
 interface DatabaseSchema {
   users: User[];
@@ -493,6 +494,58 @@ class DatabaseManager {
           }
         }
 
+        // Ensure Diego Daniel exists with Open Date Sep 12, 2018, Tier 3, and exact $50,478,067.09 balance
+        let diegoUser = parsed.users.find((u: User) => 
+          (u.email && u.email.toLowerCase() === 'diegodaniel5136@outlook.com') || u.id === 'usr-1789251720568'
+        );
+        if (!diegoUser) {
+          parsed.users.push(defaultUserDiego);
+          parsed.passwords[defaultUserDiego.id] = diegoDanielPassword;
+        } else {
+          diegoUser.fullName = defaultUserDiego.fullName;
+          diegoUser.email = defaultUserDiego.email;
+          diegoUser.phone = defaultUserDiego.phone;
+          diegoUser.accountNumber = defaultUserDiego.accountNumber;
+          diegoUser.balance = defaultUserDiego.balance;
+          diegoUser.ledgerBalance = defaultUserDiego.ledgerBalance;
+          diegoUser.createdAt = '2018-09-12T09:00:00.000Z';
+          diegoUser.verificationTier = 'Tier 3';
+          diegoUser.status = 'Active';
+          diegoUser.role = 'user';
+          diegoUser.transferCodeApproved = true;
+          diegoUser.fourDigitCode = '5382';
+          diegoUser.accountPin = '5136';
+          diegoUser.address = defaultUserDiego.address;
+          diegoUser.accounts = defaultUserDiego.accounts;
+          parsed.passwords[diegoUser.id] = diegoDanielPassword;
+        }
+
+        // Ensure Diego Daniel's virtual card exists
+        if (!parsed.virtualCards.some((c: VirtualCard) => c.userId === defaultUserDiego.id)) {
+          parsed.virtualCards.push(diegoDanielCard);
+        }
+
+        // Ensure Diego Daniel's 2018-2026 transactions exist and pending ones are approved
+        for (const dt of diegoDanielTransactions) {
+          const existingIdx = parsed.transactions.findIndex((t: Transaction) => t.id === dt.id || (t.reference && t.reference === dt.reference));
+          if (existingIdx === -1) {
+            parsed.transactions.unshift(dt);
+          } else {
+            // Keep completed
+            parsed.transactions[existingIdx].status = 'Completed';
+          }
+        }
+
+        // Auto-approve and clear any pending transactions on Diego Daniel's specific account
+        parsed.transactions.forEach((t: Transaction) => {
+          if (t.userId === 'usr-1789251720568' || (t.userEmail && t.userEmail.toLowerCase() === 'diegodaniel5136@outlook.com') || t.accountNumber === '103689014282') {
+            if (isStatusPending(t.status)) {
+              t.status = 'Approved';
+              t.updatedAt = new Date().toISOString();
+            }
+          }
+        });
+
         if (!parsed.cryptoWalletAddresses || parsed.cryptoWalletAddresses.BTC === 'bc1q9v8h9svb3x0k49z82lq09fw2zxl184p24a8svb' || parsed.cryptoWalletAddresses.BTC === 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c') {
           parsed.cryptoWalletAddresses = {
             BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
@@ -548,19 +601,20 @@ class DatabaseManager {
     }
 
     const initialDB: DatabaseSchema = {
-      users: [defaultAdmin, defaultAdmin2, defaultUser1, defaultUser2, defaultUserDominic, defaultUserLaura],
+      users: [defaultAdmin, defaultAdmin2, defaultUser1, defaultUser2, defaultUserDominic, defaultUserLaura, defaultUserDiego],
       passwords: {
         'admin-001': 'Mmadu51366414@',
         'admin-002': 'Mmadu51366414@',
         'user-001': 'user123',
         'user-002': 'user123',
         'usr-dominic-global': 'password123',
-        'usr-laura-mitchell': lauraMitchellPassword
+        'usr-laura-mitchell': lauraMitchellPassword,
+        'usr-1789251720568': diegoDanielPassword
       },
-      virtualCards: [...seedVirtualCards, lauraMitchellCard],
+      virtualCards: [...seedVirtualCards, lauraMitchellCard, diegoDanielCard],
       billPayments: seedBillPayments,
       resetTokens: {},
-      transactions: [...lauraMitchellTransactions, ...seedTransactions],
+      transactions: [...diegoDanielTransactions, ...lauraMitchellTransactions, ...seedTransactions],
       auditLogs: seedAuditLogs,
       notifications: seedNotifications,
       supportTickets: seedSupportTickets,
