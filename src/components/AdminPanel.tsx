@@ -744,8 +744,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (!confirm(`Regenerate a new 4-Digit Security Code for ${userName}?`)) return;
     try {
       const res = await api.regenerateFourDigitCode(userId);
-      alert(`New 4-Digit Code [ ${res.code} ] successfully generated for ${userName}.`);
-      fetchUsers(searchQuery);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, fourDigitCode: res.code, transferCodeApproved: true } : u));
+      alert(`New 4-Digit Code [ ${res.code} ] successfully generated and saved for ${userName}.`);
+      await fetchUsers(searchQuery);
     } catch (err: any) {
       alert(err.message || 'Regeneration failed.');
     }
@@ -755,8 +756,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     if (!confirm(`Are you sure you want to cancel and revoke the 4-Digit Code authorization for ${userName}?`)) return;
     try {
       await api.revokeFourDigitCode(userId);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, fourDigitCode: '', transferCodeApproved: false } : u));
       alert(`4-Digit Security Code authorization for ${userName} has been cancelled and revoked.`);
-      fetchUsers(searchQuery);
+      await fetchUsers(searchQuery);
     } catch (err: any) {
       alert(err.message || 'Revocation failed.');
     }

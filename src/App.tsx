@@ -21,7 +21,7 @@ import { SupportChatWidget } from './components/SupportChatWidget';
 import { api, getStoredToken, removeStoredToken } from './services/api';
 import { dbStore } from './services/dbStore';
 import { subscribeRealtimeUpdates } from './services/realtimeBus';
-import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore, subscribeNotificationsFromFirestore } from './lib/firebase';
+import { subscribeUserFromFirestore, subscribeTransactionsFromFirestore, subscribeNotificationsFromFirestore, subscribeVerificationsFromFirestore } from './lib/firebase';
 import { subscribeAdminAlerts, AdminAlert } from './services/adminAlerts';
 import { User, Transaction, UserNotification } from './types';
 import { ShieldCheck, Building2, ShieldAlert, Bell, ArrowUpRight, X } from 'lucide-react';
@@ -199,12 +199,39 @@ function AppContent() {
       }
     );
 
+    const unsubVerifs = subscribeVerificationsFromFirestore((allVerifs) => {
+      const userVerifs = allVerifs.filter(v => 
+        (v.userId && v.userId === user.id) || 
+        (v.userEmail && v.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+        (user.accountNumber && v.accountNumber === user.accountNumber)
+      );
+      if (userVerifs.length > 0) {
+        const latest = userVerifs.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())[0];
+        if (latest.status === 'Approved' && user.verificationTier !== 'Tier 3') {
+          setUser(prev => {
+            if (!prev) return prev;
+            const updated = { ...prev, verificationTier: 'Tier 3' as const };
+            dbStore.saveUser(updated);
+            return updated;
+          });
+        } else if (latest.status === 'Rejected' && user.verificationTier === 'Pending Tier 3') {
+          setUser(prev => {
+            if (!prev) return prev;
+            const updated = { ...prev, verificationTier: 'Tier 1' as const };
+            dbStore.saveUser(updated);
+            return updated;
+          });
+        }
+      }
+    });
+
     return () => {
       unsubUser();
       unsubTxns();
       unsubNotifs();
+      unsubVerifs();
     };
-  }, [user?.id, user?.email, user?.role]);
+  }, [user?.id, user?.email, user?.role, user?.accountNumber, user?.verificationTier]);
 
   const handleLogout = async () => {
     await api.logout();

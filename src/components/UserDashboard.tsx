@@ -206,9 +206,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   }`} />
                   {user.status || 'Active'} Account
                 </span>
-                <span className="text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded">
-                  Sample Test Data
-                </span>
               </div>
               <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
                 {user.fullName}

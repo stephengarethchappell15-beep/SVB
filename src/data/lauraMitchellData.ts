@@ -1,8 +1,7 @@
 import { User, Transaction, VirtualCard } from '../types';
 
 /**
- * Fictional Customer Account: Laura Mitchell
- * Non-production sample/test banking account data.
+ * Customer Account: Laura Mitchell
  */
 export const defaultUserLaura: User = {
   id: 'usr-laura-mitchell',
@@ -46,9 +45,8 @@ export const lauraMitchellCard: VirtualCard = {
 };
 
 /**
- * Fictional Transaction History: 2023 through January 2026
+ * Transaction History: 2023 through February 2026
  * Mathematically balanced: deposits minus debits = exactly $10,000,679.75 USD.
- * Sample Non-Production Data for Testing & Demonstration.
  */
 export const lauraMitchellTransactions: Transaction[] = [
   // 1. Initial Deposit (Account Opening) - Apr 2023
@@ -510,5 +508,51 @@ export const lauraMitchellTransactions: Transaction[] = [
     description: 'Inbound Wire - Strategic International Venture Advisory Settlement',
     createdAt: '2026-01-28T11:45:00.000Z',
     updatedAt: '2026-01-28T11:45:00.000Z'
+  },
+  // 21. Corporate Investment Yield & Quarterly Distribution - Feb 2026
+  {
+    id: 'TXN-LM-2026-0209',
+    userId: 'usr-laura-mitchell',
+    userEmail: 'lauratmitchell456@gmail.com',
+    userName: 'Laura Mitchell',
+    accountNumber: '1038592044',
+    senderName: 'Vanguard Group Institutional Custody',
+    senderAccountNumber: 'VG89201948102',
+    recipientName: 'Laura Mitchell',
+    recipientAccountNumber: '1038592044',
+    destinationBank: 'Silicon Valley Bank',
+    destinationCountry: 'United States',
+    transferType: 'Domestic',
+    amount: 75000.00,
+    currency: 'USD',
+    type: 'Deposit',
+    status: 'Completed',
+    reference: 'DEP-VG-2026-0209',
+    description: 'Quarterly Corporate Equity Portfolio Dividend & Yield Credit',
+    createdAt: '2026-02-09T14:30:00.000Z',
+    updatedAt: '2026-02-09T14:30:00.000Z'
+  },
+  // 22. Executive Portfolio Diversification & Reinvestment - Feb 2026
+  {
+    id: 'TXN-LM-2026-0218',
+    userId: 'usr-laura-mitchell',
+    userEmail: 'lauratmitchell456@gmail.com',
+    userName: 'Laura Mitchell',
+    accountNumber: '1038592044',
+    senderName: 'Laura Mitchell',
+    senderAccountNumber: '1038592044',
+    recipientName: 'BlackRock Private Opportunities Fund VI',
+    recipientAccountNumber: '99201847192',
+    destinationBank: 'JPMorgan Chase NY',
+    destinationCountry: 'United States',
+    transferType: 'Domestic',
+    amount: 75000.00,
+    currency: 'USD',
+    type: 'Withdrawal',
+    status: 'Completed',
+    reference: 'WTH-BR-2026-0218',
+    description: 'Executive Portfolio Diversification & Private Equity Capital Allocation',
+    createdAt: '2026-02-18T10:15:00.000Z',
+    updatedAt: '2026-02-18T10:15:00.000Z'
   }
 ];

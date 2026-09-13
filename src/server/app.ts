@@ -839,7 +839,8 @@ app.post('/api/admin/users/:userId/regenerate-code', async (req, res) => {
   }
 
   try {
-    const result = dbManager.regenerateFourDigitCode(user, req.params.userId);
+    const customCode = req.body?.code;
+    const result = await dbManager.regenerateFourDigitCodeAsync(user, req.params.userId, customCode);
     res.json({ message: '4-Digit Code regenerated successfully.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to regenerate 4-Digit Code.' });
@@ -854,15 +855,8 @@ app.post('/api/admin/users/:userId/revoke-code', async (req, res) => {
   }
 
   try {
-    const targetUser = dbManager.findUserById(req.params.userId);
-    if (!targetUser) return res.status(404).json({ error: 'User not found.' });
-
-    const updatedUser = dbManager.updateUserProfile(targetUser.id, {
-      transferCodeApproved: false,
-      fourDigitCode: ''
-    });
-
-    res.json({ message: '4-Digit Code authorization revoked successfully.', user: updatedUser });
+    const result = await dbManager.revokeFourDigitCodeAsync(user, req.params.userId);
+    res.json({ message: '4-Digit Code authorization revoked successfully.', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to revoke 4-Digit Code.' });
   }

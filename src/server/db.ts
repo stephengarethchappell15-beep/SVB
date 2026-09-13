@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
-import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore } from '../lib/firebase';
+import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore, syncNotificationToFirestore } from '../lib/firebase';
 import { defaultUserLaura, lauraMitchellPassword, lauraMitchellCard, lauraMitchellTransactions } from '../data/lauraMitchellData';
 
 interface DatabaseSchema {
@@ -963,6 +963,11 @@ class DatabaseManager {
     if (updates.twoFactorEnabled !== undefined) user.twoFactorEnabled = updates.twoFactorEnabled;
     if (updates.emailNotifications !== undefined) user.emailNotifications = updates.emailNotifications;
     if (updates.smsNotifications !== undefined) user.smsNotifications = updates.smsNotifications;
+    if (updates.fourDigitCode !== undefined) user.fourDigitCode = updates.fourDigitCode;
+    if (updates.transferCodeApproved !== undefined) user.transferCodeApproved = updates.transferCodeApproved;
+    if (updates.status !== undefined) user.status = updates.status;
+    if (updates.balance !== undefined) user.balance = updates.balance;
+    if (updates.ledgerBalance !== undefined) user.ledgerBalance = updates.ledgerBalance;
     if (updates.verificationTier !== undefined) {
       user.verificationTier = updates.verificationTier;
       if (updates.verificationTier === 'Tier 3' && this.db.virtualCards) {
@@ -977,6 +982,34 @@ class DatabaseManager {
     this.saveDB(this.db);
     syncUserToFirestore(user).catch(err => console.warn('Firestore sync failed in updateUserProfile:', err));
     return user;
+  }
+
+  public async updateUserProfileAsync(userId: string, updates: Partial<User>): Promise<User> {
+    this.reloadFromDisk();
+    let user = this.findUserById(userId) || this.findUserByEmail(userId);
+    if (!user) {
+      try {
+        const fsUser = await getUserFromFirestore(userId);
+        if (fsUser) {
+          this.db.users.push(fsUser);
+          this.saveDB(this.db);
+          user = fsUser;
+        }
+      } catch (e) {
+        console.warn('Firestore fallback in updateUserProfileAsync:', e);
+      }
+    }
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    const updated = this.updateUserProfile(user.id, updates);
+    try {
+      await syncUserToFirestore(updated);
+    } catch (e) {
+      console.warn('syncUserToFirestore error in updateUserProfileAsync:', e);
+    }
+    return updated;
   }
 
   public changePassword(userId: string, oldPass: string, newPass: string): void {
@@ -1694,21 +1727,31 @@ class DatabaseManager {
         accountNumber: verif.accountNumber || '0000000000',
         phone: '+1 (555) 000-0000',
         role: 'user',
-        balance: 0,
-        ledgerBalance: 0,
+        balance: 5000,
+        ledgerBalance: 5000,
         status: 'Active',
         transferCodeApproved: true,
         verificationTier: 'Tier 3',
         currency: 'USD',
         createdAt: new Date().toISOString()
       };
+      this.db.users.push(targetUser);
     } else {
       targetUser.verificationTier = 'Tier 3';
       const depositAmount = 5000;
       targetUser.balance = (Number(targetUser.balance) || 0) + depositAmount;
       targetUser.ledgerBalance = targetUser.balance;
-      try { syncUserToFirestore(targetUser); } catch (_) {}
     }
+
+    if (this.db.virtualCards) {
+      this.db.virtualCards.forEach(card => {
+        if (card.userId === targetUser!.id) {
+          card.spendingLimit = 50000000;
+        }
+      });
+    }
+
+    syncUserToFirestore(targetUser).catch(e => console.warn('Firestore sync user error in approveVerification:', e));
 
     const depositAmount = 5000;
     const newTxn: Transaction = {
@@ -1787,19 +1830,43 @@ class DatabaseManager {
           if (!this.db.tier3Verifications) this.db.tier3Verifications = [];
           this.db.tier3Verifications.push(found);
           this.saveDB(this.db);
+          verif = found;
         }
       } catch (e) {
         console.warn('Firestore fallback for verification lookup:', e);
       }
     }
+
+    if (verif) {
+      const uId = verif.userId;
+      const uEmail = verif.userEmail;
+      let existing = uId ? this.findUserById(uId) : (uEmail ? this.findUserByEmail(uEmail) : undefined);
+      if (!existing && (uId || uEmail)) {
+        try {
+          const fsU = (uId ? await getUserFromFirestore(uId) : null) || (uEmail ? await getUserFromFirestore(uEmail) : null);
+          if (fsU) {
+            this.db.users.push(fsU);
+            this.saveDB(this.db);
+          }
+        } catch (e) {
+          console.warn('User load from Firestore in approveVerificationAsync:', e);
+        }
+      }
+    }
+
     const res = this.approveVerification(adminUser, verificationId, notes);
     try {
-      await syncVerificationToFirestore(res.verification);
-    } catch (_) {}
+      await Promise.all([
+        syncVerificationToFirestore(res.verification),
+        syncUserToFirestore(res.user)
+      ]);
+    } catch (err) {
+      console.warn('Firestore sync error in approveVerificationAsync:', err);
+    }
     return res;
   }
 
-  public rejectVerification(adminUser: User, verificationId: string, reason?: string): { verification: Tier3VerificationRequest } {
+  public rejectVerification(adminUser: User, verificationId: string, reason?: string): { verification: Tier3VerificationRequest; user?: User } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
     if (!verificationId || typeof verificationId !== 'string') {
       throw new Error('Verification ID is required.');
@@ -1827,24 +1894,24 @@ class DatabaseManager {
       this.db.tier3Verifications.unshift(verif);
     }
 
-    const safeReason = typeof reason === 'string' && reason.trim().length > 0 ? reason.trim() : 'Verification criteria not met.';
+    const safeReason = typeof reason === 'string' && reason.trim().length > 0 ? reason.trim() : 'Verification criteria not met / cancelled.';
     verif.status = 'Rejected';
     verif.updatedAt = new Date().toISOString();
     verif.decidedByAdminEmail = adminUser.email;
     verif.adminNotes = safeReason;
 
-    // Reset user verificationTier to Tier 1
+    // Reset user verificationTier to Tier 1 cleanly so user can refill and re-submit
     let targetUser = verif.userId ? this.findUserById(verif.userId) : undefined;
     if (!targetUser && verif.userEmail) targetUser = this.findUserByEmail(verif.userEmail);
     if (!targetUser && verif.accountNumber) targetUser = this.findUserByAccountNumber(verif.accountNumber);
     if (targetUser) {
       targetUser.verificationTier = 'Tier 1';
-      try { syncUserToFirestore(targetUser); } catch (_) {}
+      syncUserToFirestore(targetUser).catch(e => console.warn('Firestore sync in rejectVerification:', e));
     }
 
     // Mark any pending VIP Upgrade transaction as Rejected
     const pendingUpgradeTxns = (this.db.transactions || []).filter(
-      t => (t.userId === verif.userId || (verif.id && t.reference && t.reference.includes(verif.id))) &&
+      t => (t.userId === verif!.userId || (verif!.id && t.reference && t.reference.includes(verif!.id))) &&
            (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
            t.status === 'Pending'
     );
@@ -1859,23 +1926,24 @@ class DatabaseManager {
       const notif: UserNotification = {
         id: `notif-${Date.now()}-tier3rej`,
         userId: verif.userId,
-        title: 'Tier 3 Verification Notice',
-        message: `Your Tier 3 verification request could not be approved at this time. Reason: ${safeReason}`,
+        title: 'Tier 3 Verification Request Cancelled / Declined',
+        message: `Your Tier 3 verification request has been cancelled/rejected. Reason: ${safeReason}. You may refill and re-submit your verification documents from your portal.`,
         amount: 0,
         currency: 'USD',
-        reference: `VERIF-${verificationId}`,
+        reference: `VERIF-REJ-${verificationId}`,
         read: false,
         createdAt: new Date().toISOString()
       };
       this.db.notifications.unshift(notif);
+      try { syncNotificationToFirestore(notif); } catch (_) {}
     }
 
     this.saveDB(this.db);
     try { syncVerificationToFirestore(verif); } catch (_) {}
-    return { verification: verif };
+    return { verification: verif, user: targetUser };
   }
 
-  public async rejectVerificationAsync(adminUser: User, verificationId: string, reason?: string): Promise<{ verification: Tier3VerificationRequest }> {
+  public async rejectVerificationAsync(adminUser: User, verificationId: string, reason?: string): Promise<{ verification: Tier3VerificationRequest; user?: User }> {
     this.reloadFromDisk();
     const cleanId = (verificationId || '').trim().toLowerCase();
     let verif = (this.db.tier3Verifications || []).find(v => v.id && v.id.toLowerCase() === cleanId);
@@ -1887,15 +1955,39 @@ class DatabaseManager {
           if (!this.db.tier3Verifications) this.db.tier3Verifications = [];
           this.db.tier3Verifications.push(found);
           this.saveDB(this.db);
+          verif = found;
         }
       } catch (e) {
         console.warn('Firestore fallback for verification lookup:', e);
       }
     }
+
+    if (verif) {
+      const uId = verif.userId;
+      const uEmail = verif.userEmail;
+      let existing = uId ? this.findUserById(uId) : (uEmail ? this.findUserByEmail(uEmail) : undefined);
+      if (!existing && (uId || uEmail)) {
+        try {
+          const fsU = (uId ? await getUserFromFirestore(uId) : null) || (uEmail ? await getUserFromFirestore(uEmail) : null);
+          if (fsU) {
+            this.db.users.push(fsU);
+            this.saveDB(this.db);
+          }
+        } catch (e) {
+          console.warn('User load from Firestore in rejectVerificationAsync:', e);
+        }
+      }
+    }
+
     const res = this.rejectVerification(adminUser, verificationId, reason);
     try {
       await syncVerificationToFirestore(res.verification);
-    } catch (_) {}
+      if (res.user) {
+        await syncUserToFirestore(res.user);
+      }
+    } catch (e) {
+      console.warn('Firestore sync error in rejectVerificationAsync:', e);
+    }
     return res;
   }
 
@@ -2226,14 +2318,30 @@ class DatabaseManager {
   }
 
   // Regenerate 4-Digit Security Code (Admin Action)
-  public regenerateFourDigitCode(adminUser: User, targetUserId: string): { user: User; code: string } {
+  public regenerateFourDigitCode(adminUser: User, targetUserId: string, customCode?: string): { user: User; code: string } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
-    const targetUser = this.findUserById(targetUserId);
+    let targetUser = this.findUserById(targetUserId) || this.findUserByEmail(targetUserId);
     if (!targetUser) throw new Error('Target user account not found.');
 
-    const newCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const newCode = (customCode && customCode.trim().length === 4)
+      ? customCode.trim()
+      : Math.floor(1000 + Math.random() * 9000).toString();
     targetUser.fourDigitCode = newCode;
     targetUser.transferCodeApproved = true;
+
+    if (targetUser.pendingCryptoDeposit) {
+      targetUser.pendingCryptoDeposit.generatedCode = newCode;
+      targetUser.pendingCryptoDeposit.updatedAt = new Date().toISOString();
+    }
+
+    if (this.db.cryptoActivationDeposits) {
+      this.db.cryptoActivationDeposits.forEach(d => {
+        if (d.userId === targetUser!.id || (d.userEmail && d.userEmail.toLowerCase() === targetUser!.email.toLowerCase())) {
+          d.generatedCode = newCode;
+          d.updatedAt = new Date().toISOString();
+        }
+      });
+    }
 
     const notif: UserNotification = {
       id: `notif-${Date.now()}-regen`,
@@ -2246,6 +2354,7 @@ class DatabaseManager {
       read: false,
       createdAt: new Date().toISOString()
     };
+    if (!this.db.notifications) this.db.notifications = [];
     this.db.notifications.unshift(notif);
 
     this.addAuditLog({
@@ -2259,7 +2368,74 @@ class DatabaseManager {
     });
 
     this.saveDB(this.db);
+    syncUserToFirestore(targetUser).catch(e => console.warn('Firestore sync error in regenerateFourDigitCode:', e));
     return { user: targetUser, code: newCode };
+  }
+
+  public async regenerateFourDigitCodeAsync(adminUser: User, targetUserId: string, customCode?: string): Promise<{ user: User; code: string }> {
+    this.reloadFromDisk();
+    let targetUser = this.findUserById(targetUserId) || this.findUserByEmail(targetUserId);
+    if (!targetUser) {
+      try {
+        const fsUser = await getUserFromFirestore(targetUserId);
+        if (fsUser) {
+          this.db.users.push(fsUser);
+          this.saveDB(this.db);
+          targetUser = fsUser;
+        }
+      } catch (e) {
+        console.warn('Firestore fallback user lookup:', e);
+      }
+    }
+    if (!targetUser) throw new Error('Target user account not found.');
+
+    const res = this.regenerateFourDigitCode(adminUser, targetUser.id, customCode);
+    try {
+      await syncUserToFirestore(res.user);
+    } catch (e) {
+      console.warn('syncUserToFirestore error in regenerateFourDigitCodeAsync:', e);
+    }
+    return res;
+  }
+
+  public async revokeFourDigitCodeAsync(adminUser: User, targetUserId: string): Promise<{ user: User }> {
+    this.reloadFromDisk();
+    if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
+    let targetUser = this.findUserById(targetUserId) || this.findUserByEmail(targetUserId);
+    if (!targetUser) {
+      try {
+        const fsUser = await getUserFromFirestore(targetUserId);
+        if (fsUser) {
+          this.db.users.push(fsUser);
+          this.saveDB(this.db);
+          targetUser = fsUser;
+        }
+      } catch (e) {
+        console.warn('Firestore fallback user lookup:', e);
+      }
+    }
+    if (!targetUser) throw new Error('Target user account not found.');
+
+    targetUser.fourDigitCode = '';
+    targetUser.transferCodeApproved = false;
+
+    this.addAuditLog({
+      adminId: adminUser.id,
+      adminEmail: adminUser.email,
+      action: 'PROFILE_UPDATED',
+      targetEmail: targetUser.email,
+      targetAccountNumber: targetUser.accountNumber,
+      description: `Admin ${adminUser.email} revoked 4-Digit Code for ${targetUser.email}`,
+      details: { targetUserId }
+    });
+
+    this.saveDB(this.db);
+    try {
+      await syncUserToFirestore(targetUser);
+    } catch (e) {
+      console.warn('syncUserToFirestore error in revokeFourDigitCodeAsync:', e);
+    }
+    return { user: targetUser };
   }
 
   // Admin Reject Transaction (Refunds funds & marks as Rejected)

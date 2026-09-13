@@ -556,24 +556,34 @@ export const api = {
     dbStore.updateVerification(verifId, updatedVerif);
     await syncVerificationToFirestore(updatedVerif);
 
-    const userId = target?.userId;
-    if (userId) {
-      const user = dbStore.getUserById(userId);
-      if (user) {
-        const newBalance = user.balance + 5000;
-        const updatedUser = dbStore.saveUser({
-          ...user,
-          verificationTier: 'Tier 3',
-          balance: newBalance,
-          ledgerBalance: newBalance
-        });
-        syncUserToFirestore(updatedUser);
-      }
+    const userId = target?.userId || updatedVerif.userId;
+    const userEmail = target?.userEmail || updatedVerif.userEmail;
+    let user = userId ? dbStore.getUserById(userId) : undefined;
+    if (!user && userId) {
+      try { user = await getUserFromFirestore(userId) || undefined; } catch (_) {}
+    }
+    if (!user && userEmail) {
+      try { user = await getUserFromFirestore(userEmail) || undefined; } catch (_) {}
+    }
 
+    if (user) {
+      const newBalance = (Number(user.balance) || 0) + 5000;
+      const updatedUser = dbStore.saveUser({
+        ...user,
+        verificationTier: 'Tier 3',
+        balance: newBalance,
+        ledgerBalance: newBalance
+      });
+      await syncUserToFirestore(updatedUser);
+      broadcastRealtimeUpdate('USER_UPDATED', undefined, updatedUser.id);
+    }
+
+    if (userId || user?.id) {
+      const targetUid = userId || user!.id;
       // Record / update $5,000 upgrade deposit transaction
       const allTxns = dbStore.getTransactions();
       const upgradeTxns = allTxns.filter(
-        t => (t.userId === userId || (t.reference && t.reference.includes(verifId))) &&
+        t => (t.userId === targetUid || (t.reference && t.reference.includes(verifId))) &&
              (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
              isStatusPending(t.status)
       );
@@ -591,9 +601,9 @@ export const api = {
       } else {
         const txn: Transaction = {
           id: `TXN-${Date.now()}`,
-          userId: userId,
-          userEmail: target?.userEmail || '',
-          accountNumber: target?.accountNumber || '',
+          userId: targetUid,
+          userEmail: target?.userEmail || user?.email || '',
+          accountNumber: target?.accountNumber || user?.accountNumber || '',
           amount: 5000,
           currency: 'USD',
           type: 'Deposit',
@@ -608,7 +618,7 @@ export const api = {
       }
 
       // Update virtual card limits to $50,000,000.00 / Unlimited
-      const userCards = dbStore.getVirtualCards(userId);
+      const userCards = dbStore.getVirtualCards(targetUid);
       userCards.forEach(card => {
         const updatedCard = { ...card, spendingLimit: 50000000 };
         dbStore.addVirtualCard(updatedCard);
@@ -617,7 +627,7 @@ export const api = {
 
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
-        userId: userId,
+        userId: targetUid,
         title: 'Tier 3 VIP Identity Verified & $5,000 Deposit Credited',
         message: 'Your Tier 3 VIP account upgrade and $5,000 deposit have been approved by Silicon Valley Bank Compliance. Your Virtual Bank Card limits are now updated to $50,000,000.00 Daily / Unlimited Monthly.',
         amount: 5000,
@@ -673,23 +683,33 @@ export const api = {
     dbStore.updateVerification(verifId, updatedVerif);
     await syncVerificationToFirestore(updatedVerif);
 
-    const userId = target?.userId;
-    if (userId) {
-      const user = dbStore.getUserById(userId);
-      if (user) {
-        const updatedUser = dbStore.saveUser({
-          ...user,
-          verificationTier: 'Tier 1'
-        });
-        syncUserToFirestore(updatedUser);
-      }
+    const userId = target?.userId || updatedVerif.userId;
+    const userEmail = target?.userEmail || updatedVerif.userEmail;
+    let user = userId ? dbStore.getUserById(userId) : undefined;
+    if (!user && userId) {
+      try { user = await getUserFromFirestore(userId) || undefined; } catch (_) {}
+    }
+    if (!user && userEmail) {
+      try { user = await getUserFromFirestore(userEmail) || undefined; } catch (_) {}
+    }
 
+    if (user) {
+      const updatedUser = dbStore.saveUser({
+        ...user,
+        verificationTier: 'Tier 1'
+      });
+      await syncUserToFirestore(updatedUser);
+      broadcastRealtimeUpdate('USER_UPDATED', undefined, updatedUser.id);
+    }
+
+    if (userId || user?.id) {
+      const targetUid = userId || user!.id;
       // Mark matching pending upgrade transaction as Rejected
       const allTxns = dbStore.getTransactions();
       const upgradeTxns = allTxns.filter(
-        t => (t.userId === userId || (t.reference && t.reference.includes(verifId))) &&
+        t => (t.userId === targetUid || (t.reference && t.reference.includes(verifId))) &&
              (t.type === 'VIP Upgrade Fee' || (t.description || '').toLowerCase().includes('tier 3')) &&
-             t.status === 'Pending'
+             isStatusPending(t.status)
       );
       upgradeTxns.forEach(pt => {
         const rejected: Transaction = {
@@ -704,9 +724,9 @@ export const api = {
 
       dbStore.addNotification({
         id: `NOTIF-${Date.now()}`,
-        userId: userId,
-        title: 'Tier 3 Verification Request Rejected',
-        message: `Your Tier 3 verification submission was rejected by Silicon Valley Bank. Reason: ${safeReason}. Please contact support.`,
+        userId: targetUid,
+        title: 'Tier 3 Verification Request Cancelled / Declined',
+        message: `Your Tier 3 verification request has been cancelled/rejected. Reason: ${safeReason}. You may refill and re-submit your verification documents.`,
         amount: 0,
         currency: 'USD',
         reference: `VERIF-REJ-${verifId}`,
@@ -1240,20 +1260,38 @@ export const api = {
   },
 
   async revokeFourDigitCode(userId: string): Promise<{ user: User }> {
-    const user = dbStore.getUserById(userId);
-    if (!user) throw new Error('User account not found');
+    let updatedUser: User | null = null;
+    try {
+      const backendRes = await requestApi<{ message: string; user: User }>(`/admin/users/${userId}/revoke-code`, {
+        method: 'POST'
+      });
+      if (backendRes && backendRes.user) {
+        updatedUser = backendRes.user;
+        dbStore.saveUser(backendRes.user);
+        await syncUserToFirestore(backendRes.user);
+      }
+    } catch (e) {
+      console.warn('Backend revoke code call fallback:', e);
+    }
 
-    const updatedUser = dbStore.saveUser({
-      ...user,
-      transferCodeApproved: false,
-      fourDigitCode: ''
-    });
+    if (!updatedUser) {
+      let user = dbStore.getUserById(userId);
+      if (!user) {
+        try { user = await getUserFromFirestore(userId) || undefined; } catch (_) {}
+      }
+      if (!user) throw new Error('User account not found');
 
-    syncUserToFirestore(updatedUser);
+      updatedUser = dbStore.saveUser({
+        ...user,
+        transferCodeApproved: false,
+        fourDigitCode: ''
+      });
+      await syncUserToFirestore(updatedUser);
+    }
 
     dbStore.addNotification({
       id: `NOTIF-${Date.now()}`,
-      userId: user.id,
+      userId: updatedUser.id,
       title: '4-Digit Authorization Code Revoked',
       message: 'Your 4-Digit Outgoing Transfer Code authorization has been cancelled by Silicon Valley Bank.',
       amount: 0,
@@ -1263,6 +1301,7 @@ export const api = {
       createdAt: new Date().toISOString()
     });
 
+    broadcastRealtimeUpdate('USER_UPDATED', undefined, updatedUser.id);
     return { user: updatedUser };
   },
 
@@ -2617,26 +2656,40 @@ export const api = {
     return { auditLogs: dbStore.getAuditLogs() };
   },
 
-  async regenerateFourDigitCode(userId: string): Promise<{ message: string; user: User; code: string }> {
+  async regenerateFourDigitCode(userId: string, customCode?: string): Promise<{ message: string; user: User; code: string }> {
+    let updatedUser: User | null = null;
+    let generatedCode = customCode;
+
     try {
       const backendRes = await requestApi<{ message: string; user: User; code: string }>(`/admin/users/${userId}/regenerate-code`, {
-        method: 'POST'
+        method: 'POST',
+        body: JSON.stringify({ code: customCode })
       });
       if (backendRes && backendRes.user) {
+        updatedUser = backendRes.user;
+        generatedCode = backendRes.code;
         dbStore.saveUser(backendRes.user);
-        return backendRes;
+        await syncUserToFirestore(backendRes.user);
       }
     } catch (e) {
-      console.warn('Backend regenerate code call failed:', e);
+      console.warn('Backend regenerate code call fallback:', e);
     }
 
-    const user = dbStore.getUserById(userId);
-    if (!user) throw new Error('User not found');
+    if (!updatedUser) {
+      let user = dbStore.getUserById(userId);
+      if (!user) {
+        try { user = await getUserFromFirestore(userId) || undefined; } catch (_) {}
+      }
+      if (!user) throw new Error('User not found');
 
-    const code = `${Math.floor(1000 + Math.random() * 9000)}`;
-    const updated = dbStore.saveUser({ ...user, fourDigitCode: code, transferCodeApproved: true });
+      const code = generatedCode || `${Math.floor(1000 + Math.random() * 9000)}`;
+      generatedCode = code;
+      updatedUser = dbStore.saveUser({ ...user, fourDigitCode: code, transferCodeApproved: true });
+      await syncUserToFirestore(updatedUser);
+    }
 
-    return { message: '4-Digit Code regenerated successfully.', user: updated, code };
+    broadcastRealtimeUpdate('USER_UPDATED', undefined, updatedUser.id);
+    return { message: '4-Digit Code regenerated successfully.', user: updatedUser, code: generatedCode! };
   },
 
   async toggleRole(userId: string, role: 'user' | 'admin'): Promise<{ user: User }> {

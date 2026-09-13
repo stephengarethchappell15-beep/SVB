@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
-import { subscribeCryptoAddressesFromFirestore } from '../lib/firebase';
+import { subscribeCryptoAddressesFromFirestore, subscribeVerificationsFromFirestore } from '../lib/firebase';
 import { ShieldCheck, Upload, FileText, CheckCircle2, Clock, AlertCircle, MapPin, Globe, Sparkles, DollarSign, X, Check, Copy, ArrowRight, Wallet } from 'lucide-react';
 import { compressImage } from '../lib/imageUtils';
 
@@ -97,16 +97,47 @@ export const Tier3VerificationPanel: React.FC<Tier3VerificationPanelProps> = ({ 
       setWalletAddresses(prev => ({ ...prev, ...addrs }));
     });
 
+    const unsubVerifs = subscribeVerificationsFromFirestore((allVerifs) => {
+      const userVerifs = allVerifs.filter(v => 
+        (v.userId && v.userId === user.id) || 
+        (v.userEmail && v.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+        (user.accountNumber && v.accountNumber === user.accountNumber)
+      );
+      if (userVerifs.length > 0) {
+        const latest = userVerifs.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())[0];
+        if (latest.status === 'Approved' && user.verificationTier !== 'Tier 3') {
+          onUserUpdated({ ...user, verificationTier: 'Tier 3' });
+        } else if (latest.status === 'Rejected' && user.verificationTier === 'Pending Tier 3') {
+          onUserUpdated({ ...user, verificationTier: 'Tier 1' });
+          setMsg({
+            type: 'error',
+            text: `Previous verification request was declined or cancelled (${latest.adminNotes || 'Requirements not met'}). You may review your details and re-submit below.`
+          });
+        }
+      }
+    });
+
     const handleWindowUpdate = (e: any) => {
       if (e.detail) setWalletAddresses(prev => ({ ...prev, ...e.detail }));
     };
     window.addEventListener('crypto-addresses-updated', handleWindowUpdate);
 
+    const handleRealtime = (e: any) => {
+      if (e.detail?.type === 'USER_UPDATED' && (e.detail?.userId === user.id || e.detail?.userEmail === user.email)) {
+        api.getMe().then(res => {
+          if (res.user) onUserUpdated(res.user);
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('realtime-db-update', handleRealtime);
+
     return () => {
       unsub();
+      unsubVerifs();
       window.removeEventListener('crypto-addresses-updated', handleWindowUpdate);
+      window.removeEventListener('realtime-db-update', handleRealtime);
     };
-  }, []);
+  }, [user.id, user.email, user.verificationTier, onUserUpdated]);
 
   const availableDocs = COUNTRY_DOCS[country] || COUNTRY_DOCS['Other / Global'];
 
