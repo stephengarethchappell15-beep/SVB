@@ -626,6 +626,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       ]);
     } catch (err: any) {
       console.error('Approval failed:', err);
+      setActionCompleteMsg({
+        id: txnId,
+        text: `Approval failed: ${err?.message || 'Database update failed'}`,
+        type: 'error'
+      });
       await fetchSysTxns();
     } finally {
       setProcessingIds(prev => {
@@ -671,6 +676,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       ]);
     } catch (err: any) {
       console.error('Cancellation failed:', err);
+      setActionCompleteMsg({
+        id: txnId,
+        text: `Cancellation failed: ${err?.message || 'Database update failed'}`,
+        type: 'error'
+      });
       await fetchSysTxns();
     } finally {
       setProcessingIds(prev => {
@@ -719,6 +729,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
       ]);
     } catch (err: any) {
       console.error('Rejection failed:', err);
+      setActionCompleteMsg({
+        id: txnId,
+        text: `Rejection failed: ${err?.message || 'Database update failed'}`,
+        type: 'error'
+      });
       await fetchSysTxns();
     } finally {
       setProcessingIds(prev => {

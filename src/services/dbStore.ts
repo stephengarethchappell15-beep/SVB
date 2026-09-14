@@ -553,6 +553,52 @@ class LocalDBStore {
     return this.db.transactions;
   }
 
+  addTransactions(txns: Transaction[]): void {
+    if (!Array.isArray(txns) || txns.length === 0) return;
+    this.refresh();
+    const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
+
+    for (const txn of txns) {
+      if (!txn || !txn.id) continue;
+      const cleanId = (txn.id || '').trim().toLowerCase();
+      const cleanRef = (txn.reference || '').trim().toLowerCase();
+      const existingIdx = this.db.transactions.findIndex(
+        t => (t.id && t.id.toLowerCase() === cleanId) || 
+             (cleanRef && t.reference && t.reference.toLowerCase() === cleanRef) ||
+             (cleanRef && t.id && t.id.toLowerCase() === cleanRef) ||
+             (t.reference && t.reference.toLowerCase() === cleanId)
+      );
+
+      if (existingIdx >= 0) {
+        const existing = this.db.transactions[existingIdx];
+        let keepStatus = txn.status || existing.status;
+        if (isFinal(existing.status) && !isFinal(txn.status)) {
+          keepStatus = existing.status;
+        } else if (isFinal(txn.status)) {
+          keepStatus = txn.status;
+        }
+        this.db.transactions[existingIdx] = {
+          ...existing,
+          ...txn,
+          status: keepStatus,
+          senderName: txn.senderName || existing.senderName,
+          userName: txn.userName || existing.userName,
+          userEmail: txn.userEmail || existing.userEmail,
+          accountNumber: txn.accountNumber || existing.accountNumber,
+          description: txn.description || existing.description,
+          type: txn.type || existing.type,
+          amount: txn.amount !== undefined ? txn.amount : existing.amount,
+          currency: txn.currency || existing.currency || 'USD',
+          reference: txn.reference || existing.reference,
+          updatedAt: txn.updatedAt || existing.updatedAt || new Date().toISOString()
+        };
+      } else {
+        this.db.transactions.unshift(txn);
+      }
+    }
+    this.persist();
+  }
+
   addTransaction(txn: Transaction): Transaction {
     this.refresh();
     const existingIdx = this.db.transactions.findIndex(

@@ -1713,16 +1713,16 @@ export const api = {
     fsTxns.forEach(addOrMerge);
 
     const combined = Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    combined.forEach(t => dbStore.addTransaction(t));
+    dbStore.addTransactions(combined);
     return { transactions: combined };
   },
 
   async approveTransaction(txnId: string, senderName?: string): Promise<void> {
     const existingTxn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
-    if (existingTxn && (existingTxn.status === 'Approved' || existingTxn.status === 'Completed')) {
+    if (existingTxn && isStatusApproved(existingTxn.status)) {
       return; // Already approved, prevent double-processing
     }
-    if (existingTxn && (existingTxn.status === 'Rejected' || existingTxn.status === 'Cancelled')) {
+    if (existingTxn && isStatusRejected(existingTxn.status)) {
       throw new Error('This transaction has already been rejected and cannot be approved.');
     }
 
@@ -1742,7 +1742,23 @@ export const api = {
       }
     }
 
-    const txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    let txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    if (!txn) {
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const found = fsTxns.find(t => t.id === txnId || t.reference === txnId || (t.reference && t.reference.toLowerCase() === txnId.toLowerCase()));
+        if (found) {
+          txn = found;
+          dbStore.addTransaction(found);
+        }
+      } catch (e) {
+        console.warn('Firestore fallback lookup in approveTransaction failed:', e);
+      }
+    }
+
+    if (!txn) {
+      throw new Error(`Transaction ${txnId} not found in database or Firestore to approve.`);
+    }
     if (txn) {
       const now = new Date().toISOString();
       const currentAdmin = dbStore.getCurrentUser();
@@ -1934,10 +1950,10 @@ export const api = {
 
   async rejectTransaction(txnId: string, notes?: string): Promise<void> {
     const existingTxn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
-    if (existingTxn && (existingTxn.status === 'Rejected' || existingTxn.status === 'Cancelled')) {
+    if (existingTxn && isStatusRejected(existingTxn.status)) {
       return; // Already rejected, prevent double-processing
     }
-    if (existingTxn && (existingTxn.status === 'Approved' || existingTxn.status === 'Completed')) {
+    if (existingTxn && isStatusApproved(existingTxn.status)) {
       throw new Error('This transaction has already been approved and cannot be rejected.');
     }
 
@@ -1957,7 +1973,23 @@ export const api = {
       }
     }
 
-    const txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    let txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    if (!txn) {
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const found = fsTxns.find(t => t.id === txnId || t.reference === txnId || (t.reference && t.reference.toLowerCase() === txnId.toLowerCase()));
+        if (found) {
+          txn = found;
+          dbStore.addTransaction(found);
+        }
+      } catch (e) {
+        console.warn('Firestore fallback lookup in rejectTransaction failed:', e);
+      }
+    }
+
+    if (!txn) {
+      throw new Error(`Transaction ${txnId} not found in database or Firestore to reject / cancel.`);
+    }
     if (txn) {
       const now = new Date().toISOString();
       const currentAdmin = dbStore.getCurrentUser();
