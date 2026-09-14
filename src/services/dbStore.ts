@@ -1,4 +1,4 @@
-import { User, Transaction, UserNotification, SupportTicket, VirtualCard, BillPayment, CryptoActivationDeposit, Tier3VerificationRequest, AuditLog } from '../types';
+import { User, Transaction, UserNotification, SupportTicket, VirtualCard, BillPayment, CryptoActivationDeposit, Tier3VerificationRequest, AuditLog, isStatusApproved, isStatusRejected, isStatusPending, isStatusRefunded, isStatusCancelled } from '../types';
 import { defaultUserLaura, lauraMitchellTransactions, lauraMitchellCard } from '../data/lauraMitchellData';
 import { defaultUserDiego, diegoDanielTransactions, diegoDanielCard } from '../data/diegoDanielData';
 
@@ -558,12 +558,16 @@ class LocalDBStore {
     const existingIdx = this.db.transactions.findIndex(
       t => t.id === txn.id || (txn.reference && t.reference && t.reference === txn.reference)
     );
-    const isFinal = (st?: string) =>
-      st === 'Completed' || st === 'Approved' || st === 'Rejected' || st === 'Cancelled' || st === 'Failed';
+    const isFinal = (st?: string) => isStatusApproved(st) || isStatusRejected(st);
 
     if (existingIdx >= 0) {
       const existing = this.db.transactions[existingIdx];
-      const keepStatus = isFinal(existing.status) && txn.status === 'Pending' ? existing.status : (txn.status || existing.status);
+      let keepStatus = txn.status || existing.status;
+      if (isFinal(existing.status) && !isFinal(txn.status)) {
+        keepStatus = existing.status;
+      } else if (isFinal(txn.status)) {
+        keepStatus = txn.status;
+      }
       this.db.transactions[existingIdx] = {
         ...existing,
         ...txn,
@@ -590,8 +594,13 @@ class LocalDBStore {
 
   updateTransaction(id: string, updates: Partial<Transaction>): Transaction | null {
     this.refresh();
+    const cleanId = (id || '').trim().toLowerCase();
+    const cleanRef = (updates.reference || '').trim().toLowerCase();
     const idx = this.db.transactions.findIndex(
-      t => t.id === id || (updates.reference && t.reference && t.reference === updates.reference)
+      t => (t.id && t.id.toLowerCase() === cleanId) || 
+           (t.reference && t.reference.toLowerCase() === cleanId) ||
+           (cleanRef && t.reference && t.reference.toLowerCase() === cleanRef) ||
+           (cleanRef && t.id && t.id.toLowerCase() === cleanRef)
     );
     if (idx >= 0) {
       const existing = this.db.transactions[idx];
@@ -761,9 +770,9 @@ class LocalDBStore {
   }
 
   // Bill Payments
-  getBillPayments(userId: string): BillPayment[] {
+  getBillPayments(userId?: string): BillPayment[] {
     this.refresh();
-    return this.db.billPayments.filter(b => b.userId === userId);
+    return userId ? this.db.billPayments.filter(b => b.userId === userId) : this.db.billPayments;
   }
 
   addBillPayment(bill: BillPayment): BillPayment {
@@ -771,6 +780,21 @@ class LocalDBStore {
     this.db.billPayments.unshift(bill);
     this.persist();
     return bill;
+  }
+
+  updateBillPayment(id: string, updates: Partial<BillPayment>): BillPayment | null {
+    this.refresh();
+    const idx = this.db.billPayments.findIndex(b => b.id === id);
+    if (idx >= 0) {
+      this.db.billPayments[idx] = {
+        ...this.db.billPayments[idx],
+        ...updates,
+        updatedAt: updates.updatedAt || new Date().toISOString()
+      };
+      this.persist();
+      return this.db.billPayments[idx];
+    }
+    return null;
   }
 
   // Crypto Activation Deposits

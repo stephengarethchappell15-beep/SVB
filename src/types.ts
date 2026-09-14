@@ -44,8 +44,10 @@ export interface BillPayment {
   accountNumber: string; // Paying account
   amount: number;
   reference: string;
-  status: 'Completed' | 'Pending' | 'Scheduled' | 'Failed';
+  status: 'Completed' | 'Pending' | 'Scheduled' | 'Failed' | 'Cancelled';
   paymentDate: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CryptoActivationDeposit {
@@ -118,12 +120,14 @@ export interface User {
 }
 
 export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee';
-export type TransactionStatus = 'Completed' | 'Pending' | 'Cancelled' | 'Rejected' | 'Refunded' | 'Approved';
+export type TransactionStatus = 'Completed' | 'Pending' | 'Cancelled' | 'Rejected' | 'Refunded' | 'Approved' | 'Successful';
 
 export function isStatusPending(status?: string): boolean {
   if (!status) return false;
   const s = status.trim().toUpperCase();
-  return s === 'PENDING' || s === 'PENDING_REVIEW' || s === 'PENDING REVIEW' || s === 'IN_REVIEW' || s === 'UNDER_REVIEW';
+  // Any finalized state is NEVER pending
+  if (isStatusApproved(status) || isStatusRejected(status)) return false;
+  return s === 'PENDING' || s === 'PENDING_REVIEW' || s === 'PENDING REVIEW' || s === 'IN_REVIEW' || s === 'UNDER_REVIEW' || s === 'PROCESSING' || s === 'SUBMITTED' || s === 'AWAITING_APPROVAL';
 }
 
 export function isStatusApproved(status?: string): boolean {
@@ -132,16 +136,29 @@ export function isStatusApproved(status?: string): boolean {
   return s === 'APPROVED' || s === 'APPROVE' || s === 'COMPLETED' || s === 'COMPLETE' || s === 'SUCCESS' || s === 'SUCCESSFUL';
 }
 
+export function isStatusRefunded(status?: string): boolean {
+  if (!status) return false;
+  const s = status.trim().toUpperCase();
+  return s === 'REFUNDED' || s === 'REFUND';
+}
+
+export function isStatusCancelled(status?: string): boolean {
+  if (!status) return false;
+  const s = status.trim().toUpperCase();
+  return s === 'CANCELLED' || s === 'CANCELED' || s === 'CANCEL' || s === 'DECLINED' || s === 'DECLINE';
+}
+
 export function isStatusRejected(status?: string): boolean {
   if (!status) return false;
   const s = status.trim().toUpperCase();
-  return s === 'REJECTED' || s === 'REJECT' || s === 'DECLINED' || s === 'DECLINE' || s === 'CANCELLED' || s === 'CANCELED' || s === 'CANCEL';
+  return s === 'REJECTED' || s === 'REJECT' || s === 'DECLINED' || s === 'DECLINE' || s === 'CANCELLED' || s === 'CANCELED' || s === 'CANCEL' || s === 'REFUNDED' || s === 'REFUND';
 }
 
-export function normalizeTxnStatus(status?: string): 'Pending' | 'Approved' | 'Rejected' {
-  if (isStatusPending(status)) return 'Pending';
-  if (isStatusApproved(status)) return 'Approved';
-  if (isStatusRejected(status)) return 'Rejected';
+export function normalizeTxnStatus(status?: string): 'Pending' | 'Completed' | 'Refunded' | 'Cancelled' {
+  if (isStatusApproved(status)) return 'Completed';
+  if (isStatusRefunded(status)) return 'Refunded';
+  if (isStatusCancelled(status)) return 'Cancelled';
+  if (isStatusRejected(status)) return 'Cancelled';
   return 'Pending';
 }
 

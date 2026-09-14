@@ -380,13 +380,18 @@ export async function getAllVerificationsFromFirestore(): Promise<Tier3Verificat
  * Sync Transaction to Firestore
  */
 export async function syncTransactionToFirestore(txn: Transaction): Promise<void> {
-  if (!txn || !txn.id) return;
+  if (!txn || (!txn.id && !txn.reference)) return;
+  const docId = txn.id || txn.reference;
   try {
     const payload = sanitizeForFirestore({
       ...txn,
+      id: docId,
       updatedAt: new Date().toISOString()
     });
-    await setDoc(doc(db, 'transactions', txn.id), payload, { merge: true });
+    await setDoc(doc(db, 'transactions', docId), payload, { merge: true });
+    if (txn.reference && txn.reference !== docId) {
+      await setDoc(doc(db, 'transactions', txn.reference), payload, { merge: true });
+    }
   } catch (err) {
     console.warn('Firestore transaction sync error:', err);
   }
@@ -406,9 +411,12 @@ export async function getTransactionsFromFirestore(userId?: string): Promise<Tra
     const snap = await getDocs(q);
     const list: Transaction[] = [];
     snap.forEach((d) => {
-      if (d.exists()) list.push(d.data() as Transaction);
+      if (d.exists()) {
+        const data = d.data() as Transaction;
+        list.push({ ...data, id: data.id || d.id });
+      }
     });
-    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   } catch (err) {
     console.warn('Firestore getTransactions error:', err);
     return [];
@@ -466,9 +474,12 @@ export function subscribeTransactionsFromFirestore(userId: string | null | undef
     const unsub = onSnapshot(q, (snap) => {
       const list: Transaction[] = [];
       snap.forEach((d) => {
-        if (d.exists()) list.push(d.data() as Transaction);
+        if (d.exists()) {
+          const data = d.data() as Transaction;
+          list.push({ ...data, id: data.id || d.id });
+        }
       });
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       callback(list);
     }, (err) => console.warn('Transactions snapshot error:', err));
 

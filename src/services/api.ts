@@ -1,6 +1,7 @@
 import { 
   User, 
   Transaction, 
+  TransactionStatus,
   AuthResponse, 
   UserNotification, 
   SupportTicket, 
@@ -1614,13 +1615,16 @@ export const api = {
   },
 
   async getTransactions(): Promise<{ transactions: Transaction[] }> {
-    const backendRes = await requestApi<{ transactions: Transaction[] }>('/user/transactions');
-    if (backendRes && Array.isArray(backendRes.transactions)) {
-      backendRes.transactions.forEach(t => dbStore.addTransaction(t));
-      return { transactions: backendRes.transactions };
+    const current = dbStore.getCurrentUser();
+    try {
+      const backendRes = await requestApi<{ transactions: Transaction[] }>('/user/transactions');
+      if (backendRes && Array.isArray(backendRes.transactions)) {
+        backendRes.transactions.forEach(t => dbStore.addTransaction(t));
+      }
+    } catch (e) {
+      console.warn('Backend getTransactions fallback:', e);
     }
 
-    const current = dbStore.getCurrentUser();
     if (!current) return { transactions: [] };
     const txns = dbStore.getTransactions(current.id);
     return { transactions: txns };
@@ -1745,7 +1749,7 @@ export const api = {
       const finalSenderName = senderName || txn.senderName || 'Silicon Valley Bank Treasury / Crypto Clearing';
       const updatedTxn: Transaction = {
         ...txn,
-        status: 'Approved',
+        status: 'Completed',
         senderName: finalSenderName,
         approvedAt: now,
         approvedByAdminEmail: currentAdmin?.email,
@@ -1756,12 +1760,12 @@ export const api = {
 
       // Also update any matching duplicate transactions with same ID or reference in dbStore
       const allMatching = dbStore.getTransactions().filter(
-        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && t.status === 'Pending'
+        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && isStatusPending(t.status)
       );
       for (const match of allMatching) {
         const matchUpd: Transaction = {
           ...match,
-          status: 'Approved',
+          status: 'Completed',
           senderName: finalSenderName,
           approvedAt: now,
           approvedByAdminEmail: currentAdmin?.email,
@@ -1771,7 +1775,7 @@ export const api = {
         await syncTransactionToFirestore(matchUpd);
       }
 
-      // Also ensure all matching records in Firestore are updated to Approved
+      // Also ensure all matching records in Firestore are updated to Completed
       try {
         const fsTxns = await getTransactionsFromFirestore();
         const cleanRef = (txn.reference || '').trim().toLowerCase();
@@ -1779,12 +1783,12 @@ export const api = {
         const matchingFs = fsTxns.filter(t => 
           ((t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) ||
            (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId))) &&
-          t.status === 'Pending'
+          isStatusPending(t.status)
         );
         for (const fsTx of matchingFs) {
           const upd: Transaction = {
             ...fsTx,
-            status: 'Approved',
+            status: 'Completed',
             senderName: finalSenderName,
             approvedAt: now,
             approvedByAdminEmail: currentAdmin?.email,
@@ -1796,13 +1800,23 @@ export const api = {
         console.warn('Syncing Firestore matching txns error on approval:', e);
       }
 
+      // Update matching bill payment if present
+      const matchingBill = dbStore.getBillPayments().find(b =>
+        (b.reference && (b.reference === txn.reference || b.reference === txn.id)) ||
+        b.id === txn.id || (txn.reference && b.id === txn.reference)
+      );
+      if (matchingBill) {
+        dbStore.updateBillPayment(matchingBill.id, { status: 'Completed' });
+      }
+
       // Clear any previous pending notification for this transaction
       dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
 
-      const isDeposit = txn.type.toLowerCase().includes('deposit') || 
-                        txn.description.toLowerCase().includes('deposit') ||
-                        txn.description.toLowerCase().includes('verification') ||
-                        (!txn.recipientAccountNumber && !txn.recipientEmail);
+      const txnTypeStr = (txn.type || '').toLowerCase();
+      const txnDescStr = (txn.description || '').toLowerCase();
+      const isDeposit = txnTypeStr.includes('deposit') || 
+                        txnDescStr.includes('deposit') ||
+                        txnDescStr.includes('verification');
 
       if (isDeposit) {
         const user = dbStore.getUserById(txn.userId) || 
@@ -1948,9 +1962,15 @@ export const api = {
       const now = new Date().toISOString();
       const currentAdmin = dbStore.getCurrentUser();
       const finalReason = notes || 'Cancelled / Declined by SVB Review';
+
+      const txnTypeStr = (txn.type || '').toLowerCase();
+      const txnDescStr = (txn.description || '').toLowerCase();
+      const isDeposit = txnTypeStr.includes('deposit') || txnDescStr.includes('deposit') || txnDescStr.includes('verification');
+      const finalStatus: TransactionStatus = isDeposit ? 'Cancelled' : 'Refunded';
+
       const updatedTxn: Transaction = {
         ...txn,
-        status: 'Rejected',
+        status: finalStatus,
         updatedAt: now,
         cancelledAt: now,
         cancelledByAdminEmail: currentAdmin?.email,
@@ -1962,12 +1982,12 @@ export const api = {
 
       // Also update any matching duplicate transactions with same ID or reference in dbStore
       const allMatching = dbStore.getTransactions().filter(
-        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && t.status === 'Pending'
+        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && isStatusPending(t.status)
       );
       for (const match of allMatching) {
         const matchUpd: Transaction = {
           ...match,
-          status: 'Rejected',
+          status: finalStatus,
           updatedAt: now,
           cancelledAt: now,
           cancelledByAdminEmail: currentAdmin?.email,
@@ -1978,7 +1998,7 @@ export const api = {
         await syncTransactionToFirestore(matchUpd);
       }
 
-      // Also ensure all matching records in Firestore are updated to Rejected
+      // Also ensure all matching records in Firestore are updated to finalStatus
       try {
         const fsTxns = await getTransactionsFromFirestore();
         const cleanRef = (txn.reference || '').trim().toLowerCase();
@@ -1986,12 +2006,12 @@ export const api = {
         const matchingFs = fsTxns.filter(t => 
           ((t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) ||
            (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId))) &&
-          t.status === 'Pending'
+          isStatusPending(t.status)
         );
         for (const fsTx of matchingFs) {
           const upd: Transaction = {
             ...fsTx,
-            status: 'Rejected',
+            status: finalStatus,
             updatedAt: now,
             cancelledAt: now,
             cancelledByAdminEmail: currentAdmin?.email,
@@ -2021,16 +2041,25 @@ export const api = {
         console.warn('Syncing Firestore matching txns error on rejection:', e);
       }
 
+      // Update matching bill payment if present
+      const matchingBill = dbStore.getBillPayments().find(b =>
+        (b.reference && (b.reference === txn.reference || b.reference === txn.id)) ||
+        b.id === txn.id || (txn.reference && b.id === txn.reference)
+      );
+      if (matchingBill) {
+        dbStore.updateBillPayment(matchingBill.id, { status: 'Cancelled' });
+      }
+
       // Clear any previous pending notification for this transaction
       dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
 
-      const isDeposit = txn.type.toLowerCase().includes('deposit') || txn.description.toLowerCase().includes('deposit');
-      const user = dbStore.getUserById(txn.userId);
-      if (user && !isDeposit && (txn.type === 'Wire Withdrawal' || txn.type === 'Wire Transfer' || txn.type === 'Transfer' || txn.type === 'Withdrawal' || txn.type === 'Bill Pay')) {
+      const user = dbStore.getUserById(txn.userId) || 
+                   dbStore.getUsers().find(u => (txn.userEmail && u.email.toLowerCase() === txn.userEmail.toLowerCase()) || (txn.accountNumber && u.accountNumber === txn.accountNumber));
+      if (user && !isDeposit) {
         const refundedUser = dbStore.saveUser({
           ...user,
           balance: user.balance + txn.amount,
-          ledgerBalance: user.balance + txn.amount
+          ledgerBalance: (user.ledgerBalance || user.balance) + txn.amount
         });
         syncUserToFirestore(refundedUser);
 

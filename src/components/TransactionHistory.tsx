@@ -203,7 +203,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                         ) : (
                           <XCircle className="w-3 h-3 text-rose-400" />
                         )}
-                        {isStatusApproved(txn.status) ? 'Approved' : isStatusPending(txn.status) ? 'Pending Review' : (isStatusRejected(txn.status) ? 'Cancelled / Rejected' : txn.status)}
+                        {isStatusApproved(txn.status) ? (txn.status === 'Approved' ? 'Completed' : txn.status) : isStatusPending(txn.status) ? 'Pending Review' : (isStatusRejected(txn.status) ? txn.status : txn.status)}
                       </span>
                     </td>
                     <td className="py-3.5 px-3 text-right">

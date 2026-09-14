@@ -608,9 +608,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
 
-    // Optimistically update local sysTxns status to Approved for all matching records immediately
+    // Optimistically update local sysTxns status to Completed for all matching records immediately
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
-    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Approved', senderName, updatedAt: new Date().toISOString() } : t));
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Completed', senderName, updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.approveTransaction(txnId, senderName);
@@ -652,14 +652,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     const reason = 'Cancelled by SVB Review';
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
+    const isDeposit = txn && (((txn.type || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('verification')));
+    const finalStatus = isDeposit ? 'Cancelled' : 'Refunded';
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
-    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: finalStatus, updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.rejectTransaction(txnId, reason);
       setActionCompleteMsg({
         id: txnId,
-        text: `Action Complete: Transaction ${txn?.reference || txnId} Cancelled / Rejected.`,
+        text: `Action Complete: Transaction ${txn?.reference || txnId} ${finalStatus}.`,
         type: 'success'
       });
       await Promise.all([
@@ -696,15 +698,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
 
-    // Optimistically update local sysTxns status to Rejected immediately
+    const isDeposit = txn && (((txn.type || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('verification')));
+    const finalStatus = isDeposit ? 'Cancelled' : 'Refunded';
+
+    // Optimistically update local sysTxns status to finalStatus immediately
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
-    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: 'Rejected', updatedAt: new Date().toISOString() } : t));
+    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: finalStatus, updatedAt: new Date().toISOString() } : t));
 
     try {
       await api.rejectTransaction(txnId, reason);
       setActionCompleteMsg({
         id: txnId,
-        text: `Action Complete: Reference ${txn?.reference || txnId} Rejected / Cancelled.`,
+        text: `Action Complete: Reference ${txn?.reference || txnId} ${finalStatus}.`,
         type: 'success'
       });
       await Promise.all([

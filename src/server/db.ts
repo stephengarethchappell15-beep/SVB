@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { User, BankAccount, VirtualCard, BillPayment, Transaction, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
+import { User, BankAccount, VirtualCard, BillPayment, Transaction, TransactionStatus, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
 import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore, syncNotificationToFirestore } from '../lib/firebase';
 import { defaultUserLaura, lauraMitchellPassword, lauraMitchellCard, lauraMitchellTransactions } from '../data/lauraMitchellData';
 import { defaultUserDiego, diegoDanielPassword, diegoDanielCard, diegoDanielTransactions } from '../data/diegoDanielData';
@@ -2211,7 +2211,7 @@ class DatabaseManager {
         ? senderTxn.amount 
         : (Number(senderTxn.amount) || 0);
 
-      senderTxn.status = 'Approved';
+      senderTxn.status = 'Completed';
       senderTxn.senderName = finalSenderName;
       senderTxn.updatedAt = now;
       senderTxn.approvedAt = now;
@@ -2219,8 +2219,8 @@ class DatabaseManager {
 
       // Also update any matching duplicate transactions with same ID or reference
       this.db.transactions.forEach(t => {
-        if ((t.id === senderTxn.id || (t.reference && senderTxn.reference && t.reference === senderTxn.reference)) && t.status === 'Pending') {
-          t.status = 'Approved';
+        if ((t.id === senderTxn.id || (t.reference && senderTxn.reference && t.reference === senderTxn.reference)) && isStatusPending(t.status)) {
+          t.status = 'Completed';
           t.senderName = finalSenderName;
           t.updatedAt = now;
           t.approvedAt = now;
@@ -2228,6 +2228,18 @@ class DatabaseManager {
           try { syncTransactionToFirestore(t); } catch (_) {}
         }
       });
+
+      // Update matching bill payment if present
+      if (this.db.billPayments) {
+        const matchingBill = this.db.billPayments.find(b =>
+          (b.reference && (b.reference === senderTxn.reference || b.reference === senderTxn.id)) ||
+          b.id === senderTxn.id || (senderTxn.reference && b.id === senderTxn.reference)
+        );
+        if (matchingBill) {
+          matchingBill.status = 'Completed';
+          matchingBill.updatedAt = now;
+        }
+      }
 
       // Check if it's a deposit (Payment Verification Deposit or Direct Deposit to user)
       const txnTypeStr = (senderTxn.type || '').toLowerCase();
@@ -2544,7 +2556,13 @@ class DatabaseManager {
         ? txn.amount 
         : (Number(txn.amount) || 0);
 
-      txn.status = 'Rejected';
+      const txnTypeStr = (txn.type || '').toLowerCase();
+      const txnDescStr = (txn.description || '').toLowerCase();
+      const isDeposit = txnTypeStr.includes('deposit') || txnDescStr.includes('deposit') || txnDescStr.includes('verification');
+
+      const finalStatus: TransactionStatus = isDeposit ? 'Cancelled' : 'Refunded';
+
+      txn.status = finalStatus;
       txn.updatedAt = now;
       txn.cancelledAt = now;
       txn.cancelledByAdminEmail = adminUser.email;
@@ -2553,8 +2571,8 @@ class DatabaseManager {
 
       // Also update any matching duplicate transactions with same ID or reference
       this.db.transactions.forEach(t => {
-        if ((t.id === txn.id || (t.reference && txn.reference && t.reference === txn.reference)) && t.status === 'Pending') {
-          t.status = 'Rejected';
+        if ((t.id === txn.id || (t.reference && txn.reference && t.reference === txn.reference)) && isStatusPending(t.status)) {
+          t.status = finalStatus;
           t.updatedAt = now;
           t.cancelledAt = now;
           t.cancelledByAdminEmail = adminUser.email;
@@ -2572,10 +2590,23 @@ class DatabaseManager {
         targetUser = this.findUserByAccountNumber(txn.accountNumber);
       }
 
-      if (targetUser && (txn.type === 'Withdrawal' || (txn.type === 'Transfer' && !(txn.description || '').toLowerCase().includes('received')))) {
+      // Safe exact single refund: return deducted funds to user's available balance
+      if (targetUser && !isDeposit) {
         targetUser.balance = (Number(targetUser.balance) || 0) + amountNum;
         targetUser.ledgerBalance = targetUser.balance;
         try { syncUserToFirestore(targetUser); } catch (_) {}
+      }
+
+      // Update matching bill payment if present
+      if (this.db.billPayments) {
+        const matchingBill = this.db.billPayments.find(b =>
+          (b.reference && (b.reference === txn.reference || b.reference === txn.id)) ||
+          b.id === txn.id || (txn.reference && b.id === txn.reference)
+        );
+        if (matchingBill) {
+          matchingBill.status = 'Cancelled';
+          matchingBill.updatedAt = now;
+        }
       }
 
       // Update matching crypto activation deposit if present
@@ -2597,10 +2628,6 @@ class DatabaseManager {
         }
       }
 
-      const txnTypeStr = (txn.type || '').toLowerCase();
-      const txnDescStr = (txn.description || '').toLowerCase();
-      const isDeposit = txnTypeStr.includes('deposit') || txnDescStr.includes('deposit');
-      
       // Clear any stale pending notification for this transaction
       if (txn.userId) {
         try { this.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id); } catch (_) {}
@@ -2692,7 +2719,7 @@ class DatabaseManager {
       const now = new Date().toISOString();
 
       for (const m of matchingFs) {
-        m.status = 'Rejected';
+        m.status = result.transaction.status;
         m.cancelledAt = result.transaction.cancelledAt || now;
         m.cancelledByAdminEmail = adminUser.email;
         m.cancelReason = finalReason;
@@ -2779,7 +2806,7 @@ class DatabaseManager {
 
       const now = new Date().toISOString();
       for (const m of matchingFs) {
-        m.status = 'Approved';
+        m.status = result.transaction.status;
         m.senderName = result.transaction.senderName;
         m.approvedAt = result.transaction.approvedAt || now;
         m.approvedByAdminEmail = adminUser.email;
