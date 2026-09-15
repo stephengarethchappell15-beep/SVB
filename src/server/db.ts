@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { User, BankAccount, VirtualCard, BillPayment, Transaction, TransactionStatus, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
+import { User, BankAccount, VirtualCard, BillPayment, Transaction, TransactionStatus, AuditLog, UserNotification, DepositPayload, TransferPayload, WithdrawPayload, SupportTicket, SupportMessage, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected, isDepositTransaction } from '../types';
 import { syncUserToFirestore, getUserFromFirestore, getAllUsersFromFirestore, syncTransactionToFirestore, getTransactionsFromFirestore, syncSupportTicketToFirestore, syncVerificationToFirestore, getAllVerificationsFromFirestore, syncCryptoDepositToFirestore, getAllCryptoDepositsFromFirestore, syncNotificationToFirestore } from '../lib/firebase';
 import { defaultUserLaura, lauraMitchellPassword, lauraMitchellCard, lauraMitchellTransactions } from '../data/lauraMitchellData';
 import { defaultUserDiego, diegoDanielPassword, diegoDanielCard, diegoDanielTransactions } from '../data/diegoDanielData';
@@ -1313,14 +1313,16 @@ class DatabaseManager {
     const destinationBank = payload.destinationBank || 'Silicon Valley Bank (SVB)';
     const recipientNameInput = payload.recipientName ? payload.recipientName.trim() : '';
 
-    if (sender.role !== 'admin') {
-      if (!sender.transferCodeApproved || !sender.fourDigitCode) {
+    const actualSender = this.findUserById(sender.id) || sender;
+
+    if (actualSender.role !== 'admin') {
+      if (!actualSender.transferCodeApproved || !actualSender.fourDigitCode) {
         throw new Error('4-Digit Security Code Required: You must activate your 4-Digit Security Code before completing outgoing transfers.');
       }
-      if (!payload.fourDigitCode || payload.fourDigitCode.trim() !== sender.fourDigitCode.trim()) {
+      if (!payload.fourDigitCode || payload.fourDigitCode.trim() !== actualSender.fourDigitCode.trim()) {
         throw new Error('Invalid 4-Digit Security Code. Please enter your valid 4-digit transfer authorization code.');
       }
-      if (sender.verificationTier !== 'Tier 3') {
+      if (actualSender.verificationTier !== 'Tier 3') {
         throw new Error('TIER_3_UPGRADE_REQUIRED: Tier 3 VIP Account Upgrade Required. To complete outgoing wire transfers with your 4-Digit Security Code, your account must be upgraded to Tier 3 VIP Status.');
       }
     }
@@ -1329,13 +1331,13 @@ class DatabaseManager {
       throw new Error('Transfer amount must be greater than $0.00.');
     }
 
-    if (sender.balance < amount) {
-      throw new Error(`Insufficient funds. Your current available balance is $${sender.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`);
+    if (actualSender.balance < amount) {
+      throw new Error(`Insufficient funds. Your current available balance is $${actualSender.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`);
     }
 
     let recipient = this.findUserByAccountNumber(recipientInput) || this.findUserByEmail(recipientInput);
 
-    if (recipient && recipient.id === sender.id) {
+    if (recipient && recipient.id === actualSender.id) {
       throw new Error('You cannot send funds to your own account.');
     }
 
@@ -1343,8 +1345,15 @@ class DatabaseManager {
     const isDomesticSVB = destinationCountry === 'United States' && destinationBank.includes('Silicon Valley Bank');
     const transferType: 'Domestic' | 'International' = isDomesticSVB ? 'Domestic' : 'International';
 
-    // Process balances - deduct from sender balance
-    sender.balance -= amount;
+    // Process balances - deduct from sender balance and ledger balance
+    actualSender.balance = Number((actualSender.balance - amount).toFixed(2));
+    if (actualSender.ledgerBalance !== undefined) {
+      actualSender.ledgerBalance = Number((actualSender.ledgerBalance - amount).toFixed(2));
+    }
+    if (sender !== actualSender) {
+      sender.balance = actualSender.balance;
+      sender.ledgerBalance = actualSender.ledgerBalance;
+    }
 
     const ref = `TXN-TRF-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
     const now = new Date().toISOString();
@@ -1438,12 +1447,13 @@ class DatabaseManager {
 
   // Withdrawal Processing
   public createWithdrawal(user: User, payload: WithdrawPayload): { user: User; transaction: Transaction } {
+    const actualUser = this.findUserById(user.id) || user;
     const amount = Number(payload.amount);
     if (amount <= 0) {
       throw new Error('Withdrawal amount must be greater than 0.');
     }
-    if (user.balance < amount) {
-      throw new Error(`Insufficient funds. Your current available balance is $${user.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`);
+    if (actualUser.balance < amount) {
+      throw new Error(`Insufficient funds. Your current available balance is $${actualUser.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`);
     }
 
     if (!payload.bankName || !payload.routingNumber || !payload.accountNumber || !payload.accountHolderName) {
@@ -1451,17 +1461,24 @@ class DatabaseManager {
     }
 
     // Check 4-digit transaction security code requirement
-    if (user.role !== 'admin') {
-      if (!user.fourDigitCode || !user.transferCodeApproved) {
+    if (actualUser.role !== 'admin') {
+      if (!actualUser.fourDigitCode || !actualUser.transferCodeApproved) {
         throw new Error('4-Digit Security Code Required: Please submit your $2,500 deposit to activate your 4-digit transfer security code.');
       }
-      if (!payload.fourDigitCode || payload.fourDigitCode.trim() !== user.fourDigitCode.trim()) {
+      if (!payload.fourDigitCode || payload.fourDigitCode.trim() !== actualUser.fourDigitCode.trim()) {
         throw new Error('Invalid security code. The 4-digit transaction security code entered is incorrect.');
       }
     }
 
     // Deduct balance for pending withdrawal request
-    user.balance -= amount;
+    actualUser.balance = Number((actualUser.balance - amount).toFixed(2));
+    if (actualUser.ledgerBalance !== undefined) {
+      actualUser.ledgerBalance = Number((actualUser.ledgerBalance - amount).toFixed(2));
+    }
+    if (user !== actualUser) {
+      user.balance = actualUser.balance;
+      user.ledgerBalance = actualUser.ledgerBalance;
+    }
 
     const ref = `TXN-WTH-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
     const now = new Date().toISOString();
@@ -2242,11 +2259,7 @@ class DatabaseManager {
       }
 
       // Check if it's a deposit (Payment Verification Deposit or Direct Deposit to user)
-      const txnTypeStr = (senderTxn.type || '').toLowerCase();
-      const txnDescStr = (senderTxn.description || '').toLowerCase();
-      const isDepositType = txnTypeStr.includes('deposit') || 
-                            txnDescStr.includes('deposit') ||
-                            txnDescStr.includes('verification');
+      const isDepositType = isDepositTransaction(senderTxn);
 
       if (isDepositType && sender) {
         sender.balance = (Number(sender.balance) || 0) + amountNum;
@@ -2504,8 +2517,8 @@ class DatabaseManager {
     return { user: targetUser };
   }
 
-  // Admin Reject Transaction (Refunds funds & marks as Rejected)
-  public rejectTransaction(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): { transaction: Transaction } {
+  // Admin Reject Transaction (Refunds funds & marks as Rejected / Refunded)
+  public rejectTransaction(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): { transaction: Transaction; user?: User } {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
     if (!transactionId || typeof transactionId !== 'string') {
       throw new Error('Transaction ID is required.');
@@ -2535,18 +2548,46 @@ class DatabaseManager {
       throw new Error(`Transaction ${transactionId} not found in database.`);
     }
 
-    if (isStatusRejected(txn.status)) {
-      return { transaction: txn };
+    // Identify user account
+    let targetUser = txn.userId ? this.findUserById(txn.userId) : undefined;
+    if (!targetUser && txn.userEmail) {
+      targetUser = this.findUserByEmail(txn.userEmail);
+    }
+    const accNo = txn.accountNumber || (txn as any).senderAccountNumber;
+    if (!targetUser && accNo) {
+      targetUser = this.findUserByAccountNumber(accNo);
+    }
+
+    // Determine if this transaction requires a refund
+    const isDeposit = isDepositTransaction(txn);
+    const requiresRefund = !isDeposit;
+
+    // Idempotency: If already refunded or cancelled, do not refund again
+    const isAlreadyRefunded = txn.status === 'Refunded' || !!txn.refundedAt || !!txn.refundReference;
+    const isAlreadyCancelled = isStatusRejected(txn.status) || !!txn.cancelledAt;
+
+    if (isAlreadyRefunded || isAlreadyCancelled) {
+      return { transaction: txn, user: targetUser };
     }
 
     if (isStatusApproved(txn.status)) {
-      throw new Error('This transaction has already been approved and cannot be rejected.');
+      throw new Error('This transaction has already been approved and cannot be rejected or refunded.');
+    }
+
+    // Critical Integrity Check: Do not report success if refund target is missing
+    if (requiresRefund && !targetUser) {
+      throw new Error(`Refund failed: Sender account (${txn.userId || txn.userEmail || accNo || 'unknown'}) could not be located in database to issue the required refund. Transaction was not cancelled.`);
     }
 
     const lockKey = `txn:${txn.id || cleanId}`;
     this.acquireLock(lockKey);
 
     try {
+      // Re-check under lock
+      if (txn.status === 'Refunded' || !!txn.refundedAt) {
+        return { transaction: txn, user: targetUser };
+      }
+
       const now = new Date().toISOString();
       const finalReason = typeof reason === 'string' && reason.trim().length > 0 
         ? reason.trim() 
@@ -2556,11 +2597,22 @@ class DatabaseManager {
         ? txn.amount 
         : (Number(txn.amount) || 0);
 
-      const txnTypeStr = (txn.type || '').toLowerCase();
-      const txnDescStr = (txn.description || '').toLowerCase();
-      const isDeposit = txnTypeStr.includes('deposit') || txnDescStr.includes('deposit') || txnDescStr.includes('verification');
+      const finalStatus: TransactionStatus = requiresRefund ? 'Refunded' : 'Cancelled';
+      const refundRef = `REFUND-${(txn.reference || txn.id).replace(/[^A-Za-z0-9]/g, '').slice(-8)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const finalStatus: TransactionStatus = isDeposit ? 'Cancelled' : 'Refunded';
+      // Safe exact single refund: return deducted funds to user's available and ledger balance
+      if (requiresRefund && targetUser) {
+        if (amountNum <= 0) {
+          throw new Error('Invalid transaction amount: cannot refund zero or negative balance.');
+        }
+        const prevBal = Number(targetUser.balance) || 0;
+        const prevLedger = Number(targetUser.ledgerBalance !== undefined ? targetUser.ledgerBalance : targetUser.balance) || 0;
+
+        targetUser.balance = Number((prevBal + amountNum).toFixed(2));
+        targetUser.ledgerBalance = Number((prevLedger + amountNum).toFixed(2));
+        targetUser.updatedAt = now;
+        try { syncUserToFirestore(targetUser); } catch (_) {}
+      }
 
       txn.status = finalStatus;
       txn.updatedAt = now;
@@ -2568,6 +2620,13 @@ class DatabaseManager {
       txn.cancelledByAdminEmail = adminUser.email;
       txn.cancelReason = finalReason;
       txn.adminNotes = finalReason;
+
+      if (requiresRefund) {
+        txn.refundedAt = now;
+        txn.refundAmount = amountNum;
+        txn.refundReference = refundRef;
+        txn.refundedByAdminEmail = adminUser.email;
+      }
 
       // Also update any matching duplicate transactions with same ID or reference
       this.db.transactions.forEach(t => {
@@ -2578,24 +2637,15 @@ class DatabaseManager {
           t.cancelledByAdminEmail = adminUser.email;
           t.cancelReason = finalReason;
           t.adminNotes = finalReason;
+          if (requiresRefund) {
+            t.refundedAt = now;
+            t.refundAmount = amountNum;
+            t.refundReference = refundRef;
+            t.refundedByAdminEmail = adminUser.email;
+          }
           try { syncTransactionToFirestore(t); } catch (_) {}
         }
       });
-
-      let targetUser = txn.userId ? this.findUserById(txn.userId) : undefined;
-      if (!targetUser && txn.userEmail) {
-        targetUser = this.findUserByEmail(txn.userEmail);
-      }
-      if (!targetUser && txn.accountNumber) {
-        targetUser = this.findUserByAccountNumber(txn.accountNumber);
-      }
-
-      // Safe exact single refund: return deducted funds to user's available balance
-      if (targetUser && !isDeposit) {
-        targetUser.balance = (Number(targetUser.balance) || 0) + amountNum;
-        targetUser.ledgerBalance = targetUser.balance;
-        try { syncUserToFirestore(targetUser); } catch (_) {}
-      }
 
       // Update matching bill payment if present
       if (this.db.billPayments) {
@@ -2638,13 +2688,13 @@ class DatabaseManager {
         const notif: UserNotification = {
           id: `notif-${Date.now()}-rej`,
           userId: userIdForNotif,
-          title: isDeposit ? 'Deposit Request Declined' : 'Transaction Declined & Refunded',
-          message: isDeposit
-            ? `Deposit request ${txn.reference || txn.id} of $${amountNum.toFixed(2)} was declined by Silicon Valley Bank. Reason: ${finalReason}`
-            : `Transaction ${txn.reference || txn.id} of $${amountNum.toFixed(2)} was declined. Funds of $${amountNum.toFixed(2)} have been returned to your account balance. Reason: ${finalReason}`,
+          title: requiresRefund ? 'Transfer Cancelled & Funds Refunded' : 'Deposit Request Declined',
+          message: requiresRefund
+            ? `Your transfer ${txn.reference || txn.id} for $${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been cancelled and refunded. Available balance: $${targetUser!.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Reason: ${finalReason}`
+            : `Deposit request ${txn.reference || txn.id} of $${amountNum.toFixed(2)} was declined by Silicon Valley Bank. Reason: ${finalReason}`,
           amount: amountNum,
           currency: txn.currency || 'USD',
-          reference: txn.reference || txn.id,
+          reference: requiresRefund ? refundRef : (txn.reference || txn.id),
           read: false,
           createdAt: now
         };
@@ -2656,31 +2706,44 @@ class DatabaseManager {
         this.addAuditLog({
           adminId: adminUser.id,
           adminEmail: adminUser.email,
-          action: 'TRANSFER_EXECUTED',
+          action: requiresRefund ? 'TRANSFER_REFUNDED' : 'TRANSFER_CANCELLED',
           targetEmail: txn.userEmail || (targetUser ? targetUser.email : ''),
           targetAccountNumber: txn.accountNumber || (targetUser ? targetUser.accountNumber : ''),
-          description: `Admin ${adminUser.email} rejected transaction ${txn.reference || txn.id} and refunded $${amountNum}`,
-          details: { transactionId: txn.id, type: txn.type, amount: amountNum, reason: finalReason }
+          description: `Admin ${adminUser.email} ${requiresRefund ? 'cancelled and refunded' : 'declined'} transaction ${txn.reference || txn.id} ($${amountNum})`,
+          details: {
+            transactionId: txn.id,
+            type: txn.type,
+            amount: amountNum,
+            refundReference: requiresRefund ? refundRef : undefined,
+            newBalance: targetUser ? targetUser.balance : undefined,
+            newLedger: targetUser ? targetUser.ledgerBalance : undefined,
+            reason: finalReason
+          }
         });
       } catch (_) {}
 
       try { syncTransactionToFirestore(txn); } catch (_) {}
       this.saveDB(this.db);
-      return { transaction: txn };
+      return { transaction: txn, user: targetUser };
     } finally {
       this.releaseLock(lockKey);
     }
   }
 
-  public async rejectTransactionAsync(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
+  public async rejectTransactionAsync(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction; user?: User; message?: string }> {
+    if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
+    if (!transactionId || typeof transactionId !== 'string') {
+      throw new Error('Transaction ID is required.');
+    }
+
     this.reloadFromDisk();
     const cleanId = (transactionId || '').trim().toLowerCase();
-    let existing = this.db.transactions.find(t => 
+    let txn = this.db.transactions.find(t => 
       (t.id && t.id.toLowerCase() === cleanId) || 
       (t.reference && t.reference.toLowerCase() === cleanId)
     );
 
-    if (!existing) {
+    if (!txn) {
       try {
         const fsTxns = await getTransactionsFromFirestore();
         const found = fsTxns.find(t => 
@@ -2690,76 +2753,313 @@ class DatabaseManager {
         if (found) {
           this.db.transactions.push(found);
           this.saveDB(this.db);
-          existing = found;
+          txn = found;
         }
       } catch (err) {
         console.warn('Firestore fallback lookup in rejectTransactionAsync failed:', err);
       }
     }
 
-    if (!existing && rawTxnFallback) {
+    if (!txn && rawTxnFallback) {
       this.db.transactions.push(rawTxnFallback);
       this.saveDB(this.db);
-      existing = rawTxnFallback;
+      txn = rawTxnFallback;
     }
 
-    const result = this.rejectTransaction(adminUser, transactionId, reason, rawTxnFallback);
+    if (!txn) {
+      throw new Error(`Transaction ${transactionId} not found in database or Firestore.`);
+    }
 
-    // Sync all matching records in Firestore to ensure single source of truth
-    try {
-      const fsTxns = await getTransactionsFromFirestore();
-      const matchingFs = fsTxns.filter(t => 
-        (t.id && t.id.toLowerCase() === cleanId) || 
-        (t.reference && t.reference.toLowerCase() === cleanId) ||
-        (result.transaction.id && t.id === result.transaction.id) ||
-        (result.transaction.reference && t.reference && t.reference === result.transaction.reference)
-      );
+    // Check if already approved
+    if (isStatusApproved(txn.status)) {
+      throw new Error('This transaction has already been approved and cannot be cancelled or refunded.');
+    }
 
-      const finalReason = result.transaction.cancelReason || reason || 'Cancelled / Declined by SVB Review';
-      const now = new Date().toISOString();
+    // Determine if refund is required
+    const isDeposit = isDepositTransaction(txn);
+    const requiresRefund = !isDeposit;
 
-      for (const m of matchingFs) {
-        m.status = result.transaction.status;
-        m.cancelledAt = result.transaction.cancelledAt || now;
-        m.cancelledByAdminEmail = adminUser.email;
-        m.cancelReason = finalReason;
-        m.adminNotes = finalReason;
-        m.updatedAt = now;
-        await syncTransactionToFirestore(m);
+    // Double Refund Protection (Idempotency Check)
+    const isAlreadyRefunded = txn.status === 'Refunded' || !!txn.refundedAt || !!txn.refundReference;
+    const isAlreadyCancelled = isStatusRejected(txn.status) || !!txn.cancelledAt;
+
+    // Resolve user account across memory and Firestore
+    let targetUser = txn.userId ? this.findUserById(txn.userId) : undefined;
+    if (!targetUser && txn.userEmail) {
+      targetUser = this.findUserByEmail(txn.userEmail);
+    }
+    const accNo = txn.accountNumber || (txn as any).senderAccountNumber;
+    if (!targetUser && accNo) {
+      targetUser = this.findUserByAccountNumber(accNo);
+    }
+
+    // Fallback to Firestore for targetUser if not in memory
+    if (!targetUser && txn.userId) {
+      try {
+        const fsUser = await getUserFromFirestore(txn.userId);
+        if (fsUser) targetUser = fsUser;
+      } catch (e) {
+        console.warn('Firestore user lookup by userId failed:', e);
       }
-      await syncTransactionToFirestore(result.transaction);
+    }
+    if (!targetUser && txn.userEmail) {
+      try {
+        const fsUser = await getUserFromFirestore(txn.userEmail);
+        if (fsUser) targetUser = fsUser;
+      } catch (e) {
+        console.warn('Firestore user lookup by userEmail failed:', e);
+      }
+    }
+    if (!targetUser && accNo) {
+      try {
+        const fsUser = await getUserFromFirestore(accNo);
+        if (fsUser) targetUser = fsUser;
+      } catch (e) {
+        console.warn('Firestore user lookup by accountNumber failed:', e);
+      }
+    }
 
-      // Also sync user and pendingCryptoDeposit in Firestore
-      const targetUser = result.transaction.userId ? this.findUserById(result.transaction.userId) : undefined;
-      if (targetUser) {
-        if (targetUser.pendingCryptoDeposit) {
+    // If already refunded or cancelled: DO NOT refund again (Idempotency)
+    if (isAlreadyRefunded || isAlreadyCancelled) {
+      return {
+        transaction: txn,
+        user: targetUser,
+        message: `Transaction ${txn.reference || txn.id} was already ${txn.status}. No duplicate refund processed.`
+      };
+    }
+
+    // Critical Integrity Check:
+    // "Do not mark a cancellation as fully successful if the required refund fails."
+    // If an outgoing transfer requires a refund and target sender user cannot be found, FAIL!
+    if (requiresRefund && !targetUser) {
+      throw new Error(`Refund failed: Sender account (${txn.userId || txn.userEmail || accNo || 'unknown'}) could not be located in database or Firestore to issue the required refund. Transaction was NOT cancelled to prevent balance discrepancy.`);
+    }
+
+    // Ensure targetUser is in this.db.users
+    if (targetUser) {
+      const idx = this.db.users.findIndex(u => u.id === targetUser!.id || (u.email && targetUser!.email && u.email.toLowerCase() === targetUser!.email.toLowerCase()));
+      if (idx >= 0) {
+        targetUser = this.db.users[idx];
+      } else {
+        this.db.users.push(targetUser);
+      }
+    }
+
+    const lockKey = `txn:${txn.id || cleanId}`;
+    this.acquireLock(lockKey);
+
+    try {
+      // Re-check idempotency under lock
+      if (txn.status === 'Refunded' || !!txn.refundedAt) {
+        return {
+          transaction: txn,
+          user: targetUser,
+          message: `Transaction ${txn.reference || txn.id} was already refunded.`
+        };
+      }
+
+      const now = new Date().toISOString();
+      const finalReason = typeof reason === 'string' && reason.trim().length > 0 
+        ? reason.trim() 
+        : 'Cancelled / Declined by SVB Review';
+
+      const amountNum = typeof txn.amount === 'number' && !isNaN(txn.amount) 
+        ? txn.amount 
+        : (Number(txn.amount) || 0);
+
+      const finalStatus: TransactionStatus = requiresRefund ? 'Refunded' : 'Cancelled';
+      const refundRef = `REFUND-${(txn.reference || txn.id).replace(/[^A-Za-z0-9]/g, '').slice(-8)}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Execute balance restoration
+      if (requiresRefund && targetUser) {
+        if (amountNum <= 0) {
+          throw new Error('Invalid transaction amount: cannot refund zero or negative balance.');
+        }
+        const prevBal = Number(targetUser.balance) || 0;
+        const prevLedger = Number(targetUser.ledgerBalance !== undefined ? targetUser.ledgerBalance : targetUser.balance) || 0;
+
+        targetUser.balance = Number((prevBal + amountNum).toFixed(2));
+        targetUser.ledgerBalance = Number((prevLedger + amountNum).toFixed(2));
+        targetUser.updatedAt = now;
+      }
+
+      txn.status = finalStatus;
+      txn.updatedAt = now;
+      txn.cancelledAt = now;
+      txn.cancelledByAdminEmail = adminUser.email;
+      txn.cancelReason = finalReason;
+      txn.adminNotes = finalReason;
+
+      if (requiresRefund) {
+        txn.refundedAt = now;
+        txn.refundAmount = amountNum;
+        txn.refundReference = refundRef;
+        txn.refundedByAdminEmail = adminUser.email;
+      }
+
+      // Also update any matching duplicate transactions in memory
+      this.db.transactions.forEach(t => {
+        if ((t.id === txn.id || (t.reference && txn.reference && t.reference === txn.reference)) && isStatusPending(t.status)) {
+          t.status = finalStatus;
+          t.updatedAt = now;
+          t.cancelledAt = now;
+          t.cancelledByAdminEmail = adminUser.email;
+          t.cancelReason = finalReason;
+          t.adminNotes = finalReason;
+          if (requiresRefund) {
+            t.refundedAt = now;
+            t.refundAmount = amountNum;
+            t.refundReference = refundRef;
+            t.refundedByAdminEmail = adminUser.email;
+          }
+        }
+      });
+
+      // Update matching bill payment if present
+      if (this.db.billPayments) {
+        const matchingBill = this.db.billPayments.find(b =>
+          (b.reference && (b.reference === txn.reference || b.reference === txn.id)) ||
+          b.id === txn.id || (txn.reference && b.id === txn.reference)
+        );
+        if (matchingBill) {
+          matchingBill.status = 'Cancelled';
+          matchingBill.updatedAt = now;
+        }
+      }
+
+      // Update matching crypto activation deposit if present
+      if (this.db.cryptoActivationDeposits) {
+        const matchingDep = this.db.cryptoActivationDeposits.find(d => 
+          ((targetUser && d.userId === targetUser.id) || d.id === txn.id || (txn.reference && d.id === txn.reference)) && 
+          d.status === 'Pending'
+        );
+        if (matchingDep) {
+          matchingDep.status = 'Rejected';
+          matchingDep.adminNotes = finalReason;
+          matchingDep.updatedAt = now;
+          try { syncCryptoDepositToFirestore(matchingDep); } catch (_) {}
+        }
+        if (targetUser && targetUser.pendingCryptoDeposit) {
           targetUser.pendingCryptoDeposit.status = 'Rejected';
           targetUser.pendingCryptoDeposit.adminNotes = finalReason;
           targetUser.pendingCryptoDeposit.updatedAt = now;
         }
-        await syncUserToFirestore(targetUser);
       }
 
-      // Also sync matching crypto activation deposits in Firestore
-      const fsDeps = await getAllCryptoDepositsFromFirestore();
-      const matchingDeps = fsDeps.filter(d => 
-        (d.userId === result.transaction.userId || 
-         d.id === result.transaction.id || 
-         (result.transaction.reference && d.id === result.transaction.reference) ||
-         d.id.toLowerCase() === cleanId || 
-         (d.userEmail && result.transaction.userEmail && d.userEmail.toLowerCase() === result.transaction.userEmail.toLowerCase())) &&
-        d.status === 'Pending'
-      );
-      for (const md of matchingDeps) {
-        md.status = 'Rejected';
-        md.updatedAt = now;
-        await syncCryptoDepositToFirestore(md);
+      // Clear any stale pending notification for this transaction
+      if (txn.userId) {
+        try { this.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id); } catch (_) {}
       }
-    } catch (err) {
-      console.warn('Syncing Firestore in rejectTransactionAsync:', err);
+
+      // Create notification for target user
+      if (targetUser) {
+        const notif: UserNotification = {
+          id: `notif-${Date.now()}-rej`,
+          userId: targetUser.id,
+          title: requiresRefund ? 'Transfer Cancelled & Funds Refunded' : 'Deposit Request Declined',
+          message: requiresRefund
+            ? `Your transfer ${txn.reference || txn.id} of $${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been cancelled. Funds of $${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} have been restored to your wallet balance. Available balance: $${targetUser.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Reason: ${finalReason}`
+            : `Deposit request ${txn.reference || txn.id} of $${amountNum.toFixed(2)} was declined by Silicon Valley Bank. Reason: ${finalReason}`,
+          amount: amountNum,
+          currency: txn.currency || 'USD',
+          reference: requiresRefund ? refundRef : (txn.reference || txn.id),
+          read: false,
+          createdAt: now
+        };
+        if (!this.db.notifications) this.db.notifications = [];
+        this.db.notifications.unshift(notif);
+        try { syncNotificationToFirestore(notif); } catch (_) {}
+      }
+
+      try {
+        this.addAuditLog({
+          adminId: adminUser.id,
+          adminEmail: adminUser.email,
+          action: requiresRefund ? 'TRANSFER_REFUNDED' : 'TRANSFER_CANCELLED',
+          targetEmail: txn.userEmail || (targetUser ? targetUser.email : ''),
+          targetAccountNumber: txn.accountNumber || (targetUser ? targetUser.accountNumber : ''),
+          description: `Admin ${adminUser.email} ${requiresRefund ? 'cancelled and refunded' : 'declined'} transaction ${txn.reference || txn.id} ($${amountNum})`,
+          details: {
+            transactionId: txn.id,
+            type: txn.type,
+            amount: amountNum,
+            refundReference: requiresRefund ? refundRef : undefined,
+            newBalance: targetUser ? targetUser.balance : undefined,
+            newLedger: targetUser ? targetUser.ledgerBalance : undefined,
+            reason: finalReason
+          }
+        });
+      } catch (_) {}
+
+      // Save to disk
+      this.saveDB(this.db);
+
+      // Sync user to Firestore
+      if (targetUser) {
+        try {
+          await syncUserToFirestore(targetUser);
+        } catch (fsErr) {
+          console.warn('syncUserToFirestore in rejectTransactionAsync failed:', fsErr);
+        }
+      }
+
+      // Sync transactions to Firestore
+      try {
+        const fsTxns = await getTransactionsFromFirestore();
+        const cleanRef = (txn.reference || '').trim().toLowerCase();
+        const matchingFs = fsTxns.filter(t => 
+          (t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) || 
+          (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId)) ||
+          (txn.id && t.id === txn.id) ||
+          (txn.reference && t.reference && t.reference === txn.reference)
+        );
+
+        for (const m of matchingFs) {
+          m.status = finalStatus;
+          m.cancelledAt = now;
+          m.cancelledByAdminEmail = adminUser.email;
+          m.cancelReason = finalReason;
+          m.adminNotes = finalReason;
+          m.updatedAt = now;
+          if (requiresRefund) {
+            m.refundedAt = now;
+            m.refundAmount = amountNum;
+            m.refundReference = refundRef;
+            m.refundedByAdminEmail = adminUser.email;
+          }
+          await syncTransactionToFirestore(m);
+        }
+        await syncTransactionToFirestore(txn);
+
+        // Also sync matching crypto activation deposits in Firestore
+        const fsDeps = await getAllCryptoDepositsFromFirestore();
+        const matchingDeps = fsDeps.filter(d => 
+          (d.userId === txn.userId || 
+           d.id === txn.id || 
+           (txn.reference && d.id === txn.reference) ||
+           d.id.toLowerCase() === cleanId || 
+           (d.userEmail && txn.userEmail && d.userEmail.toLowerCase() === txn.userEmail.toLowerCase())) &&
+          d.status === 'Pending'
+        );
+        for (const md of matchingDeps) {
+          md.status = 'Rejected';
+          md.updatedAt = now;
+          await syncCryptoDepositToFirestore(md);
+        }
+      } catch (err) {
+        console.warn('Syncing Firestore in rejectTransactionAsync:', err);
+      }
+
+      return {
+        transaction: txn,
+        user: targetUser,
+        message: requiresRefund
+          ? `Transaction ${txn.reference || txn.id} cancelled. $${amountNum.toFixed(2)} refunded to user balance.`
+          : `Transaction ${txn.reference || txn.id} cancelled.`
+      };
+    } finally {
+      this.releaseLock(lockKey);
     }
-
-    return result;
   }
 
   public async approveTransactionAsync(adminUser: User, transactionId: string, senderNameInput?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction }> {
@@ -3712,23 +4012,31 @@ class DatabaseManager {
   }
 
   public payBill(user: User, data: { billerName: string; billerCategory: any; amount: number; accountNumber: string; reference?: string; fourDigitCode?: string }): { user: User; billPayment: BillPayment; transaction: Transaction } {
+    const actualUser = this.findUserById(user.id) || user;
     const amount = Number(data.amount);
     if (amount <= 0) throw new Error('Bill amount must be greater than zero.');
-    if (user.balance < amount) throw new Error(`Insufficient funds for bill payment. Available balance: $${user.balance.toFixed(2)}.`);
+    if (actualUser.balance < amount) throw new Error(`Insufficient funds for bill payment. Available balance: $${actualUser.balance.toFixed(2)}.`);
 
-    if (user.role !== 'admin') {
-      if (!user.transferCodeApproved || !user.fourDigitCode) {
+    if (actualUser.role !== 'admin') {
+      if (!actualUser.transferCodeApproved || !actualUser.fourDigitCode) {
         throw new Error('4-Digit Security Code Required: You must obtain an approved 4-Digit Security Code via a $2,500 deposit before executing bill payments.');
       }
-      if (!data.fourDigitCode || data.fourDigitCode.trim() !== user.fourDigitCode.trim()) {
+      if (!data.fourDigitCode || data.fourDigitCode.trim() !== actualUser.fourDigitCode.trim()) {
         throw new Error('Invalid 4-Digit Security Code. Please enter your valid 4-digit authorization code.');
       }
-      if (user.verificationTier !== 'Tier 3') {
+      if (actualUser.verificationTier !== 'Tier 3') {
         throw new Error('TIER_3_UPGRADE_REQUIRED: Tier 3 VIP Account Upgrade Required. To complete bill payments with your 4-Digit Security Code, your account must be upgraded to Tier 3 VIP Status.');
       }
     }
 
-    user.balance -= amount;
+    actualUser.balance = Number((actualUser.balance - amount).toFixed(2));
+    if (actualUser.ledgerBalance !== undefined) {
+      actualUser.ledgerBalance = Number((actualUser.ledgerBalance - amount).toFixed(2));
+    }
+    if (user !== actualUser) {
+      user.balance = actualUser.balance;
+      user.ledgerBalance = actualUser.ledgerBalance;
+    }
     const ref = data.reference || `INV-${Date.now().toString().slice(-6)}`;
     const now = new Date().toISOString();
     const isPending = user.role !== 'admin';

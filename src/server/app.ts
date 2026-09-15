@@ -825,7 +825,11 @@ app.post('/api/admin/reject-transaction', async (req, res) => {
     if (!transactionId) return res.status(400).json({ error: 'Transaction ID is required.' });
 
     const result = await dbManager.rejectTransactionAsync(user, transactionId, reason, transaction);
-    res.json({ message: 'Transaction rejected and funds returned to user.', transaction: result.transaction });
+    res.json({ 
+      message: result.message || 'Transaction rejected and funds returned to user.', 
+      transaction: result.transaction,
+      updatedUser: result.user
+    });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reject transaction.' });
   }

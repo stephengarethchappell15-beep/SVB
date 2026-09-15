@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Transaction, AuditLog, DepositPayload, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected } from '../types';
+import { User, Transaction, AuditLog, DepositPayload, CryptoActivationDeposit, Tier3VerificationRequest, isStatusPending, isStatusApproved, isStatusRejected, isDepositTransaction } from '../types';
 import { api } from '../services/api';
 import { AdminDepositPanel } from './AdminDepositPanel';
 import { AdminAuditLogs } from './AdminAuditLogs';
@@ -657,7 +657,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     const reason = 'Cancelled by SVB Review';
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
-    const isDeposit = txn && (((txn.type || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('verification')));
+    const isDeposit = txn ? isDepositTransaction(txn) : false;
     const finalStatus = isDeposit ? 'Cancelled' : 'Refunded';
     const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
     setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: finalStatus, updatedAt: new Date().toISOString() } : t));
@@ -708,7 +708,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
 
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
 
-    const isDeposit = txn && (((txn.type || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('deposit')) || ((txn.description || '').toLowerCase().includes('verification')));
+    const isDeposit = txn ? isDepositTransaction(txn) : false;
     const finalStatus = isDeposit ? 'Cancelled' : 'Refunded';
 
     // Optimistically update local sysTxns status to finalStatus immediately

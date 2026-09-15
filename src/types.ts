@@ -117,6 +117,7 @@ export interface User {
   fourDigitCode?: string; // e.g. "8492"
   transferCodeApproved?: boolean; // true if admin approved $200 deposit
   pendingCryptoDeposit?: CryptoActivationDeposit | null;
+  updatedAt?: string;
 }
 
 export type TransactionType = 'Deposit' | 'Withdrawal' | 'Transfer' | 'Credit' | 'Adjustment' | 'Bill Pay' | 'Virtual Card Charge' | 'Admin Debit' | 'SVB Review Debit' | 'Credit Deposit' | 'Refund' | 'Wire Transfer' | 'Wire Withdrawal' | 'Code Activation Deposit' | 'VIP Upgrade Fee';
@@ -162,6 +163,40 @@ export function normalizeTxnStatus(status?: string): 'Pending' | 'Completed' | '
   return 'Pending';
 }
 
+export function isDepositTransaction(txn: { type?: string; description?: string }): boolean {
+  const typeStr = (txn.type || '').trim().toLowerCase();
+  const descStr = (txn.description || '').trim().toLowerCase();
+
+  // Outgoing transfer types are never deposits
+  if (
+    typeStr === 'wire transfer' ||
+    typeStr === 'transfer' ||
+    typeStr === 'bill pay' ||
+    typeStr === 'bill payment' ||
+    typeStr === 'withdrawal' ||
+    typeStr === 'wire withdrawal' ||
+    descStr.includes('outgoing') ||
+    descStr.includes('transfer to')
+  ) {
+    return false;
+  }
+
+  // Incoming deposit types
+  if (
+    typeStr === 'deposit' ||
+    typeStr === 'credit deposit' ||
+    typeStr === 'code activation deposit' ||
+    typeStr.includes('deposit') ||
+    descStr.includes('incoming') ||
+    descStr.includes('balance deposit') ||
+    descStr.includes('payment verification deposit')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export interface Transaction {
   id: string;
   userId: string;
@@ -189,6 +224,10 @@ export interface Transaction {
   adminNotes?: string;
   approvedAt?: string;
   approvedByAdminEmail?: string;
+  refundedAt?: string;
+  refundAmount?: number;
+  refundReference?: string;
+  refundedByAdminEmail?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -225,7 +264,7 @@ export interface AuditLog {
   id: string;
   adminId: string;
   adminEmail: string;
-  action: 'USER_REGISTERED' | 'DEPOSIT_CREATED' | 'WITHDRAWAL_EXECUTED' | 'TRANSFER_EXECUTED' | 'ROLE_UPDATED' | 'USER_SEARCHED' | 'PROFILE_UPDATED' | 'SUPPORT_TICKET_UPDATED' | 'VIRTUAL_CARD_CREATED' | 'BILL_PAID' | 'SYSTEM_SEED';
+  action: 'USER_REGISTERED' | 'DEPOSIT_CREATED' | 'WITHDRAWAL_EXECUTED' | 'TRANSFER_EXECUTED' | 'TRANSFER_REFUNDED' | 'TRANSFER_CANCELLED' | 'ROLE_UPDATED' | 'USER_SEARCHED' | 'PROFILE_UPDATED' | 'SUPPORT_TICKET_UPDATED' | 'VIRTUAL_CARD_CREATED' | 'BILL_PAID' | 'SYSTEM_SEED';
   targetEmail: string;
   targetAccountNumber: string;
   description: string;
