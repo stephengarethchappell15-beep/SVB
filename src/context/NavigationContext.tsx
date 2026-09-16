@@ -14,7 +14,8 @@ export type MainTabType =
   | 'profile' 
   | 'settings' 
   | 'support' 
-  | 'admin';
+  | 'admin'
+  | 'receipt';
 
 export interface NavigationState {
   tab: MainTabType;
@@ -36,7 +37,8 @@ export const TAB_TITLES: Record<MainTabType, string> = {
   profile: 'Account Profile',
   settings: 'Security & Settings',
   support: 'Customer Support',
-  admin: 'SVB Review Admin Portal'
+  admin: 'SVB Review Admin Portal',
+  receipt: 'Official Transaction Receipt'
 };
 
 export const ADMIN_SUBTAB_TITLES: Record<string, string> = {
@@ -93,15 +95,19 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user?: User | n
       if (event.state && event.state.tab) {
         const targetTab: MainTabType = event.state.tab;
         const targetSubTab: string | undefined = event.state.subTab;
+        const targetData: any = event.state.data;
         const targetTitle = targetSubTab && ADMIN_SUBTAB_TITLES[targetSubTab] 
           ? ADMIN_SUBTAB_TITLES[targetSubTab] 
           : TAB_TITLES[targetTab] || targetTab;
 
         setHistoryStack(prev => {
-          if (prev.length > 1) {
+          if (typeof event.state.index === 'number' && event.state.index >= 0 && event.state.index < prev.length) {
+            return prev.slice(0, event.state.index + 1);
+          }
+          if (prev.length > 1 && prev[prev.length - 2].tab === targetTab) {
             return prev.slice(0, prev.length - 1);
           }
-          return [{ tab: targetTab, subTab: targetSubTab, title: targetTitle }];
+          return [{ tab: targetTab, subTab: targetSubTab, title: targetTitle, data: targetData }];
         });
       } else {
         setHistoryStack(prev => (prev.length > 1 ? prev.slice(0, prev.length - 1) : prev));
@@ -141,7 +147,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user?: User | n
         updated[updated.length - 1] = newState;
         try {
           if (typeof window !== 'undefined') {
-            window.history.replaceState({ tab, subTab: options?.subTab, index: updated.length - 1 }, '');
+            window.history.replaceState({ tab, subTab: options?.subTab, data: options?.data, index: updated.length - 1 }, '');
           }
         } catch (e) {}
         return updated;
@@ -150,7 +156,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user?: User | n
       const nextStack = [...prev, newState];
       try {
         if (typeof window !== 'undefined') {
-          window.history.pushState({ tab, subTab: options?.subTab, index: nextStack.length - 1 }, '');
+          window.history.pushState({ tab, subTab: options?.subTab, data: options?.data, index: nextStack.length - 1 }, '');
         }
       } catch (e) {}
       return nextStack;
@@ -184,29 +190,29 @@ export const NavigationProvider: React.FC<{ children: ReactNode; user?: User | n
     setHistoryStack(prev => {
       if (prev.length > 1) {
         const nextStack = prev.slice(0, prev.length - 1);
+        const targetState = nextStack[nextStack.length - 1];
         try {
           if (typeof window !== 'undefined') {
-            window.history.back();
+            window.history.replaceState(
+              { tab: targetState.tab, subTab: targetState.subTab, data: targetState.data, index: nextStack.length - 1 },
+              ''
+            );
           }
         } catch (e) {}
         return nextStack;
       }
       
       const fallbackTab: MainTabType = user ? (user.role === 'admin' ? 'admin' : 'dashboard') : 'dashboard';
-      if (prev.length === 1 && prev[0].tab !== fallbackTab) {
-        const fallbackState: NavigationState = {
-          tab: fallbackTab,
-          title: TAB_TITLES[fallbackTab]
-        };
-        try {
-          if (typeof window !== 'undefined') {
-            window.history.pushState({ tab: fallbackTab, index: 0 }, '');
-          }
-        } catch (e) {}
-        return [fallbackState];
-      }
-
-      return prev;
+      const fallbackState: NavigationState = {
+        tab: fallbackTab,
+        title: TAB_TITLES[fallbackTab]
+      };
+      try {
+        if (typeof window !== 'undefined') {
+          window.history.replaceState({ tab: fallbackTab, index: 0 }, '');
+        }
+      } catch (e) {}
+      return [fallbackState];
     });
   }, [user]);
 

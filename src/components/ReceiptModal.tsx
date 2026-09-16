@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { Transaction } from '../types';
 import { 
   Building2, 
@@ -27,6 +27,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
 
   if (!transaction) return null;
 
+  const backDestinationText = useMemo(() => {
+    if (activeTab === 'send' || activeTab === 'withdraw') return 'Dashboard';
+    if (activeTab === 'history') return 'Transaction History';
+    if (activeTab === 'admin') return 'SVB Review';
+    if (activeTab === 'dashboard') return 'Dashboard';
+    if (previousState?.title) return previousState.title;
+    return 'Dashboard';
+  }, [activeTab, previousState]);
+
   const handlePrint = () => {
     window.print();
   };
@@ -38,10 +47,26 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
     // 2. Perform contextual navigation back to previous view
     if (activeTab === 'send' || activeTab === 'withdraw') {
       navigateTo('dashboard');
-    } else if (canGoBack) {
+    } else if (activeTab === 'receipt') {
+      if (canGoBack) {
+        goBack();
+      } else {
+        navigateTo('dashboard');
+      }
+    } else if (canGoBack && previousState && previousState.tab !== activeTab) {
       goBack();
     }
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleBack();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleBack]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -83,7 +108,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
   const transferTypeDisplay = transaction.transferType || (transaction.destinationCountry && transaction.destinationCountry !== 'United States' ? 'International' : 'Domestic');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleBack();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto"
+    >
       <style>{`
         @media print {
           body * {
@@ -119,21 +149,34 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
         
         {/* Top Control Bar */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60 no-print">
-          <div className="flex items-center gap-2">
-            <FileCheck2 className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs font-bold text-white uppercase tracking-wider">SVB Official Receipt</span>
+          <div className="flex items-center gap-3">
+            <button
+              id="receipt-top-back-btn"
+              onClick={handleBack}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-200 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-700 shadow-sm cursor-pointer hover:border-emerald-500/50"
+              title={`Return to ${backDestinationText}`}
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Back</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <FileCheck2 className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">SVB Official Receipt</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrint}
-              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/10"
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/10 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print / Save PDF</span>
             </button>
             <button
-              onClick={onClose}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors"
+              id="receipt-close-x-btn"
+              onClick={handleBack}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+              title="Close receipt"
             >
               <X className="w-4 h-4" />
             </button>
@@ -331,7 +374,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
               className="w-full py-3 px-5 bg-slate-800/90 hover:bg-slate-700 active:bg-slate-900 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all border border-slate-700 shadow-md cursor-pointer hover:border-emerald-500/50"
             >
               <ArrowLeft className="w-4 h-4 text-emerald-400" />
-              <span>← Back to {previousState?.title || (activeTab === 'admin' ? 'Admin Review' : activeTab === 'history' ? 'Transaction History' : 'Dashboard')}</span>
+              <span>← Back to {backDestinationText}</span>
             </button>
           </div>
 
@@ -345,7 +388,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
             className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-slate-700 cursor-pointer shadow-sm"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
-            <span>← Back</span>
+            <span>← Back to {backDestinationText}</span>
           </button>
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
@@ -356,7 +399,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
               <span>Print Advice Slip</span>
             </button>
             <button
-              onClick={onClose}
+              id="receipt-modal-close-btn"
+              onClick={handleBack}
               className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-700/50"
             >
               Close

@@ -253,6 +253,30 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
               <span>Destination:</span>
               <span className="text-slate-200">{bankName} (****{accountNumber.slice(-4)})</span>
             </p>
+
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-emerald-500/20 font-sans">
+              <button
+                type="button"
+                onClick={() => onNavigateTab('dashboard')}
+                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              >
+                <span>← Return to Dashboard</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateTab('history')}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-700 cursor-pointer"
+              >
+                <span>View Transaction History</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSuccessTxn(null)}
+                className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-medium transition-colors cursor-pointer ml-auto"
+              >
+                + New Withdrawal
+              </button>
+            </div>
           </div>
         </div>
       )}

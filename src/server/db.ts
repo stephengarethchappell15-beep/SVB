@@ -732,8 +732,19 @@ class DatabaseManager {
       const fsUser = await getUserFromFirestore(queryStr);
       if (fsUser) {
         if (memoryUser) {
-          if (fsUser.balance !== undefined) memoryUser.balance = fsUser.balance;
-          if (fsUser.ledgerBalance !== undefined) memoryUser.ledgerBalance = fsUser.ledgerBalance;
+          const fsTime = fsUser.updatedAt ? new Date(fsUser.updatedAt).getTime() : 0;
+          const memTime = memoryUser.updatedAt ? new Date(memoryUser.updatedAt).getTime() : 0;
+
+          // Only overwrite memory balances if Firestore is strictly NEWER!
+          if (fsTime > memTime) {
+            if (fsUser.balance !== undefined) memoryUser.balance = fsUser.balance;
+            if (fsUser.ledgerBalance !== undefined) memoryUser.ledgerBalance = fsUser.ledgerBalance;
+            if (fsUser.updatedAt) memoryUser.updatedAt = fsUser.updatedAt;
+          } else if (memTime > fsTime && memoryUser.balance !== fsUser.balance) {
+            // Memory is newer than Firestore (e.g. recent refund/transfer). Sync to Firestore to keep it updated!
+            syncUserToFirestore(memoryUser).catch(e => console.warn('Background sync memory to Firestore error:', e));
+          }
+
           if (fsUser.fourDigitCode !== undefined) memoryUser.fourDigitCode = fsUser.fourDigitCode;
           if (fsUser.transferCodeApproved !== undefined) memoryUser.transferCodeApproved = fsUser.transferCodeApproved;
           if (fsUser.verificationTier !== undefined) memoryUser.verificationTier = fsUser.verificationTier;
@@ -805,13 +816,19 @@ class DatabaseManager {
       const fsUser = await getUserFromFirestore(id) || (cleanId !== raw ? await getUserFromFirestore(cleanId) : null);
       if (fsUser && fsUser.balance !== undefined) {
         if (memoryUser) {
-          if (fsUser.balance !== memoryUser.balance || (fsUser.updatedAt && memoryUser.updatedAt && new Date(fsUser.updatedAt) > new Date(memoryUser.updatedAt))) {
+          const fsTime = fsUser.updatedAt ? new Date(fsUser.updatedAt).getTime() : 0;
+          const memTime = memoryUser.updatedAt ? new Date(memoryUser.updatedAt).getTime() : 0;
+
+          if (fsTime > memTime) {
             memoryUser.balance = fsUser.balance;
             memoryUser.ledgerBalance = fsUser.ledgerBalance !== undefined ? fsUser.ledgerBalance : fsUser.balance;
             if (fsUser.updatedAt) memoryUser.updatedAt = fsUser.updatedAt;
             const idx = this.db.users.findIndex(u => u.id === memoryUser!.id);
             if (idx >= 0) this.db.users[idx] = memoryUser;
             this.saveDB(this.db);
+          } else if (memTime > fsTime && memoryUser.balance !== fsUser.balance) {
+            // Memory has the newer balance (e.g. from refund or transfer), sync it to Firestore
+            syncUserToFirestore(memoryUser).catch(e => console.warn('Background sync memory to Firestore error:', e));
           }
           return memoryUser;
         } else {
@@ -2851,8 +2868,9 @@ class DatabaseManager {
     const requiresRefund = !isDeposit;
 
     // Double Refund Protection (Idempotency Check)
-    const isAlreadyRefunded = txn.status === 'Refunded' || !!txn.refundedAt || !!txn.refundReference;
-    const isAlreadyCancelled = isStatusRejected(txn.status) || !!txn.cancelledAt;
+    // A transaction is only already refunded if it has both status Refunded AND completed refund timestamps/references
+    const isAlreadyRefunded = txn.status === 'Refunded' && !!txn.refundedAt && !!txn.refundReference;
+    const isDepositCancelled = !requiresRefund && (isStatusRejected(txn.status) || !!txn.cancelledAt);
 
     // Resolve user account across memory and Firestore
     let targetUser = txn.userId ? this.findUserById(txn.userId) : undefined;
@@ -2864,38 +2882,56 @@ class DatabaseManager {
       targetUser = this.findUserByAccountNumber(accNo);
     }
 
-    // Always fetch latest user record from Firestore to prevent stale memory balance
+    // Fetch latest user record from Firestore to prevent stale memory balance
     try {
       let fsUser: User | null = null;
       if (txn.userId) fsUser = await getUserFromFirestore(txn.userId);
       if (!fsUser && txn.userEmail) fsUser = await getUserFromFirestore(txn.userEmail);
       if (!fsUser && accNo) fsUser = await getUserFromFirestore(accNo);
       if (fsUser) {
-        targetUser = fsUser;
+        if (targetUser) {
+          const fsTime = fsUser.updatedAt ? new Date(fsUser.updatedAt).getTime() : 0;
+          const memTime = targetUser.updatedAt ? new Date(targetUser.updatedAt).getTime() : 0;
+          if (fsTime > memTime) {
+            targetUser = { ...targetUser, ...fsUser };
+          }
+        } else {
+          targetUser = fsUser;
+        }
       }
     } catch (e) {
-      console.warn('Firestore user lookup by identifier failed in rejectTransactionAsync:', e);
+      console.warn('Firestore user lookup by identifier in rejectTransactionAsync:', e);
     }
 
     if (!targetUser) {
       try {
         const allFs = await getAllUsersFromFirestore();
-        targetUser = allFs.find(u => 
+        const matched = allFs.find(u => 
           (txn.userId && u.id === txn.userId) ||
           (txn.userEmail && u.email && u.email.toLowerCase() === txn.userEmail.toLowerCase()) ||
           (accNo && u.accountNumber === accNo)
         );
+        if (matched) {
+          targetUser = matched;
+        }
       } catch (e) {
         console.warn('getAllUsersFromFirestore fallback in rejectTransactionAsync failed:', e);
       }
     }
 
-    // If already refunded or cancelled: DO NOT refund again (Double Refund Protection / Idempotency)
-    if (isAlreadyRefunded || isAlreadyCancelled) {
+    // If already refunded or deposit already cancelled: DO NOT refund again
+    if (isAlreadyRefunded) {
       return {
         transaction: txn,
         user: targetUser,
-        message: `Transaction ${txn.reference || txn.id} was already ${txn.status}. No duplicate refund processed.`
+        message: `Transaction ${txn.reference || txn.id} was already refunded on ${txn.refundedAt}. No duplicate refund processed.`
+      };
+    }
+    if (isDepositCancelled) {
+      return {
+        transaction: txn,
+        user: targetUser,
+        message: `Deposit transaction ${txn.reference || txn.id} was already declined/cancelled.`
       };
     }
 
@@ -2921,7 +2957,7 @@ class DatabaseManager {
 
     try {
       // Re-check idempotency under lock
-      if (txn.status === 'Refunded' || !!txn.refundedAt || !!txn.refundReference) {
+      if (requiresRefund && txn.status === 'Refunded' && !!txn.refundedAt && !!txn.refundReference) {
         return {
           transaction: txn,
           user: targetUser,

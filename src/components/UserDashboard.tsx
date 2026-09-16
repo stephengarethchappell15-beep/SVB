@@ -682,7 +682,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="space-y-2.5 text-xs">
               {transactions.length > 0 ? (
                 transactions.slice(0, 4).map((t) => (
-                  <div key={t.id} className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                  <div 
+                    key={t.id} 
+                    onClick={() => onOpenReceipt(t)}
+                    title="Click to view official transaction receipt"
+                    className="flex items-center justify-between border-b border-slate-100 pb-2.5 hover:bg-slate-50/80 p-1.5 rounded-lg transition-colors cursor-pointer group"
+                  >
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="text-[10px] text-slate-400">
@@ -698,11 +703,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           {t.status}
                         </span>
                       </div>
-                      <p className="font-semibold text-slate-800 mt-0.5">{t.description}</p>
+                      <p className="font-semibold text-slate-800 mt-0.5 group-hover:text-emerald-700 transition-colors">{t.description}</p>
                     </div>
                     <div className="text-right">
                       <span className="font-bold text-slate-900 block">
                         {(Number(t.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                      </span>
+                      <span className="text-[10px] text-emerald-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end gap-0.5">
+                        Receipt →
                       </span>
                     </div>
                   </div>
