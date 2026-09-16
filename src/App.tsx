@@ -138,6 +138,28 @@ function AppContent() {
     if (!user) return;
 
     try {
+      // 1. Maintain realtime wallet balance and profile synchronization
+      try {
+        const meRes = await api.getMe();
+        if (meRes && meRes.user) {
+          setUser(prev => {
+            if (!prev) return meRes.user;
+            if (
+              prev.balance !== meRes.user.balance ||
+              prev.ledgerBalance !== meRes.user.ledgerBalance ||
+              prev.verificationTier !== meRes.user.verificationTier ||
+              prev.status !== meRes.user.status ||
+              prev.updatedAt !== meRes.user.updatedAt
+            ) {
+              return { ...prev, ...meRes.user };
+            }
+            return prev;
+          });
+        }
+      } catch (userErr) {
+        console.warn('User profile refresh in fetchData:', userErr);
+      }
+
       if (user.role === 'admin') {
         const txnsRes = await api.getAllTransactions();
         setTransactions(txnsRes.transactions);

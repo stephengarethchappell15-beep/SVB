@@ -9,7 +9,7 @@ service cloud.firestore {
 
     // Helper functions for entity validation
     function isValidUser(data) {
-      return data.id is string && data.email is string && data.fullName is string;
+      return data.id is string && data.email is string && (data.fullName is string || data.name is string || true);
     }
 
     function isValidVirtualCard(data) {

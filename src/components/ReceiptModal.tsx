@@ -12,8 +12,10 @@ import {
   Globe2, 
   CreditCard, 
   FileCheck2, 
-  Lock 
+  Lock,
+  ArrowLeft
 } from 'lucide-react';
+import { useNavigation } from '../context/NavigationContext';
 
 interface ReceiptModalProps {
   transaction: Transaction | null;
@@ -21,10 +23,24 @@ interface ReceiptModalProps {
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose }) => {
+  const { goBack, previousState, canGoBack, activeTab, navigateTo } = useNavigation();
+
   if (!transaction) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleBack = () => {
+    // 1. Close/dismiss the receipt view
+    onClose();
+
+    // 2. Perform contextual navigation back to previous view
+    if (activeTab === 'send' || activeTab === 'withdraw') {
+      navigateTo('dashboard');
+    } else if (canGoBack) {
+      goBack();
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -41,6 +57,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs font-bold">
             <Clock className="w-3.5 h-3.5 animate-pulse" />
             <span>Transaction Pending</span>
+          </div>
+        );
+      case 'Refunded':
+        return (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-xs font-bold">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Refunded & Restored to Wallet</span>
           </div>
         );
       case 'Rejected':
@@ -248,6 +271,34 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
               </div>
             )}
 
+            {/* Refund Information */}
+            {(transaction.status === 'Refunded' || !!transaction.refundReference) && (
+              <div className="pt-3 border-t border-cyan-500/20 bg-cyan-950/10 -mx-6 px-6 py-3 my-1 rounded">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-cyan-400 font-bold uppercase tracking-wider">Wallet Refund Status:</span>
+                  <span className="font-bold text-cyan-300 bg-cyan-500/20 px-2 py-0.5 rounded border border-cyan-500/30">RESTORED TO WALLET</span>
+                </div>
+                {transaction.refundReference && (
+                  <div className="pt-2 flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-medium">Refund Reference:</span>
+                    <span className="font-mono font-bold text-cyan-400">{transaction.refundReference}</span>
+                  </div>
+                )}
+                {transaction.refundedAt && (
+                  <div className="pt-1.5 flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-medium">Refunded Timestamp:</span>
+                    <span className="text-slate-300 font-medium">{new Date(transaction.refundedAt).toLocaleString()}</span>
+                  </div>
+                )}
+                {transaction.cancelReason && (
+                  <div className="pt-1.5 flex justify-between items-start text-xs gap-4">
+                    <span className="text-slate-400 font-medium shrink-0">Reason:</span>
+                    <span className="text-slate-300 font-medium text-right">{transaction.cancelReason}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Processing Security Stamp */}
             <div className="pt-3 flex justify-between items-center">
               <span className="text-slate-400 font-medium">Processing Protocol:</span>
@@ -272,6 +323,45 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
             </p>
           </div>
 
+          {/* Visible Back Navigation Button inside Receipt Details */}
+          <div className="pt-4 border-t border-slate-800/80 no-print">
+            <button
+              id="receipt-details-back-btn"
+              onClick={handleBack}
+              className="w-full py-3 px-5 bg-slate-800/90 hover:bg-slate-700 active:bg-slate-900 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all border border-slate-700 shadow-md cursor-pointer hover:border-emerald-500/50"
+            >
+              <ArrowLeft className="w-4 h-4 text-emerald-400" />
+              <span>← Back to {previousState?.title || (activeTab === 'admin' ? 'Admin Review' : activeTab === 'history' ? 'Transaction History' : 'Dashboard')}</span>
+            </button>
+          </div>
+
+        </div>
+
+        {/* Modal Bottom Actions Bar */}
+        <div className="px-6 py-4 bg-slate-950/95 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
+          <button
+            id="receipt-modal-back-btn"
+            onClick={handleBack}
+            className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-slate-700 cursor-pointer shadow-sm"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
+            <span>← Back</span>
+          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <button
+              onClick={handlePrint}
+              className="w-full sm:w-auto px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-500/10 cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Advice Slip</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-700/50"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
       </div>

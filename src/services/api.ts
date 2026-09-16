@@ -1945,41 +1945,64 @@ export const api = {
     return this.rejectTransaction(txnId, 'Cancelled by SVB Review');
   },
 
-  async rejectTransaction(txnId: string, notes?: string): Promise<void> {
+  async rejectTransaction(txnId: string, notes?: string): Promise<{ transaction?: Transaction; updatedUser?: User; refundLedgerTxn?: Transaction; message?: string }> {
     const existingTxn = dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
+    if (existingTxn && (existingTxn.status === 'Refunded' || !!existingTxn.refundedAt || !!existingTxn.refundReference)) {
+      return { transaction: existingTxn, message: 'Transaction already refunded' };
+    }
     if (existingTxn && isStatusRejected(existingTxn.status)) {
-      return; // Already rejected, prevent double-processing
+      return { transaction: existingTxn, message: 'Transaction already cancelled' };
     }
     if (existingTxn && isStatusApproved(existingTxn.status)) {
-      throw new Error('This transaction has already been approved and cannot be rejected.');
+      throw new Error('This transaction has already been approved and cannot be rejected or refunded.');
     }
 
     let serverTxn: Transaction | undefined;
-    let backendUserRefunded = false;
+    let backendUser: User | undefined;
+    let backendRefundLedger: Transaction | undefined;
+
     try {
-      const backendRes = await requestApi<{ message: string; transaction?: Transaction; updatedUser?: User }>('/admin/reject-transaction', {
+      const backendRes = await requestApi<{ message: string; transaction?: Transaction; updatedUser?: User; refundLedgerTxn?: Transaction }>('/admin/reject-transaction', {
         method: 'POST',
         body: JSON.stringify({ transactionId: txnId, reason: notes, transaction: existingTxn }),
       });
       if (backendRes) {
         if (backendRes.transaction) {
           serverTxn = backendRes.transaction;
+          dbStore.updateTransaction(serverTxn.id, serverTxn);
         }
         if (backendRes.updatedUser) {
-          dbStore.saveUser(backendRes.updatedUser);
-          backendUserRefunded = true;
+          backendUser = backendRes.updatedUser;
+          dbStore.saveUser(backendUser);
         }
+        if (backendRes.refundLedgerTxn) {
+          backendRefundLedger = backendRes.refundLedgerTxn;
+          dbStore.addTransaction(backendRefundLedger);
+        }
+        if (serverTxn) {
+          broadcastRealtimeUpdate('TRANSACTION_UPDATED', serverTxn, serverTxn.userId, serverTxn.id);
+        }
+        if (backendUser) {
+          broadcastRealtimeUpdate('USER_UPDATED', undefined, backendUser.id);
+        }
+        return {
+          transaction: serverTxn,
+          updatedUser: backendUser,
+          refundLedgerTxn: backendRefundLedger,
+          message: backendRes.message
+        };
       }
     } catch (e: any) {
       console.warn('Backend rejectTransaction fallback:', e);
       if (e && e.status === 403) {
         throw new Error('Access denied. Administrator privilege required.');
       }
-      if (e && e.message && e.message.includes('Refund failed')) {
+      if (e && e.message && (e.message.includes('Refund failed') || e.message.includes('already been approved'))) {
         throw e;
       }
     }
 
+    // Client-side / Firestore fallback
     let txn = serverTxn || dbStore.getTransactions().find(t => t.id === txnId || t.reference === txnId);
     if (!txn) {
       try {
@@ -1997,18 +2020,161 @@ export const api = {
     if (!txn) {
       throw new Error(`Transaction ${txnId} not found in database or Firestore to reject / cancel.`);
     }
-    if (txn) {
-      const now = new Date().toISOString();
-      const currentAdmin = dbStore.getCurrentUser();
-      const finalReason = notes || 'Cancelled / Declined by SVB Review';
 
-      const isDeposit = isDepositTransaction(txn);
-      const requiresRefund = !isDeposit;
-      const finalStatus: TransactionStatus = requiresRefund ? 'Refunded' : 'Cancelled';
-      const refundRef = `REFUND-${(txn.reference || txn.id).replace(/[^A-Za-z0-9]/g, '').slice(-8)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    if (isStatusApproved(txn.status)) {
+      throw new Error('This transaction has already been approved and cannot be rejected or refunded.');
+    }
 
-      const updatedTxn: Transaction = {
-        ...txn,
+    if (txn.status === 'Refunded' || !!txn.refundedAt || isStatusRejected(txn.status)) {
+      return { transaction: txn, message: `Transaction already ${txn.status}` };
+    }
+
+    const now = new Date().toISOString();
+    const currentAdmin = dbStore.getCurrentUser();
+    const finalReason = notes || 'Cancelled / Declined by SVB Review';
+
+    const isDeposit = isDepositTransaction(txn);
+    const requiresRefund = !isDeposit;
+    const finalStatus: TransactionStatus = requiresRefund ? 'Refunded' : 'Cancelled';
+    const refundRef = `REFUND-${(txn.reference || txn.id).replace(/[^A-Za-z0-9]/g, '').slice(-8)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const amountNum = typeof txn.amount === 'number' && !isNaN(txn.amount) ? txn.amount : (Number(txn.amount) || 0);
+
+    // Resolve user
+    let user = dbStore.getUserById(txn.userId) || 
+               dbStore.getUsers().find(u => (txn.userEmail && u.email && u.email.toLowerCase() === txn.userEmail.toLowerCase()) || (txn.accountNumber && u.accountNumber === txn.accountNumber));
+    
+    if (!user && txn.userId) {
+      try { user = (await getUserFromFirestore(txn.userId)) || undefined; } catch (_) {}
+    }
+    if (!user && txn.userEmail) {
+      try { user = (await getUserFromFirestore(txn.userEmail)) || undefined; } catch (_) {}
+    }
+    if (!user && txn.accountNumber) {
+      try { user = (await getUserFromFirestore(txn.accountNumber)) || undefined; } catch (_) {}
+    }
+    if (!user) {
+      try {
+        const allFs = await getAllUsersFromFirestore();
+        user = allFs.find(u => 
+          (txn.userId && u.id === txn.userId) ||
+          (txn.userEmail && u.email && u.email.toLowerCase() === txn.userEmail.toLowerCase()) ||
+          (txn.accountNumber && u.accountNumber === txn.accountNumber)
+        );
+      } catch (_) {}
+    }
+
+    // Critical check: If outgoing transfer requires refund, sender account MUST be found!
+    if (requiresRefund && !user) {
+      throw new Error(`Refund failed: Sender account (${txn.userId || txn.userEmail || txn.accountNumber || 'unknown'}) could not be located in database or Firestore to issue the required refund. Transaction was NOT cancelled to prevent balance discrepancy.`);
+    }
+
+    let refundLedgerTxn: Transaction | undefined;
+    let refundedUser: User | undefined;
+
+    // Execute balance restoration FIRST before marking transaction as Refunded
+    if (user && requiresRefund) {
+      if (amountNum <= 0) {
+        throw new Error('Invalid transaction amount: cannot refund zero or negative balance.');
+      }
+      const prevBal = Number(user.balance) || 0;
+      const prevLedger = Number(user.ledgerBalance !== undefined ? user.ledgerBalance : user.balance) || 0;
+
+      const updatedUserData: User = {
+        ...user,
+        balance: Number((prevBal + amountNum).toFixed(2)),
+        ledgerBalance: Number((prevLedger + amountNum).toFixed(2)),
+        updatedAt: now
+      };
+
+      if (updatedUserData.accounts && updatedUserData.accounts.length > 0) {
+        const acc = updatedUserData.accounts.find(a => a.accountNumber === txn.accountNumber) || updatedUserData.accounts[0];
+        if (acc) {
+          acc.balance = Number((Number(acc.balance || 0) + amountNum).toFixed(2));
+        }
+      }
+
+      refundedUser = dbStore.saveUser(updatedUserData);
+      // Ensure Firestore sync completes with throwOnError: true before proceeding
+      await syncUserToFirestore(refundedUser, undefined, { throwOnError: true });
+
+      // Create explicit refund ledger entry transaction
+      refundLedgerTxn = {
+        id: `TXN-REFUND-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        userId: user.id,
+        userEmail: user.email,
+        accountNumber: user.accountNumber,
+        type: 'Refund',
+        amount: amountNum,
+        currency: txn.currency || 'USD',
+        status: 'Completed',
+        reference: `REF-${refundRef}`,
+        description: `Refund: Cancelled ${txn.type || 'Transfer'} (${txn.reference || txn.id}) - Funds Restored`,
+        createdAt: now,
+        updatedAt: now
+      };
+      dbStore.addTransaction(refundLedgerTxn);
+      try {
+        await syncTransactionToFirestore(refundLedgerTxn);
+      } catch (e) {
+        console.warn('Error syncing refund ledger to Firestore:', e);
+      }
+
+      // Create notification for refund
+      const rejNotif: UserNotification = {
+        id: `NOTIF-${Date.now()}-REJ`,
+        userId: user.id,
+        title: 'Transfer Cancelled & Funds Refunded',
+        message: `Your transfer ${txn.reference || txn.id} of ${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been cancelled. Funds of ${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} have been restored to your wallet balance. Available balance: ${refundedUser.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Reason: ${finalReason}`,
+        amount: amountNum,
+        currency: txn.currency || 'USD',
+        reference: refundRef,
+        read: false,
+        createdAt: now
+      };
+      dbStore.addNotification(rejNotif);
+      syncNotificationToFirestore(rejNotif);
+    } else if (user && isDeposit) {
+      const rejNotif: UserNotification = {
+        id: `NOTIF-${Date.now()}-DEP-REJ`,
+        userId: user.id,
+        title: 'Deposit Request Declined',
+        message: `Your deposit request ${txn.reference || txn.id} of ${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} was declined by Silicon Valley Bank. Reason: ${finalReason}`,
+        amount: amountNum,
+        currency: txn.currency || 'USD',
+        reference: txn.reference || txn.id,
+        read: false,
+        createdAt: now
+      };
+      dbStore.addNotification(rejNotif);
+      syncNotificationToFirestore(rejNotif);
+    }
+
+    // ONLY AFTER balance is successfully restored and persisted, mark the transaction as Refunded / Cancelled!
+    const updatedTxn: Transaction = {
+      ...txn,
+      status: finalStatus,
+      updatedAt: now,
+      cancelledAt: now,
+      cancelledByAdminEmail: currentAdmin?.email,
+      cancelReason: finalReason,
+      adminNotes: finalReason,
+      ...(requiresRefund ? {
+        refundedAt: now,
+        refundAmount: amountNum,
+        refundReference: refundRef,
+        refundedByAdminEmail: currentAdmin?.email,
+      } : {})
+    };
+    dbStore.updateTransaction(txn.id, updatedTxn);
+    await syncTransactionToFirestore(updatedTxn);
+
+    // Also update any matching duplicate transactions with same ID or reference in dbStore
+    const allMatching = dbStore.getTransactions().filter(
+      t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && isStatusPending(t.status)
+    );
+    for (const match of allMatching) {
+      const matchUpd: Transaction = {
+        ...match,
         status: finalStatus,
         updatedAt: now,
         cancelledAt: now,
@@ -2017,21 +2183,28 @@ export const api = {
         adminNotes: finalReason,
         ...(requiresRefund ? {
           refundedAt: now,
-          refundAmount: txn.amount,
+          refundAmount: amountNum,
           refundReference: refundRef,
           refundedByAdminEmail: currentAdmin?.email,
         } : {})
       };
-      dbStore.updateTransaction(txn.id, updatedTxn);
-      await syncTransactionToFirestore(updatedTxn);
+      dbStore.updateTransaction(match.id, matchUpd);
+      await syncTransactionToFirestore(matchUpd);
+    }
 
-      // Also update any matching duplicate transactions with same ID or reference in dbStore
-      const allMatching = dbStore.getTransactions().filter(
-        t => (t.id === txn.id || (txn.reference && t.reference === txn.reference) || (t.reference && t.reference === txn.id) || (txn.reference && t.id === txn.reference)) && isStatusPending(t.status)
+    // Also ensure all matching records in Firestore are updated to finalStatus
+    try {
+      const fsTxns = await getTransactionsFromFirestore();
+      const cleanRef = (txn.reference || '').trim().toLowerCase();
+      const cleanId = (txn.id || '').trim().toLowerCase();
+      const matchingFs = fsTxns.filter(t => 
+        ((t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) ||
+         (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId))) &&
+        isStatusPending(t.status)
       );
-      for (const match of allMatching) {
-        const matchUpd: Transaction = {
-          ...match,
+      for (const fsTx of matchingFs) {
+        const upd: Transaction = {
+          ...fsTx,
           status: finalStatus,
           updatedAt: now,
           cancelledAt: now,
@@ -2040,139 +2213,78 @@ export const api = {
           adminNotes: finalReason,
           ...(requiresRefund ? {
             refundedAt: now,
-            refundAmount: match.amount,
+            refundAmount: amountNum,
             refundReference: refundRef,
             refundedByAdminEmail: currentAdmin?.email,
           } : {})
         };
-        dbStore.updateTransaction(match.id, matchUpd);
-        await syncTransactionToFirestore(matchUpd);
+        await syncTransactionToFirestore(upd);
       }
 
-      // Also ensure all matching records in Firestore are updated to finalStatus
-      try {
-        const fsTxns = await getTransactionsFromFirestore();
-        const cleanRef = (txn.reference || '').trim().toLowerCase();
-        const cleanId = (txn.id || '').trim().toLowerCase();
-        const matchingFs = fsTxns.filter(t => 
-          ((t.id && (t.id.toLowerCase() === cleanId || (cleanRef && t.id.toLowerCase() === cleanRef))) ||
-           (t.reference && ((cleanRef && t.reference.toLowerCase() === cleanRef) || t.reference.toLowerCase() === cleanId))) &&
-          isStatusPending(t.status)
-        );
-        for (const fsTx of matchingFs) {
-          const upd: Transaction = {
-            ...fsTx,
-            status: finalStatus,
-            updatedAt: now,
-            cancelledAt: now,
-            cancelledByAdminEmail: currentAdmin?.email,
-            cancelReason: finalReason,
-            adminNotes: finalReason,
-            ...(requiresRefund ? {
-              refundedAt: now,
-              refundAmount: fsTx.amount,
-              refundReference: refundRef,
-              refundedByAdminEmail: currentAdmin?.email,
-            } : {})
-          };
-          await syncTransactionToFirestore(upd);
-        }
-
-        // Also reject matching crypto activation deposits in Firestore
-        const fsDeps = await getAllCryptoDepositsFromFirestore();
-        const matchingDeps = fsDeps.filter(d => 
-          (d.userId === txn.userId || 
-           d.id === txn.id || 
-           (txn.reference && d.id === txn.reference) ||
-           d.id.toLowerCase() === cleanId || 
-           (cleanRef && d.id.toLowerCase() === cleanRef) ||
-           (d.userEmail && txn.userEmail && d.userEmail.toLowerCase() === txn.userEmail.toLowerCase())) &&
-          d.status === 'Pending'
-        );
-        for (const md of matchingDeps) {
-          const updDep: CryptoActivationDeposit = { ...md, status: 'Rejected', updatedAt: now };
-          dbStore.updateCryptoDeposit(md.id, updDep);
-          await syncCryptoDepositToFirestore(updDep);
-        }
-      } catch (e) {
-        console.warn('Syncing Firestore matching txns error on rejection:', e);
-      }
-
-      // Update matching bill payment if present
-      const matchingBill = dbStore.getBillPayments().find(b =>
-        (b.reference && (b.reference === txn.reference || b.reference === txn.id)) ||
-        b.id === txn.id || (txn.reference && b.id === txn.reference)
+      // Also reject matching crypto activation deposits in Firestore
+      const fsDeps = await getAllCryptoDepositsFromFirestore();
+      const matchingDeps = fsDeps.filter(d => 
+        (d.userId === txn.userId || 
+         d.id === txn.id || 
+         (txn.reference && d.id === txn.reference) ||
+         d.id.toLowerCase() === cleanId || 
+         (cleanRef && d.id.toLowerCase() === cleanRef) ||
+         (d.userEmail && txn.userEmail && d.userEmail.toLowerCase() === txn.userEmail.toLowerCase())) &&
+        d.status === 'Pending'
       );
-      if (matchingBill) {
-        dbStore.updateBillPayment(matchingBill.id, { status: 'Cancelled' });
+      for (const md of matchingDeps) {
+        const updDep: CryptoActivationDeposit = { ...md, status: 'Rejected', updatedAt: now };
+        dbStore.updateCryptoDeposit(md.id, updDep);
+        await syncCryptoDepositToFirestore(updDep);
       }
-
-      // Clear any previous pending notification for this transaction
-      dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
-
-      const user = dbStore.getUserById(txn.userId) || 
-                   dbStore.getUsers().find(u => (txn.userEmail && u.email.toLowerCase() === txn.userEmail.toLowerCase()) || (txn.accountNumber && u.accountNumber === txn.accountNumber));
-      
-      // Fallback local refund ONLY if backend has not already refunded the user
-      if (user && requiresRefund && !backendUserRefunded) {
-        const refundedUser = dbStore.saveUser({
-          ...user,
-          balance: Number(((user.balance || 0) + txn.amount).toFixed(2)),
-          ledgerBalance: Number(((user.ledgerBalance !== undefined ? user.ledgerBalance : user.balance) + txn.amount).toFixed(2))
-        });
-        syncUserToFirestore(refundedUser);
-
-        const rejNotif: UserNotification = {
-          id: `NOTIF-${Date.now()}-REJ`,
-          userId: user.id,
-          title: 'Transfer Cancelled & Funds Refunded',
-          message: `Your transfer ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been cancelled. Funds of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} have been restored to your wallet balance. Reason: ${finalReason}`,
-          amount: txn.amount,
-          currency: txn.currency || 'USD',
-          reference: refundRef,
-          read: false,
-          createdAt: new Date().toISOString()
-        };
-        dbStore.addNotification(rejNotif);
-        syncNotificationToFirestore(rejNotif);
-      } else if (user && isDeposit) {
-        const rejNotif: UserNotification = {
-          id: `NOTIF-${Date.now()}-DEP-REJ`,
-          userId: user.id,
-          title: 'Deposit Request Declined',
-          message: `Your deposit request ${txn.reference} of $${txn.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} was declined by Silicon Valley Bank. Reason: ${finalReason}`,
-          amount: txn.amount,
-          currency: txn.currency || 'USD',
-          reference: txn.reference,
-          read: false,
-          createdAt: new Date().toISOString()
-        };
-        dbStore.addNotification(rejNotif);
-        syncNotificationToFirestore(rejNotif);
-      }
-
-      // If user had matching pending crypto deposit, update it to Rejected
-      const matchingCryptoDep = dbStore.getCryptoDeposits().find(d => (d.userId === txn.userId || d.accountNumber === txn.accountNumber) && d.status === 'Pending');
-      if (matchingCryptoDep) {
-        const updDep: Partial<CryptoActivationDeposit> = {
-          status: 'Rejected',
-          updatedAt: new Date().toISOString()
-        };
-        dbStore.updateCryptoDeposit(matchingCryptoDep.id, updDep);
-        syncCryptoDepositToFirestore({ ...matchingCryptoDep, ...updDep } as CryptoActivationDeposit);
-      }
-
-      if (user && user.pendingCryptoDeposit && user.pendingCryptoDeposit.status === 'Pending') {
-        const updU = dbStore.saveUser({
-          ...user,
-          pendingCryptoDeposit: { ...user.pendingCryptoDeposit, status: 'Rejected', updatedAt: new Date().toISOString() }
-        });
-        syncUserToFirestore(updU);
-      }
-
-      broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txn.id);
-      broadcastRealtimeUpdate('USER_UPDATED', undefined, txn.userId);
+    } catch (e) {
+      console.warn('Syncing Firestore matching txns error on rejection:', e);
     }
+
+    // Update matching bill payment if present
+    const matchingBill = dbStore.getBillPayments().find(b =>
+      (b.reference && (b.reference === txn.reference || b.reference === txn.id)) ||
+      b.id === txn.id || (txn.reference && b.id === txn.reference)
+    );
+    if (matchingBill) {
+      dbStore.updateBillPayment(matchingBill.id, { status: 'Cancelled' });
+    }
+
+    // Clear any previous pending notification for this transaction
+    dbStore.clearPendingNotificationsForTxn(txn.userId, txn.reference, txn.id);
+
+    // If user had matching pending crypto deposit, update it to Rejected
+    const matchingCryptoDep = dbStore.getCryptoDeposits().find(d => (d.userId === txn.userId || (user && d.accountNumber === user.accountNumber)) && d.status === 'Pending');
+    if (matchingCryptoDep) {
+      const updDep: Partial<CryptoActivationDeposit> = {
+        status: 'Rejected',
+        updatedAt: now
+      };
+      dbStore.updateCryptoDeposit(matchingCryptoDep.id, updDep);
+      syncCryptoDepositToFirestore({ ...matchingCryptoDep, ...updDep } as CryptoActivationDeposit);
+    }
+
+    if (user && user.pendingCryptoDeposit && user.pendingCryptoDeposit.status === 'Pending') {
+      const updU = dbStore.saveUser({
+        ...(refundedUser || user),
+        pendingCryptoDeposit: { ...user.pendingCryptoDeposit, status: 'Rejected', updatedAt: now }
+      });
+      syncUserToFirestore(updU);
+    }
+
+    broadcastRealtimeUpdate('TRANSACTION_UPDATED', updatedTxn, txn.userId, txn.id);
+    if (refundedUser) {
+      broadcastRealtimeUpdate('USER_UPDATED', undefined, refundedUser.id);
+    }
+
+    return {
+      transaction: updatedTxn,
+      updatedUser: refundedUser || user,
+      refundLedgerTxn,
+      message: requiresRefund 
+        ? `Transaction ${txn.reference || txn.id} cancelled. ${amountNum.toFixed(2)} refunded to user balance.`
+        : `Transaction ${txn.reference || txn.id} cancelled.`
+    };
   },
 
   // --- NOTIFICATIONS ---

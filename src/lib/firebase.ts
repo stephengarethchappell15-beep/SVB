@@ -72,12 +72,14 @@ export function sanitizeForFirestore<T>(data: T): T {
 /**
  * Save or update user persistently in Firestore
  */
-export async function syncUserToFirestore(user: User, password?: string): Promise<void> {
-  if (!user || !user.email) return;
+export async function syncUserToFirestore(user: User, password?: string, options?: { throwOnError?: boolean }): Promise<boolean> {
+  if (!user || !user.email) return false;
   try {
     const cleanEmail = user.email.trim().toLowerCase();
+    const resolvedFullName = (user.fullName || (user as any).name || 'SVB Client').trim();
     const payload = sanitizeForFirestore({
       ...user,
+      fullName: resolvedFullName,
       email: cleanEmail,
       updatedAt: new Date().toISOString(),
       ...(password ? { password } : {})
@@ -99,8 +101,13 @@ export async function syncUserToFirestore(user: User, password?: string): Promis
         await setDoc(doc(db, 'users_by_account', cleanAcc), payload, { merge: true });
       }
     }
+    return true;
   } catch (err) {
     console.warn('Firestore user sync warning:', err);
+    if (options?.throwOnError) {
+      throw err;
+    }
+    return false;
   }
 }
 
@@ -379,8 +386,8 @@ export async function getAllVerificationsFromFirestore(): Promise<Tier3Verificat
 /**
  * Sync Transaction to Firestore
  */
-export async function syncTransactionToFirestore(txn: Transaction): Promise<void> {
-  if (!txn || (!txn.id && !txn.reference)) return;
+export async function syncTransactionToFirestore(txn: Transaction, options?: { throwOnError?: boolean }): Promise<boolean> {
+  if (!txn || (!txn.id && !txn.reference)) return false;
   const docId = txn.id || txn.reference;
   try {
     const payload = sanitizeForFirestore({
@@ -392,8 +399,13 @@ export async function syncTransactionToFirestore(txn: Transaction): Promise<void
     if (txn.reference && txn.reference !== docId) {
       await setDoc(doc(db, 'transactions', txn.reference), payload, { merge: true });
     }
+    return true;
   } catch (err) {
     console.warn('Firestore transaction sync error:', err);
+    if (options?.throwOnError) {
+      throw err;
+    }
+    return false;
   }
 }
 

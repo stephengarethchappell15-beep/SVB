@@ -659,14 +659,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     setProcessingIds(prev => ({ ...prev, [txnId]: true }));
     const isDeposit = txn ? isDepositTransaction(txn) : false;
     const finalStatus = isDeposit ? 'Cancelled' : 'Refunded';
-    const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
-    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: finalStatus, updatedAt: new Date().toISOString() } : t));
 
     try {
-      await api.rejectTransaction(txnId, reason);
+      const result = await api.rejectTransaction(txnId, reason);
+      
+      // Update sysTxns only after successful execution
+      const updatedTxn = result?.transaction;
+      const refundLedger = result?.refundLedgerTxn;
+      const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
+
+      setSysTxns(prev => {
+        const next = prev.map(t => matchesTxn(t) ? (updatedTxn || { ...t, status: finalStatus, updatedAt: new Date().toISOString() }) : t);
+        if (refundLedger && !next.some(t => t.id === refundLedger.id)) {
+          return [refundLedger, ...next];
+        }
+        return next;
+      });
+
+      // Update users list if updatedUser returned
+      if (result?.updatedUser) {
+        setUsers(prev => prev.map(u => u.id === result.updatedUser?.id ? result.updatedUser! : u));
+      }
+
       setActionCompleteMsg({
         id: txnId,
-        text: `Action Complete: Transaction ${txn?.reference || txnId} ${finalStatus}.`,
+        text: `Action Complete: Transaction ${txn?.reference || txnId} ${finalStatus}. ${finalStatus === 'Refunded' ? 'Wallet balance restored.' : ''}`,
         type: 'success'
       });
       await Promise.all([
@@ -711,15 +728,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ adminUser, onDepositSucc
     const isDeposit = txn ? isDepositTransaction(txn) : false;
     const finalStatus = isDeposit ? 'Cancelled' : 'Refunded';
 
-    // Optimistically update local sysTxns status to finalStatus immediately
-    const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
-    setSysTxns(prev => prev.map(t => matchesTxn(t) ? { ...t, status: finalStatus, updatedAt: new Date().toISOString() } : t));
-
     try {
-      await api.rejectTransaction(txnId, reason);
+      const result = await api.rejectTransaction(txnId, reason);
+
+      // Update sysTxns only after successful execution
+      const updatedTxn = result?.transaction;
+      const refundLedger = result?.refundLedgerTxn;
+      const matchesTxn = (t: Transaction) => t.id === txnId || (t.reference && t.reference === txnId) || (txn && t.reference && txn.reference && t.reference === txn.reference);
+
+      setSysTxns(prev => {
+        const next = prev.map(t => matchesTxn(t) ? (updatedTxn || { ...t, status: finalStatus, updatedAt: new Date().toISOString() }) : t);
+        if (refundLedger && !next.some(t => t.id === refundLedger.id)) {
+          return [refundLedger, ...next];
+        }
+        return next;
+      });
+
+      // Update users list if updatedUser returned
+      if (result?.updatedUser) {
+        setUsers(prev => prev.map(u => u.id === result.updatedUser?.id ? result.updatedUser! : u));
+      }
+
       setActionCompleteMsg({
         id: txnId,
-        text: `Action Complete: Reference ${txn?.reference || txnId} ${finalStatus}.`,
+        text: `Action Complete: Reference ${txn?.reference || txnId} ${finalStatus}. ${finalStatus === 'Refunded' ? 'Wallet balance restored.' : ''}`,
         type: 'success'
       });
       await Promise.all([

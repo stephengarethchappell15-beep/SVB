@@ -650,7 +650,7 @@ class DatabaseManager {
     }
   }
 
-  private saveDB(data: DatabaseSchema) {
+  public saveDB(data: DatabaseSchema) {
     try {
       fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
     } catch (e) {
@@ -675,12 +675,17 @@ class DatabaseManager {
   }
 
   // Users
+  public getDB(): DatabaseSchema {
+    return this.db;
+  }
+
   public getUsers(): User[] {
     return this.db.users;
   }
 
   public findUserByEmailOrAccount(queryStr: string): User | undefined {
     if (!queryStr) return undefined;
+    this.reloadFromDisk();
     const raw = queryStr.trim().toLowerCase();
     if (!raw) return undefined;
     const clean = raw.replace(/[^a-z0-9]/g, '');
@@ -691,12 +696,15 @@ class DatabaseManager {
       const accRaw = (u.accountNumber || '').toLowerCase();
       const accClean = accRaw.replace(/[^a-z0-9]/g, '');
       const userId = (u.id || '').toLowerCase();
+      const userCleanId = userId.replace(/^token-+/, '');
 
       return (
         email === raw ||
         accRaw === raw ||
         (clean.length > 0 && accClean === clean) ||
-        userId === raw
+        userId === raw ||
+        userCleanId === raw ||
+        userId === raw.replace(/^token-+/, '')
       );
     });
 
@@ -717,6 +725,7 @@ class DatabaseManager {
   }
 
   public async findUserByEmailOrAccountAsync(queryStr: string): Promise<User | undefined> {
+    this.reloadFromDisk();
     let memoryUser = this.findUserByEmailOrAccount(queryStr);
 
     try {
@@ -754,6 +763,7 @@ class DatabaseManager {
 
   public findUserByExactEmail(email: string): User | undefined {
     if (!email) return undefined;
+    this.reloadFromDisk();
     const clean = email.trim().toLowerCase();
     return this.db.users.find(u => u.email && u.email.trim().toLowerCase() === clean);
   }
@@ -768,13 +778,51 @@ class DatabaseManager {
 
   public findUserById(id: string): User | undefined {
     if (!id) return undefined;
-    return this.db.users.find(u => u.id === id);
+    this.reloadFromDisk();
+    const raw = id.trim().toLowerCase();
+    const cleanId = raw.replace(/^token-+/, '');
+    return this.db.users.find(u => {
+      if (!u || !u.id) return false;
+      const uId = u.id.trim().toLowerCase();
+      const uCleanId = uId.replace(/^token-+/, '');
+      return uId === raw || uCleanId === cleanId || uId === cleanId || uCleanId === raw;
+    });
   }
 
   public async findUserByIdAsync(id: string): Promise<User | undefined> {
-    const memoryUser = this.findUserById(id);
-    if (memoryUser) return memoryUser;
-    return this.findUserByEmailOrAccountAsync(id);
+    this.reloadFromDisk();
+    const raw = id.trim().toLowerCase();
+    const cleanId = raw.replace(/^token-+/, '');
+    let memoryUser = this.findUserById(id) || (cleanId !== raw ? this.findUserById(cleanId) : undefined);
+    if (!memoryUser) {
+      memoryUser = await this.findUserByEmailOrAccountAsync(id);
+    }
+    if (!memoryUser && cleanId !== raw) {
+      memoryUser = await this.findUserByEmailOrAccountAsync(cleanId);
+    }
+
+    try {
+      const fsUser = await getUserFromFirestore(id) || (cleanId !== raw ? await getUserFromFirestore(cleanId) : null);
+      if (fsUser && fsUser.balance !== undefined) {
+        if (memoryUser) {
+          if (fsUser.balance !== memoryUser.balance || (fsUser.updatedAt && memoryUser.updatedAt && new Date(fsUser.updatedAt) > new Date(memoryUser.updatedAt))) {
+            memoryUser.balance = fsUser.balance;
+            memoryUser.ledgerBalance = fsUser.ledgerBalance !== undefined ? fsUser.ledgerBalance : fsUser.balance;
+            if (fsUser.updatedAt) memoryUser.updatedAt = fsUser.updatedAt;
+            const idx = this.db.users.findIndex(u => u.id === memoryUser!.id);
+            if (idx >= 0) this.db.users[idx] = memoryUser;
+            this.saveDB(this.db);
+          }
+          return memoryUser;
+        } else {
+          this.db.users.push(fsUser);
+          this.saveDB(this.db);
+          return fsUser;
+        }
+      }
+    } catch (_) {}
+
+    return memoryUser;
   }
 
   public findUserByAccountNumber(accNo: string): User | undefined {
@@ -1355,6 +1403,13 @@ class DatabaseManager {
       sender.ledgerBalance = actualSender.ledgerBalance;
     }
 
+    const senderIdx = this.db.users.findIndex(u => u.id === actualSender.id || (u.email && actualSender.email && u.email.toLowerCase() === actualSender.email.toLowerCase()));
+    if (senderIdx >= 0) {
+      this.db.users[senderIdx] = actualSender;
+    } else {
+      this.db.users.push(actualSender);
+    }
+
     const ref = `TXN-TRF-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
     const now = new Date().toISOString();
     const isPending = sender.role !== 'admin';
@@ -1442,7 +1497,7 @@ class DatabaseManager {
 
     this.db.notifications.unshift(senderNotif);
     this.saveDB(this.db);
-    return { sender, transaction: senderTxn };
+    return { sender: actualSender, transaction: senderTxn };
   }
 
   // Withdrawal Processing
@@ -1458,6 +1513,22 @@ class DatabaseManager {
 
     if (!payload.bankName || !payload.routingNumber || !payload.accountNumber || !payload.accountHolderName) {
       throw new Error('Please provide complete bank account details for wire transfer processing.');
+    }
+
+    actualUser.balance = Number((actualUser.balance - amount).toFixed(2));
+    if (actualUser.ledgerBalance !== undefined) {
+      actualUser.ledgerBalance = Number((actualUser.ledgerBalance - amount).toFixed(2));
+    }
+    if (user !== actualUser) {
+      user.balance = actualUser.balance;
+      user.ledgerBalance = actualUser.ledgerBalance;
+    }
+
+    const userIdx = this.db.users.findIndex(u => u.id === actualUser.id || (u.email && actualUser.email && u.email.toLowerCase() === actualUser.email.toLowerCase()));
+    if (userIdx >= 0) {
+      this.db.users[userIdx] = actualUser;
+    } else {
+      this.db.users.push(actualUser);
     }
 
     // Check 4-digit transaction security code requirement
@@ -2730,7 +2801,7 @@ class DatabaseManager {
     }
   }
 
-  public async rejectTransactionAsync(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction; user?: User; message?: string }> {
+  public async rejectTransactionAsync(adminUser: User, transactionId: string, reason?: string, rawTxnFallback?: Transaction): Promise<{ transaction: Transaction; user?: User; refundLedgerTxn?: Transaction; message?: string }> {
     if (adminUser.role !== 'admin') throw new Error('Unauthorized. Admin privileges required.');
     if (!transactionId || typeof transactionId !== 'string') {
       throw new Error('Transaction ID is required.');
@@ -2793,33 +2864,33 @@ class DatabaseManager {
       targetUser = this.findUserByAccountNumber(accNo);
     }
 
-    // Fallback to Firestore for targetUser if not in memory
-    if (!targetUser && txn.userId) {
-      try {
-        const fsUser = await getUserFromFirestore(txn.userId);
-        if (fsUser) targetUser = fsUser;
-      } catch (e) {
-        console.warn('Firestore user lookup by userId failed:', e);
+    // Always fetch latest user record from Firestore to prevent stale memory balance
+    try {
+      let fsUser: User | null = null;
+      if (txn.userId) fsUser = await getUserFromFirestore(txn.userId);
+      if (!fsUser && txn.userEmail) fsUser = await getUserFromFirestore(txn.userEmail);
+      if (!fsUser && accNo) fsUser = await getUserFromFirestore(accNo);
+      if (fsUser) {
+        targetUser = fsUser;
       }
+    } catch (e) {
+      console.warn('Firestore user lookup by identifier failed in rejectTransactionAsync:', e);
     }
-    if (!targetUser && txn.userEmail) {
+
+    if (!targetUser) {
       try {
-        const fsUser = await getUserFromFirestore(txn.userEmail);
-        if (fsUser) targetUser = fsUser;
+        const allFs = await getAllUsersFromFirestore();
+        targetUser = allFs.find(u => 
+          (txn.userId && u.id === txn.userId) ||
+          (txn.userEmail && u.email && u.email.toLowerCase() === txn.userEmail.toLowerCase()) ||
+          (accNo && u.accountNumber === accNo)
+        );
       } catch (e) {
-        console.warn('Firestore user lookup by userEmail failed:', e);
-      }
-    }
-    if (!targetUser && accNo) {
-      try {
-        const fsUser = await getUserFromFirestore(accNo);
-        if (fsUser) targetUser = fsUser;
-      } catch (e) {
-        console.warn('Firestore user lookup by accountNumber failed:', e);
+        console.warn('getAllUsersFromFirestore fallback in rejectTransactionAsync failed:', e);
       }
     }
 
-    // If already refunded or cancelled: DO NOT refund again (Idempotency)
+    // If already refunded or cancelled: DO NOT refund again (Double Refund Protection / Idempotency)
     if (isAlreadyRefunded || isAlreadyCancelled) {
       return {
         transaction: txn,
@@ -2835,11 +2906,11 @@ class DatabaseManager {
       throw new Error(`Refund failed: Sender account (${txn.userId || txn.userEmail || accNo || 'unknown'}) could not be located in database or Firestore to issue the required refund. Transaction was NOT cancelled to prevent balance discrepancy.`);
     }
 
-    // Ensure targetUser is in this.db.users
+    // Ensure targetUser is in this.db.users with latest data
     if (targetUser) {
       const idx = this.db.users.findIndex(u => u.id === targetUser!.id || (u.email && targetUser!.email && u.email.toLowerCase() === targetUser!.email.toLowerCase()));
       if (idx >= 0) {
-        targetUser = this.db.users[idx];
+        this.db.users[idx] = targetUser;
       } else {
         this.db.users.push(targetUser);
       }
@@ -2850,11 +2921,11 @@ class DatabaseManager {
 
     try {
       // Re-check idempotency under lock
-      if (txn.status === 'Refunded' || !!txn.refundedAt) {
+      if (txn.status === 'Refunded' || !!txn.refundedAt || !!txn.refundReference) {
         return {
           transaction: txn,
           user: targetUser,
-          message: `Transaction ${txn.reference || txn.id} was already refunded.`
+          message: `Transaction ${txn.reference || txn.id} was already refunded. No duplicate refund processed.`
         };
       }
 
@@ -2870,7 +2941,9 @@ class DatabaseManager {
       const finalStatus: TransactionStatus = requiresRefund ? 'Refunded' : 'Cancelled';
       const refundRef = `REFUND-${(txn.reference || txn.id).replace(/[^A-Za-z0-9]/g, '').slice(-8)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      // Execute balance restoration
+      let refundLedgerTxn: Transaction | undefined;
+
+      // Execute balance restoration FIRST before marking transaction as refunded
       if (requiresRefund && targetUser) {
         if (amountNum <= 0) {
           throw new Error('Invalid transaction amount: cannot refund zero or negative balance.');
@@ -2881,8 +2954,53 @@ class DatabaseManager {
         targetUser.balance = Number((prevBal + amountNum).toFixed(2));
         targetUser.ledgerBalance = Number((prevLedger + amountNum).toFixed(2));
         targetUser.updatedAt = now;
+
+        // Also update user's accounts list if present
+        if (targetUser.accounts && targetUser.accounts.length > 0) {
+          const acc = targetUser.accounts.find(a => a.accountNumber === txn.accountNumber) || targetUser.accounts[0];
+          if (acc) {
+            acc.balance = Number((Number(acc.balance || 0) + amountNum).toFixed(2));
+          }
+        }
+
+        // Keep local memory db in sync
+        const idx = this.db.users.findIndex(u => u.id === targetUser!.id || (u.email && targetUser!.email && u.email.toLowerCase() === targetUser!.email.toLowerCase()));
+        if (idx >= 0) {
+          this.db.users[idx] = targetUser;
+        } else {
+          this.db.users.push(targetUser);
+        }
+
+        // Save to disk
+        this.saveDB(this.db);
+
+        // Sync user to Firestore with throwOnError: true so if persistence fails, we do NOT falsely mark as Refunded!
+        await syncUserToFirestore(targetUser, undefined, { throwOnError: true });
+
+        // Create explicit refund ledger entry transaction
+        refundLedgerTxn = {
+          id: `TXN-REFUND-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+          userId: targetUser.id,
+          userEmail: targetUser.email,
+          accountNumber: targetUser.accountNumber,
+          type: 'Refund',
+          amount: amountNum,
+          currency: txn.currency || 'USD',
+          status: 'Completed',
+          reference: `REF-${refundRef}`,
+          description: `Refund: Cancelled ${txn.type || 'Transfer'} (${txn.reference || txn.id}) - Funds Restored`,
+          createdAt: now,
+          updatedAt: now
+        };
+        this.db.transactions.unshift(refundLedgerTxn);
+        try {
+          await syncTransactionToFirestore(refundLedgerTxn);
+        } catch (e) {
+          console.warn('Error syncing refund ledger transaction to Firestore:', e);
+        }
       }
 
+      // ONLY AFTER balance is successfully restored and persisted to database, transition status to finalStatus
       txn.status = finalStatus;
       txn.updatedAt = now;
       txn.cancelledAt = now;
@@ -2958,8 +3076,8 @@ class DatabaseManager {
           userId: targetUser.id,
           title: requiresRefund ? 'Transfer Cancelled & Funds Refunded' : 'Deposit Request Declined',
           message: requiresRefund
-            ? `Your transfer ${txn.reference || txn.id} of $${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been cancelled. Funds of $${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} have been restored to your wallet balance. Available balance: $${targetUser.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Reason: ${finalReason}`
-            : `Deposit request ${txn.reference || txn.id} of $${amountNum.toFixed(2)} was declined by Silicon Valley Bank. Reason: ${finalReason}`,
+            ? `Your transfer ${txn.reference || txn.id} of ${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} has been cancelled. Funds of ${amountNum.toLocaleString('en-US', { minimumFractionDigits: 2 })} have been restored to your wallet balance. Available balance: ${targetUser.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}. Reason: ${finalReason}`
+            : `Deposit request ${txn.reference || txn.id} of ${amountNum.toFixed(2)} was declined by Silicon Valley Bank. Reason: ${finalReason}`,
           amount: amountNum,
           currency: txn.currency || 'USD',
           reference: requiresRefund ? refundRef : (txn.reference || txn.id),
@@ -2978,7 +3096,7 @@ class DatabaseManager {
           action: requiresRefund ? 'TRANSFER_REFUNDED' : 'TRANSFER_CANCELLED',
           targetEmail: txn.userEmail || (targetUser ? targetUser.email : ''),
           targetAccountNumber: txn.accountNumber || (targetUser ? targetUser.accountNumber : ''),
-          description: `Admin ${adminUser.email} ${requiresRefund ? 'cancelled and refunded' : 'declined'} transaction ${txn.reference || txn.id} ($${amountNum})`,
+          description: `Admin ${adminUser.email} ${requiresRefund ? 'cancelled and refunded' : 'declined'} transaction ${txn.reference || txn.id} (${amountNum})`,
           details: {
             transactionId: txn.id,
             type: txn.type,
@@ -2993,15 +3111,6 @@ class DatabaseManager {
 
       // Save to disk
       this.saveDB(this.db);
-
-      // Sync user to Firestore
-      if (targetUser) {
-        try {
-          await syncUserToFirestore(targetUser);
-        } catch (fsErr) {
-          console.warn('syncUserToFirestore in rejectTransactionAsync failed:', fsErr);
-        }
-      }
 
       // Sync transactions to Firestore
       try {
@@ -3053,8 +3162,9 @@ class DatabaseManager {
       return {
         transaction: txn,
         user: targetUser,
+        refundLedgerTxn,
         message: requiresRefund
-          ? `Transaction ${txn.reference || txn.id} cancelled. $${amountNum.toFixed(2)} refunded to user balance.`
+          ? `Transaction ${txn.reference || txn.id} cancelled. ${amountNum.toFixed(2)} refunded to user balance.`
           : `Transaction ${txn.reference || txn.id} cancelled.`
       };
     } finally {

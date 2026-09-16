@@ -529,9 +529,17 @@ class LocalDBStore {
       try { localStorage.removeItem(`svb_avatar_${user.id}`); } catch (e) {}
     }
 
-    try {
-      localStorage.setItem('svb_current_user_profile', JSON.stringify(user));
-    } catch (e) {}
+    const currentToken = this.getStoredToken();
+    const isCurrentUser = !currentToken || 
+      user.id === currentToken || 
+      user.id.replace(/^token-+/, '') === currentToken.replace(/^token-+/, '') || 
+      (user.email && user.email.toLowerCase() === currentToken.toLowerCase());
+
+    if (isCurrentUser) {
+      try {
+        localStorage.setItem('svb_current_user_profile', JSON.stringify(user));
+      } catch (e) {}
+    }
 
     this.persist();
     return user;

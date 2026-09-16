@@ -828,7 +828,8 @@ app.post('/api/admin/reject-transaction', async (req, res) => {
     res.json({ 
       message: result.message || 'Transaction rejected and funds returned to user.', 
       transaction: result.transaction,
-      updatedUser: result.user
+      updatedUser: result.user,
+      refundLedgerTxn: result.refundLedgerTxn
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to reject transaction.' });
