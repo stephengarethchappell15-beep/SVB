@@ -13,7 +13,7 @@ import {
   CreditCard, 
   FileCheck2, 
   Lock,
-  ArrowLeft
+  ArrowLeft,
 } from 'lucide-react';
 import { useNavigation } from '../context/NavigationContext';
 

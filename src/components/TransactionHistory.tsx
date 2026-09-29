@@ -7,11 +7,13 @@ import {
   FileText, 
   Filter, 
   ArrowDownRight, 
-  Calendar,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Tag
+  CheckCircle2, 
+  Clock, 
+  XCircle, 
+  ArrowUpRight,
+  ShieldCheck,
+  Send,
+  Building2
 } from 'lucide-react';
 import { BackButton } from './BackButton';
 
@@ -28,6 +30,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currencyFilter, setCurrencyFilter] = useState('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'Wire' | 'Deposit' | 'Bill' | 'Pending'>('ALL');
 
   const filtered = transactions.filter((t) => {
     const q = searchQuery.toLowerCase().trim();
@@ -40,7 +43,18 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
     const matchesCurrency = currencyFilter === 'ALL' || t.currency === currencyFilter;
 
-    return matchesQuery && matchesCurrency;
+    let matchesType = true;
+    if (typeFilter === 'Pending') {
+      matchesType = isStatusPending(t.status);
+    } else if (typeFilter === 'Wire') {
+      matchesType = (t.type || '').toLowerCase().includes('wire') || (t.transferType || '').toLowerCase().includes('wire');
+    } else if (typeFilter === 'Deposit') {
+      matchesType = t.type === 'Deposit' || t.type === 'Credit';
+    } else if (typeFilter === 'Bill') {
+      matchesType = (t.description || '').toLowerCase().includes('bill') || (t.type || '').toLowerCase().includes('bill');
+    }
+
+    return matchesQuery && matchesCurrency && matchesType;
   });
 
   const exportToCSV = () => {
@@ -64,159 +78,197 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Transaction_Records_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `SVB_Transaction_Ledger_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12 font-sans">
       {/* Top Navigation Row */}
       <div className="flex items-center justify-between">
         <BackButton />
       </div>
       
-      {/* Header & Controls */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header Banner */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-bold text-white flex items-center gap-2">
-            <History className="w-5 h-5 text-emerald-400" />
-            Transaction Records & Audit History
+          <div className="flex items-center gap-2 mb-1">
+            <span className="p-1.5 bg-[#002b49] text-[#00a3e0] rounded-lg">
+              <History className="w-4 h-4" />
+            </span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              SVB Commercial General Ledger
+            </span>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+            Account Statements & Audit Records
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {isAdmin ? 'System-wide transaction records across all accounts' : 'Deposit history for your account'}
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isAdmin 
+              ? 'Complete institutional ledger showing transactions across all customer accounts' 
+              : 'Official immutable audit record of settled wires, ACH transfers, and pending requests.'}
           </p>
         </div>
 
         <button
           onClick={exportToCSV}
           disabled={filtered.length === 0}
-          className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors self-start md:self-auto"
+          className="bg-[#002b49] hover:bg-[#001f35] disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors self-start md:self-auto shadow-xs cursor-pointer"
         >
-          <Download className="w-4 h-4 text-emerald-400" />
-          Export CSV ({filtered.length})
+          <Download className="w-4 h-4 text-cyan-300" />
+          <span>Export CSV ({filtered.length})</span>
         </button>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        
-        {/* Search */}
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search ref, email, acc #, description..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-          />
+      {/* Filter and Search Bar */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          
+          {/* Search Box */}
+          <div className="relative w-full sm:w-96">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search reference, recipient, acc #, description..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#00a3e0]"
+            />
+          </div>
+
+          {/* Currency Filter */}
+          <div className="flex items-center gap-2 w-full sm:w-auto self-end sm:self-center">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-slate-500 font-medium">Currency:</span>
+            <select
+              value={currencyFilter}
+              onChange={(e) => setCurrencyFilter(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 font-medium focus:outline-none focus:border-[#00a3e0]"
+            >
+              <option value="ALL">All Currencies</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="NGN">NGN (₦)</option>
+            </select>
+          </div>
         </div>
 
-        {/* Currency Filter */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-slate-400 font-medium">Currency:</span>
-          <select
-            value={currencyFilter}
-            onChange={(e) => setCurrencyFilter(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-white font-medium focus:outline-none focus:border-emerald-500"
-          >
-            <option value="ALL">All Currencies</option>
-            <option value="USD">USD ($)</option>
-            <option value="EUR">EUR (€)</option>
-            <option value="GBP">GBP (£)</option>
-            <option value="NGN">NGN (₦)</option>
-          </select>
+        {/* Quick Filter Segmented Buttons */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100">
+          {(['ALL', 'Wire', 'Deposit', 'Bill', 'Pending'] as const).map((filterVal) => (
+            <button
+              key={filterVal}
+              onClick={() => setTypeFilter(filterVal)}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                typeFilter === filterVal
+                  ? 'bg-[#002b49] text-white'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              {filterVal === 'ALL' ? 'All Transactions' : filterVal === 'Wire' ? 'Wires' : filterVal === 'Deposit' ? 'Deposits' : filterVal === 'Bill' ? 'Bill Payments' : 'Pending Only'}
+            </button>
+          ))}
         </div>
-
       </div>
 
-      {/* Transactions Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl overflow-hidden">
+      {/* Ledger Table Container */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
         {filtered.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-slate-800 rounded-2xl p-6">
-            <History className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-300">
-              {searchQuery || currencyFilter !== 'ALL' ? 'No matching transaction records found' : 'No transactions yet.'}
+          <div className="text-center py-16 px-4">
+            <History className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+            <p className="text-sm font-bold text-slate-800">
+              {searchQuery || currencyFilter !== 'ALL' || typeFilter !== 'ALL' ? 'No matching transaction records' : 'No transactions recorded yet'}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
-              {searchQuery || currencyFilter !== 'ALL' ? 'Try adjusting your search terms or filter settings.' : 'Your incoming and outgoing transaction records will appear here.'}
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              {searchQuery || currencyFilter !== 'ALL' || typeFilter !== 'ALL' 
+                ? 'Try adjusting your search terms or clearing the current filters.' 
+                : 'Settled deposits and outgoing wire transfers will automatically appear here.'}
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                  <th className="pb-3 px-3">Date & Time</th>
-                  <th className="pb-3 px-3">Reference</th>
-                  {isAdmin && <th className="pb-3 px-3">Target Account</th>}
-                  <th className="pb-3 px-3">Description</th>
-                  <th className="pb-3 px-3">Type</th>
-                  <th className="pb-3 px-3">Amount</th>
-                  <th className="pb-3 px-3">Status</th>
-                  <th className="pb-3 px-3 text-right">Receipt</th>
+                <tr className="border-b border-slate-200 bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-4">Date & Time</th>
+                  <th className="py-3 px-4">Reference</th>
+                  {isAdmin && <th className="py-3 px-4">Target User</th>}
+                  <th className="py-3 px-4">Description</th>
+                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4 text-right">Amount</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Receipt</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filtered.map((txn) => (
-                  <tr key={txn.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3.5 px-3 text-slate-300 whitespace-nowrap">
-                      {new Date(txn.createdAt || Date.now()).toLocaleString()}
-                    </td>
-                    <td className="py-3.5 px-3 font-mono text-emerald-400 font-semibold whitespace-nowrap">
-                      {txn.reference}
-                    </td>
-                    {isAdmin && (
-                      <td className="py-3.5 px-3">
-                        <p className="font-semibold text-white">{txn.userEmail}</p>
-                        <p className="font-mono text-[10px] text-slate-400">Acc #{txn.accountNumber}</p>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map((txn) => {
+                  const isDeposit = txn.type === 'Deposit' || txn.type === 'Credit';
+                  return (
+                    <tr key={txn.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-4 text-slate-600 whitespace-nowrap font-mono tabular-nums">
+                        {new Date(txn.createdAt || Date.now()).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
                       </td>
-                    )}
-                    <td className="py-3.5 px-3 text-slate-200 font-medium">
-                      {txn.description}
-                    </td>
-                    <td className="py-3.5 px-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                        {txn.type}
-                      </span>
-                    </td>
-                    <td className={`py-3.5 px-3 font-bold text-sm whitespace-nowrap ${
-                      txn.type === 'Deposit' || txn.type === 'Credit' ? 'text-emerald-400' : 'text-slate-200'
-                    }`}>
-                      {txn.type === 'Deposit' || txn.type === 'Credit' ? '+' : '-'}${(Number(txn.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
-                    </td>
-                    <td className="py-3.5 px-3">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1.5 uppercase ${
-                        isStatusApproved(txn.status)
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : isStatusPending(txn.status)
-                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                          : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap tabular-nums">
+                        {txn.reference || txn.id.slice(0, 12)}
+                      </td>
+                      {isAdmin && (
+                        <td className="py-3.5 px-4">
+                          <p className="font-bold text-slate-900">{txn.userEmail}</p>
+                          <p className="font-mono text-[10px] text-slate-400">Acc #{txn.accountNumber}</p>
+                        </td>
+                      )}
+                      <td className="py-3.5 px-4 text-slate-800 font-semibold max-w-xs truncate">
+                        {txn.description}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          {txn.type}
+                        </span>
+                      </td>
+                      <td className={`py-3.5 px-4 font-mono font-bold text-sm text-right whitespace-nowrap tabular-nums ${
+                        isDeposit ? 'text-emerald-700' : 'text-slate-900'
                       }`}>
-                        {isStatusApproved(txn.status) ? (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        ) : isStatusPending(txn.status) ? (
-                          <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
-                        ) : (
-                          <XCircle className="w-3 h-3 text-rose-400" />
-                        )}
-                        {isStatusApproved(txn.status) ? (txn.status === 'Approved' ? 'Completed' : txn.status) : isStatusPending(txn.status) ? 'Pending Review' : (isStatusRejected(txn.status) ? txn.status : txn.status)}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-3 text-right">
-                      <button
-                        onClick={() => onOpenReceipt(txn)}
-                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors border border-slate-700 text-[11px] font-medium inline-flex items-center gap-1"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-emerald-400" />
-                        Receipt
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        {isDeposit ? '+' : '-'}${(Number(txn.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {txn.currency || 'USD'}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1.5 uppercase ${
+                          isStatusApproved(txn.status)
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : isStatusPending(txn.status)
+                            ? 'bg-amber-100 text-amber-800 animate-pulse'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {isStatusApproved(txn.status) ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          ) : isStatusPending(txn.status) ? (
+                            <Clock className="w-3 h-3 text-amber-600" />
+                          ) : (
+                            <XCircle className="w-3 h-3 text-rose-600" />
+                          )}
+                          <span>{isStatusApproved(txn.status) ? (txn.status === 'Approved' ? 'Completed' : txn.status) : isStatusPending(txn.status) ? 'Pending Review' : txn.status}</span>
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          onClick={() => onOpenReceipt(txn)}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-[#002b49] rounded-lg transition-colors font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-[#00a3e0]" />
+                          <span>Slip</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

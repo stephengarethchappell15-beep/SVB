@@ -1419,6 +1419,26 @@ export const api = {
     return { found: info, user: info };
   },
 
+  async sendFunds(payload: {
+    recipientAccountNumber: string;
+    recipientName?: string;
+    amount: number;
+    destinationCountry?: string;
+    destinationBank?: string;
+    reference?: string;
+    fourDigitCode?: string;
+  }): Promise<{ user: User; updatedUser: User; transaction: Transaction }> {
+    return this.sendTransfer({
+      recipientInput: payload.recipientAccountNumber,
+      recipientName: payload.recipientName,
+      amount: payload.amount,
+      destinationCountry: payload.destinationCountry,
+      destinationBank: payload.destinationBank,
+      note: payload.reference,
+      fourDigitCode: payload.fourDigitCode,
+    });
+  },
+
   async sendTransfer(payload: TransferPayload): Promise<{ user: User; updatedUser: User; transaction: Transaction }> {
     const current = dbStore.getCurrentUser();
     if (!current) throw new Error('Not authenticated');

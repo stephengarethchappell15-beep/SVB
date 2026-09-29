@@ -13,28 +13,28 @@ export interface BankingSlide {
 const BANKING_SLIDES: BankingSlide[] = [
   {
     id: 1,
-    image: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1200&auto=format&fit=crop&q=80',
+    image: '/src/assets/images/banking_headquarters_hq_1790665970261.jpg',
     title: 'Intelligent Mobile & Corporate Banking',
     subtitle: 'Real-time liquidity, instant ACH/Wires, and multi-currency Virtual Cards.',
     badge: 'Enterprise Security'
   },
   {
     id: 2,
-    image: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=1200&auto=format&fit=crop&q=80',
+    image: '/src/assets/images/banking_headquarters_hq_1790665970261.jpg',
     title: 'Instant International Capital Settlement',
     subtitle: 'Send funds across 150+ countries with sub-second execution and zero hidden fees.',
     badge: 'Global Treasury'
   },
   {
     id: 3,
-    image: 'https://images.unsplash.com/photo-1556742049-0a67d51152a5?w=1200&auto=format&fit=crop&q=80',
+    image: '/src/assets/images/banking_headquarters_hq_1790665970261.jpg',
     title: '256-Bit Encrypted Institutional Protection',
     subtitle: 'Biometric 2FA, immutable audit logs, and full FDIC insured coverage.',
     badge: 'FDIC Insured'
   },
   {
     id: 4,
-    image: 'https://images.unsplash.com/photo-1601597111158-2fceff292cdc?w=1200&auto=format&fit=crop&q=80',
+    image: '/src/assets/images/banking_headquarters_hq_1790665970261.jpg',
     title: 'Virtual Corporate Credit Lines & Bill Pay',
     subtitle: 'Issue instant sub-account virtual cards with custom spend limits & authorization controls.',
     badge: 'Smart Spend'
@@ -98,6 +98,7 @@ export const BankingMediaCarousel: React.FC<BankingMediaCarouselProps> = ({
           <img
             src={slide.image}
             alt={slide.title}
+            referrerPolicy="no-referrer"
             className="w-full h-full object-cover opacity-40 mix-blend-luminosity"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-slate-950/20" />

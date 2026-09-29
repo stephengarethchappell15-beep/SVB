@@ -140,8 +140,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           {/* Header Banner (Mobile Only) */}
           <div className="lg:hidden relative overflow-hidden h-36 bg-slate-950 flex flex-col items-center justify-center p-4 text-center border-b border-slate-800">
             <img
-              src="https://images.unsplash.com/photo-1563986768609-322da13575f3?w=800&auto=format&fit=crop&q=80"
-              alt="Mobile banking graphic"
+              src="/src/assets/images/banking_headquarters_hq_1790665970261.jpg"
+              alt="Silicon Valley Bank Headquarters"
+              referrerPolicy="no-referrer"
               className="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-luminosity scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/30" />

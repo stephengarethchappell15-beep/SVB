@@ -83,7 +83,7 @@ export const triggerDesktopNotification = (title: string, body: string) => {
     try {
       const notif = new Notification(title, {
         body,
-        icon: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=128&q=80',
+        icon: '/favicon.svg',
         tag: 'admin-realtime-alert'
       });
       notif.onclick = () => {

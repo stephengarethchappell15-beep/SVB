@@ -81,9 +81,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-3 group text-left transition-transform hover:opacity-95 focus:outline-none shrink-0"
           >
             <img 
-              src="/svb-logo-light.svg" 
+              src={theme === 'dark' ? '/svb-logo.svg' : '/svb-logo-light.svg'} 
               alt="Silicon Valley Bank - A Division of First Citizens Bank" 
-              className="h-8 sm:h-10 w-auto object-contain"
+              className="h-8 sm:h-9 w-auto object-contain"
             />
           </button>
         </div>

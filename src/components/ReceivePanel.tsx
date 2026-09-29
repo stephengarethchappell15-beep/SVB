@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
 import { subscribeCryptoAddressesFromFirestore } from '../lib/firebase';
-import { ArrowDownLeft, Copy, Check, QrCode, Building2, ShieldCheck, Share2, Globe2, Wallet, Coins } from 'lucide-react';
+import { ArrowDownLeft, Copy, Check, Building2, ShieldCheck, Share2, Wallet, Coins, FileText, Printer } from 'lucide-react';
 import { BackButton } from './BackButton';
 
 interface ReceivePanelProps {
@@ -52,79 +52,87 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
     { label: 'Bank Name', value: 'Silicon Valley Bank (SVB), N.A.', key: 'bank' },
     { label: 'Account Holder Name', value: user.fullName, key: 'name' },
     { label: 'Account Number', value: user.accountNumber, key: 'account' },
-    { label: 'Routing / ABA Number', value: '121000358', key: 'routing' },
+    { label: 'Routing / Wire ABA Number', value: '121141822', key: 'routing' },
+    { label: 'ACH Routing Number', value: '121141822', key: 'ach_routing' },
     { label: 'SWIFT / BIC Code', value: 'SVBUS33XXX', key: 'swift' },
     { label: 'Bank Address', value: '3000 Sand Hill Rd, Building 4, Menlo Park, CA 94025', key: 'address' }
   ];
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pb-12 font-sans">
       {/* Top Navigation Row */}
       <div className="flex items-center justify-between">
         <BackButton />
       </div>
 
       {/* Top Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-              <ArrowDownLeft className="w-6 h-6" />
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-[#002b49] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+            <ArrowDownLeft className="w-6 h-6 text-[#00a3e0]" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Receive Funds & Inbound Routing</h2>
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                Active
+              </span>
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-white tracking-tight">Receive Funds & Deposit Methods</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                View bank wire details or official treasury deposit wallet addresses to receive funds.
-              </p>
-            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Official Silicon Valley Bank wire instructions and institutional treasury settlement details.
+            </p>
           </div>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mt-6">
+        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 mt-5">
           <button
             onClick={() => setActiveTab('wire')}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer ${
               activeTab === 'wire'
-                ? 'bg-emerald-500 text-slate-950 shadow-md font-extrabold'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Building2 className="w-4 h-4" />
+            <Building2 className="w-4 h-4 text-[#00a3e0]" />
             <span>Bank Wire & ACH</span>
           </button>
           <button
             onClick={() => setActiveTab('crypto')}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer ${
               activeTab === 'crypto'
-                ? 'bg-emerald-500 text-slate-950 shadow-md font-extrabold'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Wallet className="w-4 h-4" />
-            <span>Crypto Deposit Addresses</span>
+            <Wallet className="w-4 h-4 text-[#00a3e0]" />
+            <span>Crypto Treasury</span>
           </button>
         </div>
 
-        {/* Highlighted Account Number Card */}
+        {/* Account Number Spotlight */}
         {activeTab === 'wire' && (
-          <div className="mt-4 p-5 rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-emerald-500/30 shadow-inner flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fadeIn">
+          <div className="mt-4 p-4 rounded-xl bg-[#002b49] text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                Your Unique Account Number
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#00a3e0]">
+                SVB Commercial Account Number
               </span>
-              <p className="text-2xl font-mono font-bold text-white mt-1 tracking-wider">{user.accountNumber}</p>
-              <p className="text-xs text-slate-400 mt-0.5">Linked directly to {user.email}</p>
+              <p className="text-2xl font-mono font-extrabold text-white mt-0.5 tracking-wider tabular-nums">
+                {user.accountNumber}
+              </p>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Primary Account Holder: <span className="font-semibold text-white">{user.fullName}</span>
+              </p>
             </div>
 
             <button
               onClick={() => copyToClipboard(user.accountNumber, 'account_top')}
-              className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/20 shrink-0"
+              className="w-full sm:w-auto bg-[#00a3e0] hover:bg-[#0284c7] text-white font-bold px-4 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
             >
               {copiedField === 'account_top' ? (
                 <>
                   <Check className="w-4 h-4" />
-                  <span>Copied Account #</span>
+                  <span>Copied!</span>
                 </>
               ) : (
                 <>
@@ -137,141 +145,127 @@ export const ReceivePanel: React.FC<ReceivePanelProps> = ({ user }) => {
         )}
       </div>
 
+      {/* Wire Details List */}
       {activeTab === 'wire' ? (
-        /* Wiring Details List */
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 animate-fadeIn">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-emerald-400" />
-              Complete Wire & Domestic ACH Instructions
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-[#00a3e0]" />
+              Wire Transfer Instructions (Domestic & International)
             </h3>
-            <span className="text-[10px] text-slate-400 flex items-center gap-1">
-              <Globe2 className="w-3 h-3 text-emerald-400" /> USD Domestic & Int'l
-            </span>
+            <button
+              onClick={() => window.print()}
+              className="text-xs text-slate-500 hover:text-slate-900 font-semibold flex items-center gap-1 cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print</span>
+            </button>
           </div>
 
-          <div className="space-y-3">
-            {wireDetails.map((item) => (
-              <div key={item.key} className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800/80 flex items-center justify-between text-xs hover:border-slate-700 transition-colors">
-                <div>
-                  <p className="text-[11px] text-slate-400 font-medium">{item.label}</p>
-                  <p className="font-semibold text-slate-100 font-mono mt-0.5">{item.value}</p>
+          <div className="divide-y divide-slate-100">
+            {wireDetails.map((detail) => (
+              <div key={detail.key} className="py-3 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase text-slate-500">{detail.label}</p>
+                  <p className="font-mono text-sm font-bold text-slate-900 mt-0.5 truncate tabular-nums">
+                    {detail.value}
+                  </p>
                 </div>
-
                 <button
-                  onClick={() => copyToClipboard(item.value, item.key)}
-                  className="p-2 text-slate-400 hover:text-emerald-400 rounded-xl hover:bg-slate-800 transition-colors"
-                  title={`Copy ${item.label}`}
+                  onClick={() => copyToClipboard(detail.value, detail.key)}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                 >
-                  {copiedField === item.key ? (
-                    <Check className="w-4 h-4 text-emerald-400" />
+                  {copiedField === detail.key ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Copied</span>
+                    </>
                   ) : (
-                    <Copy className="w-4 h-4" />
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Copy</span>
+                    </>
                   )}
                 </button>
               </div>
             ))}
           </div>
+
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
+            <p className="font-bold text-slate-900">Clearing Timelines & Notice</p>
+            <p>Domestic Fedwire transfers typically clear within 1-2 hours during federal banking windows. Standard ACH credits clear within 1 business day.</p>
+          </div>
         </div>
       ) : (
-        /* Crypto Deposit Addresses List */
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fadeIn">
-          <div className="pb-3 border-b border-slate-800">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Coins className="w-4 h-4 text-amber-400" />
-              Official SVB Treasury Crypto Deposit Addresses
+        /* Crypto Treasury Tab */
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-5">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Coins className="w-4 h-4 text-[#00a3e0]" />
+              Official Institutional Treasury Deposit Wallets
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Copy the official treasury wallet addresses below to transfer Bitcoin (BTC) or Tether (USDT).
-            </p>
           </div>
 
-          <div className="space-y-4">
-            {/* Bitcoin BTC Card */}
-            <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-xs">
-                    ₿
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-white">Bitcoin (BTC) Treasury Wallet</h4>
-                    <p className="text-[10px] text-slate-400">Network: Bitcoin Native (SegWit / Bech32)</p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full uppercase">
-                  Verified Address
+          {/* Bitcoin Address */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold text-xs flex items-center justify-center">
+                  ₿
                 </span>
+                <span className="font-bold text-xs text-slate-900">Bitcoin (BTC) Treasury</span>
               </div>
-
-              <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <span className="font-mono text-xs text-amber-400 font-semibold break-all select-all">
-                  {cryptoAddresses.BTC}
-                </span>
-
-                <button
-                  onClick={() => copyToClipboard(cryptoAddresses.BTC, 'btc_deposit')}
-                  className="w-full sm:w-auto bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shrink-0 transition-all shadow-md shadow-amber-500/10"
-                >
-                  {copiedField === 'btc_deposit' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Copied BTC Address</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Wallet Address</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              <span className="text-[10px] font-bold text-slate-500">Native SegWit / Legacy</span>
             </div>
-
-            {/* Tether USDT Card */}
-            <div className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-xs">
-                    ₮
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-white">Tether (USDT) Treasury Wallet</h4>
-                    <p className="text-[10px] text-slate-400">Network: USDT (ERC-20 / TRC-20)</p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
-                  Verified Address
-                </span>
-              </div>
-
-              <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <span className="font-mono text-xs text-emerald-400 font-semibold break-all select-all">
-                  {cryptoAddresses.USDT}
-                </span>
-
-                <button
-                  onClick={() => copyToClipboard(cryptoAddresses.USDT, 'usdt_deposit')}
-                  className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shrink-0 transition-all shadow-md shadow-emerald-500/10"
-                >
-                  {copiedField === 'usdt_deposit' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Copied USDT Address</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Wallet Address</span>
-                    </>
-                  )}
-                </button>
-              </div>
+            <div className="flex items-center justify-between gap-2 p-2 bg-white rounded-lg border border-slate-200">
+              <span className="font-mono text-xs font-bold text-slate-900 break-all tabular-nums">
+                {cryptoAddresses.BTC}
+              </span>
+              <button
+                onClick={() => copyToClipboard(cryptoAddresses.BTC, 'btc')}
+                className="px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors shrink-0 cursor-pointer"
+              >
+                {copiedField === 'btc' ? 'Copied' : 'Copy'}
+              </button>
             </div>
+          </div>
 
+          {/* USDT Address */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                  ₮
+                </span>
+                <span className="font-bold text-xs text-slate-900">Tether USD (USDT)</span>
+              </div>
+              <span className="text-[10px] font-bold text-slate-500">ERC-20 (Ethereum Network)</span>
+            </div>
+            <div className="flex items-center justify-between gap-2 p-2 bg-white rounded-lg border border-slate-200">
+              <span className="font-mono text-xs font-bold text-slate-900 break-all tabular-nums">
+                {cryptoAddresses.USDT}
+              </span>
+              <button
+                onClick={() => copyToClipboard(cryptoAddresses.USDT, 'usdt')}
+                className="px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors shrink-0 cursor-pointer"
+              >
+                {copiedField === 'usdt' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
+            <p className="font-bold">Important Network Verification</p>
+            <p>Ensure transactions are routed strictly to the designated network (BTC or ERC-20). Deposits automatically reconcile to your USD ledger upon 3 blockchain confirmations.</p>
           </div>
         </div>
       )}
+
+      {/* Trust Marker Footer */}
+      <div className="flex items-center justify-center gap-3 text-xs text-slate-500">
+        <ShieldCheck className="w-4 h-4 text-emerald-600" />
+        <span>FDIC Insured • Silicon Valley Bank Core Clearing</span>
+      </div>
     </div>
   );
 };

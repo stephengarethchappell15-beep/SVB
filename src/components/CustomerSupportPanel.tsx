@@ -170,8 +170,9 @@ export const CustomerSupportPanel: React.FC<CustomerSupportPanelProps> = ({ user
         <div className="flex items-center gap-4">
           <div className="relative">
             <img
-              src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80"
+              src="/src/assets/images/support_advisor_portrait_1790665984309.jpg"
               alt="Support Lead"
+              referrerPolicy="no-referrer"
               className="w-12 h-12 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/10"
             />
             <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900 absolute -bottom-0.5 -right-0.5" title="Online" />

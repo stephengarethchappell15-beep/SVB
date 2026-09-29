@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { SidebarNav } from './components/SidebarNav';
+import { MobileNav } from './components/MobileNav';
 import { AuthModal } from './components/AuthModal';
 import { UserDashboard } from './components/UserDashboard';
 import { SendPanel } from './components/SendPanel';
@@ -323,8 +324,17 @@ function AppContent() {
           />
         )}
 
+        {/* Mobile Fixed Navigation Bar & Slide-Over Menu */}
+        <MobileNav
+          user={user}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onLogout={handleLogout}
+          onOpenFraudControl={() => openLegalDoc('privacy')}
+        />
+
         {/* Right Main Content Area */}
-        <main className="flex-1 bg-transparent px-3 sm:px-6 py-5 max-w-[1600px] w-full mx-auto overflow-x-hidden">
+        <main className="flex-1 bg-transparent px-3 sm:px-6 py-5 pb-20 md:pb-6 max-w-[1600px] w-full mx-auto overflow-x-hidden">
           
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 space-y-3 text-slate-500 animate-pulse">

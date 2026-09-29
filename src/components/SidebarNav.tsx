@@ -6,14 +6,15 @@ import {
   ArrowLeftRight, 
   ShieldAlert, 
   FileText, 
-  Briefcase, 
   Sparkles, 
-  ClipboardList, 
-  Grid,
-  Receipt,
-  Send,
-  ArrowUpRight,
-  ChevronLeft
+  Receipt, 
+  ArrowUpRight, 
+  ArrowDownRight,
+  ChevronLeft,
+  Headphones,
+  SlidersHorizontal,
+  ShieldCheck,
+  ExternalLink
 } from 'lucide-react';
 import { User } from '../types';
 import { useNavigation } from '../context/NavigationContext';
@@ -38,131 +39,195 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
     else navigateTo(tab);
   };
 
-  const navItems = [
+  const navGroups = [
     {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutGrid,
-      action: () => handleNav('dashboard')
+      group: 'Core Banking',
+      items: [
+        {
+          id: 'dashboard',
+          label: 'Dashboard',
+          icon: LayoutGrid,
+          action: () => handleNav('dashboard')
+        },
+        {
+          id: 'accounts',
+          label: 'Accounts Summary',
+          icon: Building2,
+          action: () => handleNav('dashboard')
+        },
+        {
+          id: 'send',
+          label: 'Transfer Funds',
+          icon: ArrowLeftRight,
+          action: () => handleNav('send')
+        },
+        {
+          id: 'bills',
+          label: 'Pay Bills',
+          icon: Receipt,
+          action: () => handleNav('bills')
+        },
+        {
+          id: 'cards',
+          label: 'Virtual Cards',
+          icon: CreditCard,
+          action: () => handleNav('cards')
+        },
+        {
+          id: 'withdraw',
+          label: 'Wire Withdrawal',
+          icon: ArrowUpRight,
+          action: () => handleNav('withdraw')
+        },
+        {
+          id: 'receive',
+          label: 'Receive & Deposit',
+          icon: ArrowDownRight,
+          action: () => handleNav('receive')
+        }
+      ]
     },
     {
-      id: 'accounts',
-      label: 'Accounts',
-      icon: Building2,
-      action: () => handleNav('dashboard')
+      group: 'Compliance & Reports',
+      items: [
+        {
+          id: 'history',
+          label: 'Statements & Reports',
+          icon: FileText,
+          action: () => handleNav('history')
+        },
+        {
+          id: 'fraud',
+          label: 'Fraud Control Services',
+          icon: ShieldAlert,
+          action: () => {
+            if (onOpenFraudControl) onOpenFraudControl();
+            else handleNav('support');
+          }
+        }
+      ]
     },
     {
-      id: 'send',
-      label: 'Transfer Funds',
-      icon: ArrowLeftRight,
-      action: () => handleNav('send')
-    },
-    {
-      id: 'bills',
-      label: 'Pay Bills',
-      icon: Receipt,
-      action: () => handleNav('bills')
-    },
-    {
-      id: 'cards',
-      label: 'Card Program',
-      icon: CreditCard,
-      action: () => handleNav('cards')
-    },
-    {
-      id: 'withdraw',
-      label: 'Wire Withdrawal',
-      icon: ArrowUpRight,
-      action: () => handleNav('withdraw')
-    },
-    {
-      id: 'fraud',
-      label: 'Fraud Control Services',
-      icon: ShieldAlert,
-      action: () => {
-        if (onOpenFraudControl) onOpenFraudControl();
-        else handleNav('support');
-      }
-    },
-    {
-      id: 'history',
-      label: 'Statements & Reports',
-      icon: FileText,
-      action: () => handleNav('history')
+      group: 'Support & Settings',
+      items: [
+        {
+          id: 'support',
+          label: 'Service Requests',
+          icon: Headphones,
+          action: () => handleNav('support')
+        },
+        {
+          id: 'settings',
+          label: 'Security & Preferences',
+          icon: SlidersHorizontal,
+          action: () => handleNav('settings')
+        }
+      ]
     },
     ...(user?.role === 'admin' ? [{
-      id: 'admin',
-      label: 'SVB Review Portal',
-      icon: Sparkles,
-      action: () => handleNav('admin')
-    }] : []),
-    {
-      id: 'support',
-      label: 'Service Requests',
-      icon: ClipboardList,
-      action: () => handleNav('support')
-    },
-    {
-      id: 'settings',
-      label: 'Integrations',
-      icon: Grid,
-      action: () => handleNav('settings')
-    }
+      group: 'Operations',
+      items: [
+        {
+          id: 'admin',
+          label: 'SVB Review Portal',
+          icon: Sparkles,
+          action: () => handleNav('admin'),
+          isAdmin: true
+        }
+      ]
+    }] : [])
   ];
 
   return (
-    <aside className="bg-[#0f2232] w-52 sm:w-56 shrink-0 min-h-[calc(100vh-64px)] hidden md:flex flex-col justify-between py-2 border-r border-[#0b1723] text-white">
-      <div className="space-y-1 px-1.5">
+    <aside className="bg-[#0b1723] w-64 shrink-0 min-h-[calc(100vh-64px)] hidden md:flex flex-col justify-between p-3.5 border-r border-[#152538] text-slate-200 select-none">
+      <div className="space-y-5">
+        
+        {/* User Account Snapshot Pill */}
+        {user && (
+          <div className="p-3 bg-[#112338] border border-[#1b3452] rounded-xl flex items-center justify-between">
+            <div className="min-w-0 pr-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate">
+                {user.fullName}
+              </span>
+              <span className="font-mono text-xs font-bold text-white tracking-wide block truncate">
+                Acc #{user.accountNumber}
+              </span>
+            </div>
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Account Active" />
+          </div>
+        )}
+
+        {/* Back Button if in Subview */}
         {canGoBack && (
           <button
             type="button"
             onClick={goBack}
-            className="w-full mb-2 py-2 px-3 rounded-lg flex items-center justify-center gap-2 bg-[#1a3347] hover:bg-[#234560] text-cyan-300 font-semibold text-xs transition-colors border border-cyan-500/20 cursor-pointer"
+            className="w-full py-2 px-3 rounded-xl flex items-center gap-2 bg-[#14283f] hover:bg-[#1a334f] text-cyan-300 font-semibold text-xs transition-colors border border-cyan-500/20 cursor-pointer"
             title={previousState?.title ? `Go back to ${previousState.title}` : 'Go back to previous screen'}
           >
-            <ChevronLeft className="w-4 h-4 text-cyan-400" />
-            <span className="truncate">Back</span>
+            <ChevronLeft className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span className="truncate">
+              {previousState?.title ? `Back: ${previousState.title}` : 'Back to previous'}
+            </span>
           </button>
         )}
 
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = 
-            activeTab === item.id || 
-            (item.id === 'accounts' && activeTab === 'dashboard');
+        {/* Categorized Navigation Links */}
+        <div className="space-y-4">
+          {navGroups.map((group) => (
+            <div key={group.group} className="space-y-1">
+              <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-3 pb-1">
+                {group.group}
+              </h4>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = 
+                    activeTab === item.id || 
+                    (item.id === 'accounts' && activeTab === 'dashboard');
 
-          return (
-            <button
-              key={item.id}
-              onClick={item.action}
-              className={`w-full py-2.5 px-3 rounded-lg flex flex-col items-center justify-center text-center transition-all group ${
-                isActive
-                  ? 'bg-[#0284c7] text-white font-semibold shadow-sm'
-                  : 'text-slate-300 hover:bg-[#1a3347] hover:text-white'
-              }`}
-            >
-              <Icon className={`w-4 h-4 mb-1 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
-              <span className="text-[11px] leading-tight font-medium tracking-tight">
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={item.action}
+                      className={`w-full py-2 px-3 rounded-xl flex items-center gap-3 text-left transition-all group cursor-pointer ${
+                        isActive
+                          ? 'bg-[#00a3e0]/15 text-white font-bold border-l-3 border-[#00a3e0]'
+                          : (item as any).isAdmin
+                          ? 'text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 font-medium'
+                          : 'text-slate-300 hover:bg-[#14283f] hover:text-white font-medium'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-105 ${
+                        isActive 
+                          ? 'text-[#00a3e0]' 
+                          : (item as any).isAdmin
+                          ? 'text-amber-400'
+                          : 'text-slate-400 group-hover:text-slate-200'
+                      }`} />
+                      <span className="text-xs leading-none truncate">
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
       </div>
 
-      {canGoBack && (
-        <div className="px-2 pt-2 border-t border-[#1a3347]">
-          <button
-            type="button"
-            onClick={goBack}
-            className="w-full py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-[11px] text-slate-400 hover:text-white hover:bg-[#1a3347] transition-colors cursor-pointer"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            <span>Go Back</span>
-          </button>
+      {/* Sidebar Footer Security Status */}
+      <div className="pt-4 border-t border-[#152538] space-y-2">
+        <div className="flex items-center gap-2 text-[10px] text-slate-400 px-2 font-medium">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span>256-Bit SSL Core Encryption</span>
         </div>
-      )}
+        <div className="text-[10px] text-slate-500 px-2">
+          <span>Silicon Valley Bank Platform v2026</span>
+        </div>
+      </div>
     </aside>
   );
 };
-
