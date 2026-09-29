@@ -30,6 +30,7 @@ import {
   getVirtualCardsFromFirestore,
   syncCryptoDepositToFirestore,
   syncCryptoAddressesToFirestore,
+  getCryptoAddressesFromFirestore,
   getAllCryptoDepositsFromFirestore,
   syncVerificationToFirestore,
   getAllVerificationsFromFirestore,
@@ -2934,39 +2935,61 @@ export const api = {
   },
 
   async getCryptoAddresses(): Promise<{ addresses: { BTC: string; USDT: string } }> {
+    // 1. Check Firestore global single source of truth document first
+    try {
+      const fsAddrs = await getCryptoAddressesFromFirestore();
+      if (fsAddrs && (fsAddrs.BTC || fsAddrs.USDT)) {
+        const merged = dbStore.updateCryptoAddresses(fsAddrs);
+        return { addresses: merged };
+      }
+    } catch (e) {
+      console.warn('Firestore get crypto addresses error:', e);
+    }
+
+    // 2. Check backend API
     try {
       const backendRes = await requestApi<{ addresses: { BTC: string; USDT: string } }>('/crypto-addresses');
       if (backendRes && backendRes.addresses) {
-        return backendRes;
+        const merged = dbStore.updateCryptoAddresses(backendRes.addresses);
+        return { addresses: merged };
       }
     } catch (e) {
       console.warn('Backend get crypto addresses fallback:', e);
     }
+
+    // 3. Fallback to local dbStore
     return { addresses: dbStore.getCryptoAddresses() };
   },
 
   async updateCryptoAddresses(addresses: { BTC?: string; USDT?: string }): Promise<{ addresses: { BTC: string; USDT: string } }> {
-    let resultAddresses: { BTC: string; USDT: string } = dbStore.getCryptoAddresses();
+    const cleanAddrs: { BTC?: string; USDT?: string } = {};
+    if (addresses.BTC) cleanAddrs.BTC = addresses.BTC.trim();
+    if (addresses.USDT) cleanAddrs.USDT = addresses.USDT.trim();
+
+    // 1. Update local dbStore
+    let resultAddresses: { BTC: string; USDT: string } = dbStore.updateCryptoAddresses(cleanAddrs);
+
+    // 2. Sync to Firestore global config/crypto_addresses document for all users
+    try {
+      await syncCryptoAddressesToFirestore(resultAddresses);
+    } catch (fsErr) {
+      console.warn('Firestore sync crypto addresses error:', fsErr);
+    }
+
+    // 3. Update backend API
     try {
       const backendRes = await requestApi<{ addresses: { BTC: string; USDT: string } }>('/admin/crypto-addresses', {
         method: 'PATCH',
-        body: JSON.stringify(addresses)
+        body: JSON.stringify(cleanAddrs)
       });
       if (backendRes && backendRes.addresses) {
-        dbStore.updateCryptoAddresses(backendRes.addresses);
-        resultAddresses = backendRes.addresses;
-      } else {
-        resultAddresses = dbStore.updateCryptoAddresses(addresses);
+        resultAddresses = dbStore.updateCryptoAddresses(backendRes.addresses);
       }
     } catch (e) {
       console.warn('Backend update crypto addresses fallback:', e);
-      resultAddresses = dbStore.updateCryptoAddresses(addresses);
     }
 
-    // Sync to Firestore for real-time global listener push
-    syncCryptoAddressesToFirestore(resultAddresses);
-
-    // Dispatch local window custom event for immediate instant UI update across current tab/components
+    // 4. Dispatch local window custom event for immediate instant UI update across current tab/components
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('crypto-addresses-updated', { detail: resultAddresses }));
     }

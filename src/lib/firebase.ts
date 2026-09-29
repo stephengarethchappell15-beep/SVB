@@ -274,14 +274,35 @@ export async function syncCryptoAddressesToFirestore(addresses: { BTC: string; U
   if (!addresses) return;
   try {
     const payload = sanitizeForFirestore({
-      BTC: addresses.BTC,
-      USDT: addresses.USDT,
+      BTC: (addresses.BTC || '').trim(),
+      USDT: (addresses.USDT || '').trim(),
       updatedAt: new Date().toISOString()
     });
     await setDoc(doc(db, 'config', 'crypto_addresses'), payload, { merge: true });
   } catch (err) {
     console.warn('Firestore crypto addresses sync error:', err);
   }
+}
+
+/**
+ * Get Global Crypto Wallet Deposit Addresses directly from Firestore
+ */
+export async function getCryptoAddressesFromFirestore(): Promise<{ BTC: string; USDT: string } | null> {
+  try {
+    const snap = await getDoc(doc(db, 'config', 'crypto_addresses'));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data && (data.BTC || data.USDT)) {
+        return {
+          BTC: (data.BTC || '').trim(),
+          USDT: (data.USDT || '').trim()
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Firestore getCryptoAddressesFromFirestore error:', err);
+  }
+  return null;
 }
 
 /**
@@ -292,8 +313,11 @@ export function subscribeCryptoAddressesFromFirestore(callback: (addresses: { BT
     const unsub = onSnapshot(doc(db, 'config', 'crypto_addresses'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.BTC && data.USDT) {
-          callback({ BTC: data.BTC, USDT: data.USDT });
+        if (data && (data.BTC || data.USDT)) {
+          callback({
+            BTC: (data.BTC || '').trim(),
+            USDT: (data.USDT || '').trim()
+          });
         }
       }
     }, (err) => {

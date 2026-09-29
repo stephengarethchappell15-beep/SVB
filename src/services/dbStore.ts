@@ -265,10 +265,10 @@ function getInitialDB(): DBStructure {
         parsed.cryptoDeposits = parsed.cryptoDeposits || [];
         parsed.verifications = parsed.verifications || [];
         parsed.auditLogs = parsed.auditLogs || [];
-        if (!parsed.cryptoAddresses) {
+        if (!parsed.cryptoAddresses || parsed.cryptoAddresses.BTC === '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d') {
           parsed.cryptoAddresses = {
-            BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-            USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
+            BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+            USDT: '0x9165eb44A9ca7B7CBC72777Bade7DB66b5880a45'
           };
         }
         return parsed;
@@ -328,8 +328,8 @@ function getInitialDB(): DBStructure {
     verifications: [],
     auditLogs: [],
     cryptoAddresses: {
-      BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-      USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
+      BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+      USDT: '0x9165eb44A9ca7B7CBC72777Bade7DB66b5880a45'
     }
   };
 
@@ -934,10 +934,10 @@ class LocalDBStore {
   // Crypto Addresses
   getCryptoAddresses() {
     this.refresh();
-    if (!this.db.cryptoAddresses) {
+    if (!this.db.cryptoAddresses || this.db.cryptoAddresses.BTC === '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d') {
       this.db.cryptoAddresses = {
-        BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-        USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
+        BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+        USDT: '0x9165eb44A9ca7B7CBC72777Bade7DB66b5880a45'
       };
       this.persist();
     }

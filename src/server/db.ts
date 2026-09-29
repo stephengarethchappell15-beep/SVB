@@ -546,10 +546,10 @@ class DatabaseManager {
           }
         });
 
-        if (!parsed.cryptoWalletAddresses || parsed.cryptoWalletAddresses.BTC === 'bc1q9v8h9svb3x0k49z82lq09fw2zxl184p24a8svb' || parsed.cryptoWalletAddresses.BTC === 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c') {
+        if (!parsed.cryptoWalletAddresses || parsed.cryptoWalletAddresses.BTC === '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d') {
           parsed.cryptoWalletAddresses = {
-            BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-            USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
+            BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+            USDT: '0x9165eb44A9ca7B7CBC72777Bade7DB66b5880a45'
           };
         }
 
@@ -621,8 +621,8 @@ class DatabaseManager {
       tier3Verifications: [],
       cryptoActivationDeposits: [],
       cryptoWalletAddresses: {
-        BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-        USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
+        BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+        USDT: '0x9165eb44A9ca7B7CBC72777Bade7DB66b5880a45'
       }
     };
 
@@ -3507,10 +3507,10 @@ class DatabaseManager {
   }
 
   public getCryptoWalletAddresses(): { BTC: string; USDT: string } {
-    if (!this.db.cryptoWalletAddresses) {
+    if (!this.db.cryptoWalletAddresses || this.db.cryptoWalletAddresses.BTC === '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d') {
       this.db.cryptoWalletAddresses = {
-        BTC: '1Fy9Up78qVeawXCLnAqcnRJrvjiXLJF21d',
-        USDT: '0x400773d018e8ad3575458b5e8b11ff55078451c9'
+        BTC: 'bc1qe4ln6nt3w0yqc6gvchqeut9d2r2raedm52ej5c',
+        USDT: '0x9165eb44A9ca7B7CBC72777Bade7DB66b5880a45'
       };
       this.saveDB(this.db);
     }
