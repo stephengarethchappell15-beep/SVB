@@ -223,51 +223,54 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
                     </button>
                   </div>
 
-                  {/* Card Visual Graphic */}
-                  <div className={`aspect-[1.586/1] w-full rounded-2xl p-4.5 relative overflow-hidden flex flex-col justify-between shadow-md transition-all duration-300 ${
+                  {/* High-Fidelity Silicon Valley Bank Corporate Card Graphic */}
+                  <div className={`aspect-[1.586/1] w-full rounded-2xl p-4.5 sm:p-5 relative overflow-hidden flex flex-col justify-between shadow-md select-none transition-all duration-300 ${
                     card.status === 'Frozen'
-                      ? 'bg-gradient-to-tr from-slate-900 via-slate-800 to-slate-950 border border-slate-700/50 opacity-85 text-white'
-                      : 'bg-gradient-to-tr from-amber-600 via-yellow-400 to-amber-500 border border-yellow-200/80 text-slate-950'
+                      ? 'bg-gradient-to-br from-[#0c131f] via-[#1a2332] to-[#080d15] border border-slate-700/60 text-slate-200 opacity-90'
+                      : 'bg-gradient-to-br from-[#051826] via-[#002b49] to-[#073c64] border border-cyan-400/25 text-white'
                   }`}>
-                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/30 via-transparent to-transparent pointer-events-none" />
-                    <div className="absolute -right-12 -bottom-12 w-48 h-48 bg-yellow-200/20 rounded-full blur-2xl pointer-events-none" />
+                    {/* Metallic Sheen Lighting Overlays */}
+                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/20 via-transparent to-transparent pointer-events-none" />
+                    <div className="absolute -right-12 -bottom-12 w-48 h-48 bg-cyan-400/10 rounded-full blur-2xl pointer-events-none" />
 
-                    {/* Card Header: SVB Branding */}
+                    {/* Card Header: SVB Branding & Card Category */}
                     <div className="flex items-start justify-between relative z-10">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-5 h-5 rounded bg-slate-950 text-amber-400 flex items-center justify-center font-black text-[9px] shadow-sm">
-                            SVB
-                          </div>
-                          <span className={`text-[10px] font-black uppercase tracking-wider ${card.status === 'Frozen' ? 'text-white' : 'text-slate-950'}`}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded bg-white/10 backdrop-blur-xs border border-white/20 flex items-center justify-center font-black text-[9px] tracking-tight text-white shadow-xs">
+                          SVB
+                        </div>
+                        <div>
+                          <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider block leading-tight text-white">
                             Silicon Valley Bank
                           </span>
+                          <span className="text-[8px] font-semibold tracking-wider uppercase block text-cyan-200/80 mt-0.5">
+                            {card.cardType || 'Corporate Card'} • {card.category || 'Business'}
+                          </span>
                         </div>
-                        <span className={`text-[8px] font-semibold tracking-wider uppercase block mt-0.5 ${card.status === 'Frozen' ? 'text-slate-400' : 'text-slate-800'}`}>
-                          {card.cardType} • Gold Tier
-                        </span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
                         {card.status === 'Frozen' ? (
-                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded-md text-[9px] font-bold flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> Frozen
+                          <span className="px-2 py-0.5 bg-amber-500/25 text-amber-300 border border-amber-500/40 rounded-md text-[9px] font-bold flex items-center gap-1">
+                            <Lock className="w-3 h-3" /> Locked
                           </span>
                         ) : (
-                          <Shield className="w-3.5 h-3.5 text-slate-900" />
+                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-md text-[9px] font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Active
+                          </span>
                         )}
                       </div>
                     </div>
 
                     {/* Golden EMV Chip & Contactless */}
                     <div className="flex items-center gap-3 relative z-10 my-0.5">
-                      <div className="w-9 h-6 rounded-md bg-gradient-to-tr from-yellow-100 via-amber-300 to-yellow-500 border border-yellow-100 shadow-md relative overflow-hidden flex items-center justify-center shrink-0">
-                        <div className="absolute inset-0 border-t border-b border-amber-800/40 my-auto h-2" />
-                        <div className="absolute inset-0 border-l border-r border-amber-800/40 mx-auto w-3.5" />
-                        <div className="w-2 h-1.5 bg-amber-700/30 rounded-sm border border-amber-800/50" />
+                      <div className="w-10 h-7 rounded-md bg-gradient-to-tr from-[#fef08a] via-[#f59e0b] to-[#b45309] border border-yellow-200/70 shadow-xs relative overflow-hidden flex items-center justify-center shrink-0">
+                        <div className="absolute inset-0 border-t border-b border-amber-900/35 my-auto h-2.5" />
+                        <div className="absolute inset-0 border-l border-r border-amber-900/35 mx-auto w-4" />
+                        <div className="w-2.5 h-2 bg-amber-800/25 rounded-xs border border-amber-900/40" />
                       </div>
 
-                      <svg className={`w-4 h-4 ${card.status === 'Frozen' ? 'text-slate-300' : 'text-slate-900'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <svg className="w-4 h-4 text-white/80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="M8.5 14.5A4 4 0 0 1 8.5 9.5" strokeLinecap="round" />
                         <path d="M12 17a8 8 0 0 0 0-10" strokeLinecap="round" />
                         <path d="M15.5 19.5a12 12 0 0 0 0-15" strokeLinecap="round" />
@@ -277,16 +280,16 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
                     {/* Card Number */}
                     <div className="relative z-10 my-0.5">
                       <div className="flex items-center justify-between">
-                        <span className={`font-mono font-black text-sm sm:text-base tracking-[0.16em] tabular-nums ${card.status === 'Frozen' ? 'text-white' : 'text-slate-950'}`}>
+                        <span className="font-mono font-bold text-sm sm:text-base tracking-[0.2em] text-white tabular-nums drop-shadow-xs">
                           {maskedNumber}
                         </span>
-                        {isRevealed && (
+                        {card.cardNumber && (
                           <button
                             onClick={() => handleCopy(card.cardNumber.replace(/\s+/g, ''), `num-${card.id}`)}
-                            className="text-slate-800 hover:text-slate-950 p-1 transition-colors cursor-pointer"
+                            className="p-1 text-white/70 hover:text-white transition-colors cursor-pointer"
                             title="Copy Card Number"
                           >
-                            {copiedField === `num-${card.id}` ? <Check className="w-3.5 h-3.5 text-emerald-800" /> : <Copy className="w-3.5 h-3.5" />}
+                            {copiedField === `num-${card.id}` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                           </button>
                         )}
                       </div>
@@ -295,31 +298,35 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
                     {/* Card Footer: Expiry, CVV & Holder */}
                     <div className="flex items-end justify-between relative z-10 pt-0.5">
                       <div className="space-y-0.5">
-                        <div className={`flex items-center gap-3 text-[8px] font-mono tabular-nums ${card.status === 'Frozen' ? 'text-slate-300' : 'text-slate-900'}`}>
+                        <div className="flex items-center gap-3 text-[8px] font-mono tabular-nums text-white/80">
                           <div>
-                            <span className="text-[7px] opacity-75 block uppercase font-semibold">Valid Thru</span>
-                            <span className="font-bold">{card.expiryMonth}/{card.expiryYear}</span>
+                            <span className="text-[7px] text-white/60 block uppercase font-bold tracking-wider">Valid Thru</span>
+                            <span className="font-bold text-white">
+                              {card.expiryMonth && card.expiryYear ? `${card.expiryMonth}/${card.expiryYear}` : 'Not available'}
+                            </span>
                           </div>
                           <div>
-                            <span className="text-[7px] opacity-75 block uppercase font-semibold">CVV</span>
-                            <span className="font-bold">{isRevealed ? card.cvv : '•••'}</span>
+                            <span className="text-[7px] text-white/60 block uppercase font-bold tracking-wider">CVV</span>
+                            <span className="font-bold text-white">
+                              {isRevealed ? (card.cvv || 'Not available') : '•••'}
+                            </span>
                           </div>
                         </div>
                         <div>
-                          <span className={`text-[7px] opacity-75 block uppercase font-semibold ${card.status === 'Frozen' ? 'text-slate-400' : 'text-slate-900'}`}>Cardholder Name</span>
-                          <span className={`font-mono font-black uppercase text-[11px] tracking-wider block truncate max-w-[160px] ${card.status === 'Frozen' ? 'text-white' : 'text-slate-950'}`}>
-                            {card.cardholderName}
+                          <span className="text-[7px] text-white/60 block uppercase font-bold tracking-wider">Cardholder Name</span>
+                          <span className="font-mono font-bold uppercase text-[11px] tracking-wider block text-white truncate max-w-[170px] sm:max-w-[210px]">
+                            {card.cardholderName || user.fullName?.toUpperCase() || 'Not available'}
                           </span>
                         </div>
                       </div>
 
-                      {card.cardType.includes('Mastercard') ? (
+                      {card.cardType?.includes('Mastercard') ? (
                         <div className="flex items-center -space-x-2 shrink-0">
                           <div className="w-5 h-5 rounded-full bg-rose-600 shadow-sm" />
                           <div className="w-5 h-5 rounded-full bg-amber-500 shadow-sm" />
                         </div>
                       ) : (
-                        <div className="font-mono font-black italic text-slate-950 text-base tracking-tighter shrink-0">
+                        <div className="font-mono font-black italic text-white text-base tracking-tighter shrink-0 select-none">
                           VISA
                         </div>
                       )}
@@ -330,15 +337,19 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
                 {/* Spending Progress & Card Limits */}
                 <div className="space-y-1.5 border-t border-slate-100 pt-3">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Spending Limit:</span>
+                    <span className="text-slate-500 font-medium">Available Spending Limit:</span>
                     <span className="font-mono font-bold text-slate-900 tabular-nums">
-                      ${card.spendingLimit ? card.spendingLimit.toLocaleString() : '50,000'} USD
+                      {card.spendingLimit !== undefined && card.spendingLimit !== null 
+                        ? `$${card.spendingLimit.toLocaleString('en-US')} USD` 
+                        : 'Not available'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span>Spent this cycle:</span>
-                    <span className="font-mono font-semibold text-slate-900 tabular-nums">
-                      ${card.spentAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    <span className="font-mono font-semibold text-slate-700 tabular-nums">
+                      {card.spentAmount !== undefined && card.spentAmount !== null
+                        ? `$${card.spentAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`
+                        : 'Not available'}
                     </span>
                   </div>
                 </div>
@@ -404,9 +415,9 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
                   onChange={e => setCardType(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-medium focus:border-[#00a3e0] focus:outline-none"
                 >
-                  <option value="Visa Corporate">Visa Corporate Platinum (Gold Metallic Tier)</option>
-                  <option value="Mastercard Executive">Mastercard Business Executive (Gold Metallic Tier)</option>
-                  <option value="Visa Purchasing">Visa Purchasing & Procurement (Gold Metallic Tier)</option>
+                  <option value="Visa Corporate">Visa Corporate (SVB Titanium Corporate Tier)</option>
+                  <option value="Mastercard Executive">Mastercard Business Executive (SVB Executive Virtual Tier)</option>
+                  <option value="Visa Purchasing">Visa Purchasing & Procurement (SVB Commercial Tier)</option>
                 </select>
               </div>
 
@@ -479,6 +490,15 @@ export const VirtualCardsPanel: React.FC<VirtualCardsPanelProps> = ({ user, onRe
                   className="bg-[#00a3e0] h-full rounded-full transition-all duration-1000"
                   style={{ width: `${((30 - countdownSeconds) / 30) * 100}%` }}
                 />
+              </div>
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={finalizeCardIssuance}
+                  className="text-[11px] text-[#00a3e0] hover:text-[#002b49] font-bold underline transition-colors cursor-pointer"
+                >
+                  Skip timer & activate card instantly →
+                </button>
               </div>
             </div>
 
